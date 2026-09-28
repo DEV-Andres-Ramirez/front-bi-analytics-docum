@@ -124,14 +124,22 @@ function fixAccents(lower: string): string {
   return `${pre}${fixed}${post}`;
 }
 
+/**
+ * Siglas que coinciden con un conector ("EL" = enfermedad laboral): al FINAL de un texto en
+ * MAYÚSCULAS no pueden ser artículo ("ORIGEN EL" → "Origen EL", como "Origen AT").
+ */
+const TRAILING_ACRONYMS = new Set(["el"]);
+
 /** Tipo título es-CO: conectores en minúscula, siglas en mayúscula y tildes perdidas restituidas. */
 export function titleCase(raw: string): string {
   const words = raw.trim().split(/\s+/);
+  const last = words.length - 1;
   return words
     .map((w, i) => {
       const key = bare(w).replace(/[,;:()]/g, "");
       const acr = ACRONYMS[key];
       if (acr) return w.replace(new RegExp(key.replace(/\./g, "\\."), "i"), acr).replace(/^[a-záéíóúñü]/, (c) => c) || acr;
+      if (i > 0 && i === last && TRAILING_ACRONYMS.has(key) && w === w.toLocaleUpperCase("es-CO")) return w;
       const lower = fixAccents(w.toLocaleLowerCase("es-CO"));
       if (i > 0 && CONNECTORS.has(key)) return lower;
       // Palabras con guion o barra: capitaliza cada parte
@@ -142,9 +150,10 @@ export function titleCase(raw: string): string {
 
 /**
  * Tipo oración conservando siglas ("Cuenta De Cobro" → "Cuenta de cobro").
- * Solo para etiquetas genéricas que la fuente escribió con mayúscula inicial en cada palabra.
+ * Para etiquetas genéricas que la fuente escribió con mayúscula inicial en cada palabra y para listas
+ * de estados, que se leen en tipo oración ("Confirma a Favor" → "Confirma a favor", junto a "A favor").
  */
-function sentenceCase(raw: string): string {
+export function sentenceCase(raw: string): string {
   return raw
     .trim()
     .split(/\s+/)
@@ -187,6 +196,21 @@ const CANONICAL: Record<string, string> = {
   "entes de control": "Entes de control",
 };
 
+/**
+ * Plazos con unidad escritos de varias formas en las vistas ("1 Días", "5 Horas", "6 día(s) hábiles"):
+ * una sola forma con concordancia de número ("1 día", "5 horas", "6 días hábiles", "1 día hábil").
+ * Devuelve null si el texto no es un plazo.
+ */
+export function durationLabel(raw: string): string | null {
+  const m = raw.trim().match(/^(\d+)\s*(d[ií]as?|horas?)(?:\s*\(s\))?(\s+h[aá]biles?)?$/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const one = n === 1;
+  const unit = /^h/i.test(m[2]) ? (one ? "hora" : "horas") : one ? "día" : "días";
+  const business = m[3] ? (one ? " hábil" : " hábiles") : "";
+  return `${m[1]} ${unit}${business}`;
+}
+
 /** "6 Grupo Centro de Excelencia" → "Grupo Centro de Excelencia 6" (el número inicial es parte del nombre, no un rango). */
 function trailingCode(s: string): string {
   const m = s.match(/^(\d{1,2})\s+(?=[A-Za-zÁÉÍÓÚÑáéíóúñ])(.+)$/);
@@ -216,6 +240,8 @@ export function displayLabel(raw: string, kind: LabelKind = "generic"): DisplayL
   // Neutrales y variantes frecuentes: una sola forma en todo el aplicativo ("NO REPORTA", "Sin Clasificar")
   const canonical = CANONICAL[bare(src)];
   if (canonical) return { short: canonical, full: canonical };
+  const duration = durationLabel(src);
+  if (duration) return { short: duration, full: duration };
 
   if (kind === "proveedor") {
     const m = src.match(/^\[\s*([\d.\-]+)\s*\]\s*(.+)$/);

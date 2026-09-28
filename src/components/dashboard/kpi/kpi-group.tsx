@@ -4,6 +4,7 @@ import { ArrowDown, ChevronRight, FlaskConical, Snail } from "lucide-react";
 import { Fragment } from "react";
 import { useDashboard } from "@/components/dashboard/dashboard-context";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useMergedRef, usePageWide } from "@/components/widgets/category-tiles";
 import { DeltaChip } from "@/components/widgets/kit/delta-chip";
 import { StatusIcon } from "@/components/widgets/kit/status-icon";
 import type { CategoryResult, KpiResult, Range } from "@/dashboards/dto";
@@ -14,7 +15,22 @@ import { cn } from "@/lib/cn";
 import { TONE_VARS } from "@/lib/charts/semantic";
 import { describeDelta, formatPct, formatValue } from "@/lib/format";
 import { EmbedBar, EmbedMenu } from "./kpi-embed";
-import { AnimatedFigure, chipWidth, figureWidth, FigureSkeleton, goToAnchor, KpiCardShell, KpiMicro, lowerFirst, PROVISIONAL_W, ProvisionalBadge, textWidth } from "./shared";
+import {
+  additiveMeasure,
+  AnimatedFigure,
+  chipWidth,
+  figureWidth,
+  FigureSkeleton,
+  goToAnchor,
+  KpiCardShell,
+  KpiMicro,
+  lowerFirst,
+  microKind,
+  PROVISIONAL_W,
+  ProvisionalBadge,
+  resampleSpark,
+  textWidth,
+} from "./shared";
 
 type GroupDef = Extract<KpiCellDef, { kind: "group" }>;
 
@@ -27,6 +43,13 @@ function minWidth(def: KpiDef, value: number | null | undefined): number {
 
 /** Separación entre filas/columnas del respaldo en rejilla. */
 const GAP = 12;
+/**
+ * Fila en línea por contenido: aunque la suma de mínimos (112/150) no quepa, la fila se mantiene si cada
+ * celda mide al menos ROW_CELL_FLOOR y etiqueta, cifra y chip caben (p. ej. el stepper de PQRD a 1366–1440 px,
+ * 4 × 99–108 px, o "Riesgo" de SMART 3 a 1024–1280). Solo con filas de alto fijo (página ≥ 600 px); en móvil
+ * manda el respaldo por contenido.
+ */
+const ROW_CELL_FLOOR = 96;
 /** Divisor hairline entre celdas en línea (mx-[5.5px] + 1 px) y chevron del stepper (16 + mx-1). */
 const DIVIDER_W = 12;
 const CHEVRON_W = 24;
@@ -75,7 +98,9 @@ export function KpiGroup({
   compact?: boolean;
 }) {
   const { data, filters, toggleValue, spec } = useDashboard();
-  const { ref, width, measured } = useElementSize<HTMLDivElement>();
+  const { ref: sizeRef, width, measured } = useElementSize<HTMLDivElement>();
+  const { ref: pageRef, wide: pageWide } = usePageWide();
+  const ref = useMergedRef(sizeRef, pageRef);
 
   const metrics: Metric[] = [];
   cell.kpis.forEach((id, i) => {
@@ -90,46 +115,10 @@ export function KpiGroup({
   const secondary = cell.secondary ? defs.get(cell.secondary) : undefined;
   const secondaryResult = cell.secondary ? results.get(cell.secondary) : undefined;
 
-  // ── Disposición (ancho medido; antes de medir, el ancho de diseño del span) ──
-  // row: celdas en línea separadas por hairlines (o chevrons) · grid: 2 columnas sin micro-tendencias.
-  // Con 3 métricas que no caben con micro-tendencia se prefiere la fila de 3 (sin micro, etiquetas en
-  // 2 líneas si hace falta) antes que un 2×2 con un cuadrante vacío; si tampoco cabe, 2 columnas y la
-  // tercera ocupa la fila completa en horizontal.
-  const available = measured ? width : innerWidth(span);
+  // Resaltados (antes de la disposición: el caracol de la fase más lenta ocupa ancho en su etiqueta)
   const stepper = cell.variant === "stepper";
-  const n = metrics.length;
-  const hasIcon = (m: Metric) => Boolean(m.tone) || (stepper && !m.after);
-  const sepW = (m: Metric, i: number) => (i === 0 ? 0 : stepper && !m.after ? CHEVRON_W : DIVIDER_W);
-  const gaps = metrics.reduce((a, m, i) => a + sepW(m, i), 0);
-  const rowCell = n ? (available - gaps) / n : available;
-  // "Provisional" con texto si cabe junto a la etiqueta; si no, el matraz (con tooltip)
-  const provText = (m: Metric, w: number) => Boolean(m.def.provisional) && labelWidth(m.def, hasIcon(m)) + 6 + PROVISIONAL_W <= w;
-  const labelNeed = (m: Metric, w: number) => labelWidth(m.def, hasIcon(m)) + (m.def.provisional ? (provText(m, w) ? 6 + PROVISIONAL_W : FLASK_W) : 0);
-  const labelsFit = (w: number) => metrics.every((m) => labelNeed(m, w) <= w);
-  const figurePx = compact ? 24 : 26;
-  const fitsFigures = (w: number, px: number) => metrics.every((m) => figureWidth(m.result?.value, m.def.format, px) <= w && (compact || chipWidth(m.def, m.result) <= w));
-  const need = metrics.reduce((a, m) => a + minWidth(m.def, m.result?.value), 0) + gaps;
-
-  const inline = n <= 1 || (need <= available && labelsFit(rowCell));
-  const tightRow = !inline && n === 3 && (fitsFigures(rowCell, figurePx) || fitsFigures(rowCell, 22));
-  const row = inline || tightRow;
-  const gridCell = (available - GAP) / 2 - 12;
-  const cellW = row ? rowCell : gridCell;
-  // Etiquetas en 2 líneas (todas, para que las cifras compartan línea base) si alguna no cabe en 1
-  const twoLine = !inline && !labelsFit(cellW);
-  // Cifra de 22 px solo si a 26 no cabe (fila de 3 en móvil)
-  const dense = tightRow && !fitsFigures(rowCell, figurePx);
-  const bar = cell.variant === "proportion" || Boolean(cell.embed);
-  const showMicro = inline && !compact && !bar;
-  // Fila compacta: el chip va junto a la cifra si cabe en TODAS las celdas; si no, debajo en todas.
-  // data-chip-stack / data-two-line los lee la fila (group/kpirow) para que los grupos vecinos coincidan.
-  const oddLast = !row && n % 2 === 1;
-  const stackChip = Boolean(compact) && metrics.some((m, i) => figureWidth(m.result?.value, m.def.format, 24) + 8 + chipWidth(m.def, m.result) > (oddLast && i === n - 1 ? available : cellW));
-  const gauges = new Set(cell.gauges ?? []);
-
-  // Resaltados
   let slowest = -1;
-  if (cell.variant === "stepper") {
+  if (stepper) {
     let max = -Infinity;
     metrics.forEach((m, i) => {
       const v = m.result?.value;
@@ -150,6 +139,59 @@ export function KpiGroup({
       }
     });
   }
+
+  // ── Disposición (ancho medido; antes de medir, el ancho de diseño del span) ──
+  // row: celdas en línea separadas por hairlines (o chevrons) · grid: 2 columnas sin micro-tendencias.
+  // Con 3 métricas que no caben con micro-tendencia se prefiere la fila de 3 (sin micro, etiquetas en
+  // 2 líneas si hace falta) antes que un 2×2 con un cuadrante vacío; si tampoco cabe, 2 columnas y la
+  // tercera ocupa la fila completa en horizontal.
+  const available = measured ? width : innerWidth(span);
+  const n = metrics.length;
+  const hasIcon = (m: Metric) => Boolean(m.tone) || (stepper && !m.after);
+  const sepW = (m: Metric, i: number) => (i === 0 ? 0 : stepper && !m.after ? CHEVRON_W : DIVIDER_W);
+  const gaps = metrics.reduce((a, m, i) => a + sepW(m, i), 0);
+  const rowCell = n ? (available - gaps) / n : available;
+  // "Provisional" con texto si cabe junto a la etiqueta; si no, el matraz (con tooltip)
+  const provText = (m: Metric, w: number) => Boolean(m.def.provisional) && labelWidth(m.def, hasIcon(m)) + 6 + PROVISIONAL_W <= w;
+  const labelNeed = (m: Metric, w: number) =>
+    labelWidth(m.def, hasIcon(m)) + (metrics.indexOf(m) === slowest ? ICON_W : 0) + (m.def.provisional ? (provText(m, w) ? 6 + PROVISIONAL_W : FLASK_W) : 0);
+  const labelsFit = (w: number) => metrics.every((m) => labelNeed(m, w) <= w);
+  const figurePx = compact ? 24 : 26;
+  // El chip cuenta sin la nota "base pequeña" (si no cabe se oculta: el borde punteado y el tooltip la conservan)
+  const fitsFigures = (w: number, px: number) => metrics.every((m) => figureWidth(m.result?.value, m.def.format, px) <= w && (compact || chipWidth(m.def, m.result, false) <= w));
+  const need = metrics.reduce((a, m) => a + minWidth(m.def, m.result?.value), 0) + gaps;
+  const contentFits = pageWide && rowCell >= ROW_CELL_FLOOR && fitsFigures(rowCell, figurePx);
+
+  const inline = n <= 1 || ((need <= available || contentFits) && labelsFit(rowCell));
+  const tightRow = !inline && n === 3 && (fitsFigures(rowCell, figurePx) || fitsFigures(rowCell, 22));
+  const row = inline || tightRow;
+  const gridCell = (available - GAP) / 2 - 12;
+  const cellW = row ? rowCell : gridCell;
+  // Etiquetas en 2 líneas (todas, para que las cifras compartan línea base) si alguna no cabe en 1
+  const twoLine = !inline && !labelsFit(cellW);
+  // Cifra de 22 px solo si a 26 no cabe (fila de 3 en móvil)
+  const dense = tightRow && !fitsFigures(rowCell, figurePx);
+  const bar = cell.variant === "proportion" || Boolean(cell.embed);
+  const showMicro = inline && !compact && !bar;
+  // Fila compacta: el chip va junto a la cifra si cabe en TODAS las celdas; si no, debajo en todas.
+  // data-chip-stack / data-two-line los lee la fila (group/kpirow) para que los grupos vecinos coincidan.
+  const oddLast = !row && n % 2 === 1;
+  const stackChip = Boolean(compact) && metrics.some((m, i) => figureWidth(m.result?.value, m.def.format, 24) + 8 + chipWidth(m.def, m.result) > (oddLast && i === n - 1 ? available : cellW));
+  const gauges = new Set(cell.gauges ?? []);
+  const isGauge = (m: Metric) => gauges.has(m.def.id) && m.def.format === "pct";
+  // Micro-tendencias del grupo en el mismo bucket: si una pasa a semanal (huecos, ceros, lotes), todas las
+  // que pueden (aditivas o tasas) también; nunca columnas diarias junto a columnas semanales.
+  const weekly =
+    showMicro &&
+    !loading &&
+    metrics.some((m) => !isGauge(m) && !m.anchor && m.result && resampleSpark(m.result.spark, microKind(m.def), range, { additive: additiveMeasure(m.def) }).weekly);
+  // Nota "base pequeña" junto al chip solo si cabe en TODAS las celdas que la llevan (compacta: junto a la cifra o
+  // debajo); si no, ninguna la muestra (misma gramática en el grupo; el chip punteado y su tooltip la conservan)
+  const chipRoom = (m: Metric, i: number) => {
+    const w = oddLast && i === n - 1 ? available / 2 : cellW;
+    return compact && !stackChip ? w - figureWidth(m.result?.value, m.def.format, 24) - 8 : w;
+  };
+  const hideNotes = metrics.some((m, i) => chipWidth(m.def, m.result) !== chipWidth(m.def, m.result, false) && chipWidth(m.def, m.result) > chipRoom(m, i));
 
   const selectedOf = (f: Metric["filter"]) => Boolean(f && filters.eq[f.field]?.includes(f.value));
   const anySelected = cell.variant === "proportion" && metrics.some((m) => selectedOf(m.filter));
@@ -175,7 +217,7 @@ export function KpiGroup({
           const sep =
             row && i > 0 ? (
               stepper && !m.after ? (
-                <ChevronRight aria-hidden className="relative z-10 mx-1 mt-[26px] size-4 shrink-0 self-start text-muted" strokeWidth={2.25} />
+                <ChevronRight aria-hidden className="relative z-10 mx-1 mt-[30px] size-4 shrink-0 self-start text-muted" strokeWidth={2.25} />
               ) : (
                 <span aria-hidden className={cn("mx-[5.5px] w-px shrink-0 self-stretch", m.after ? "bg-border-strong" : "bg-[var(--hairline)]")} />
               )
@@ -194,7 +236,9 @@ export function KpiGroup({
                 loading={loading}
                 range={range}
                 micro={showMicro}
-                gauge={showMicro && gauges.has(m.def.id) && m.def.format === "pct"}
+                weekly={weekly}
+                gauge={showMicro && isGauge(m)}
+                hideNote={hideNotes}
                 twoLine={twoLine && !wideLast}
                 dense={dense}
                 stackChip={stackChip}
@@ -238,7 +282,9 @@ function MetricCell({
   loading,
   range,
   micro,
+  weekly,
   gauge,
+  hideNote,
   twoLine,
   dense,
   stackChip,
@@ -257,8 +303,12 @@ function MetricCell({
   loading: boolean;
   range?: Range;
   micro: boolean;
+  /** Micro-tendencia semanal (decidido para todo el grupo). */
+  weekly: boolean;
   /** Medidor 0–100 % en lugar de la micro-tendencia (cell.gauges). */
   gauge: boolean;
+  /** Oculta la nota "base pequeña" junto al chip (no cabe; el chip punteado y su tooltip la conservan). */
+  hideNote: boolean;
   twoLine?: boolean;
   /** Cifra de 22 px (fila de 3 angosta). */
   dense?: boolean;
@@ -311,7 +361,9 @@ function MetricCell({
       )}
     </>
   );
-  const chip = <DeltaChip value={result?.value} previous={result?.previous} format={def.format} polarity={def.polarity} prevRange={range} />;
+  const chip = (
+    <DeltaChip value={result?.value} previous={result?.previous} format={def.format} polarity={def.polarity} prevRange={range} className={cn(hideNote && "[&>.truncate]:hidden")} />
+  );
   const figure = (px: string) => <AnimatedFigure value={result?.value} format={def.format} className={cn(px, "font-bold leading-none tracking-tight text-text")} />;
 
   const label = (
@@ -411,7 +463,7 @@ function MetricCell({
               ) : (
                 micro && (
                   <div className="mt-2 h-6">
-                    <KpiMicro def={def} result={loading ? undefined : result} range={range} />
+                    <KpiMicro def={def} result={loading ? undefined : result} range={range} weekly={weekly} />
                   </div>
                 )
               )}

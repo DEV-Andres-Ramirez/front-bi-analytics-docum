@@ -140,7 +140,8 @@ export const smartMomento2: DashboardSpec = {
           type: "bar",
           orientation: "vertical",
           title: "Canal",
-          subtitle: "Canal reportado a la Superfinanciera",
+          // A span 4 (≈ 244 px internos a 1024) el subtítulo de una línea no puede repetir "Canal"
+          subtitle: "Reportado a la Superfinanciera",
           dimension: "nombre_canal",
           size: "md",
           viz: "composition",
@@ -148,9 +149,12 @@ export const smartMomento2: DashboardSpec = {
           maxItems: 5,
         },
       ],
+      // Las dos filas en 8-4: los bordes de las tarjetas quedan alineados en la misma rejilla (un 6-6 debajo
+      // del 8-4 los escalonaba). Canal (aviso de calidad: titular + barra + 2 filas ≈ 150 ≤ 184) cabe en 4 y
+      // Punto, en 8, reparte su leyenda en 2 columnas (24 + 2 × 24 = 72 ≤ 184).
       rows: [
         { template: "8-4", tier: "S", cells: ["producto", "persona"] },
-        { template: "6-6", tier: "S", cells: ["punto", "canal"] },
+        { template: "8-4", tier: "S", cells: ["punto", "canal"] },
       ],
     },
   ],

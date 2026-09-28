@@ -11,8 +11,8 @@ import type { DashboardFeature, DashboardMeta } from "@/config/dashboards";
 import type { CatalogFigure, CatalogItem, CatalogResponse } from "@/dashboards/dto";
 import { cn } from "@/lib/cn";
 import { todayISO } from "@/lib/dates";
-import { formatValue } from "@/lib/format";
-import { FEATURE_LABEL, figureShort, fold, healthNote, heroShort } from "./home-data";
+import { describeDelta, formatValue } from "@/lib/format";
+import { FEATURE_LABEL, figureShort, fold, healthNote, heroShort, type HealthNote } from "./home-data";
 import { MicroColumns } from "./micro-columns";
 
 /** Capacidades del tablero (íconos con tooltip en la fila de salud). */
@@ -72,8 +72,10 @@ interface Props {
  * - Fila 2: KPI titular con CountUp + DeltaChip con polaridad + micro-columnas del mes.
  * - Fila 3 (tras hairline): KPI de salud con su variación y capacidades del tablero.
  * Las tres filas son subgrid de la sección: la cifra y el pie comparten línea en toda la fila de tarjetas,
- * aunque el título o el resumen de una hermana ocupe más líneas.
- * Con el contenedor `mods` por debajo de 560 px pasa a fila compacta de 72 px.
+ * aunque el título o el resumen de una hermana ocupe más líneas. El título nunca se trunca: si no cabe, pasa a
+ * 2 líneas (es la identidad del tablero y lo que distingue a M1, M2 y M3).
+ * Con el contenedor `mods` por debajo de 560 px pasa a fila compacta (≥ 72 px): título, salud y cifra del mes.
+ * La salud siempre es "etiqueta + cifra + un chip" (variación, o aviso de calidad cuando la cifra no informa).
  * La estrella de favorito va FUERA del enlace y siempre abajo a la derecha.
  */
 export function DashboardCard({ meta, item, range, loading, failed, favorite, onToggleFavorite, index, wide, className }: Props) {
@@ -81,7 +83,9 @@ export function DashboardCard({ meta, item, range, loading, failed, favorite, on
   const hero = item?.hero ?? null;
   const [announce, setAnnounce] = useState("");
   const heroLabel = heroShort(meta.slug, hero);
-  // En la fila compacta el subtítulo nunca repite el título.
+  // En la fila compacta el subtítulo es la salud; mientras carga (o si no hay KPI de salud), la etiqueta de la cifra,
+  // que nunca repite el título.
+  const health = item?.health ?? null;
   const rowSubtitle = fold(heroLabel) === fold(meta.short) ? meta.summary : heroLabel;
   const partialLast = Boolean(range && range.to === todayISO());
 
@@ -102,7 +106,7 @@ export function DashboardCard({ meta, item, range, loading, failed, favorite, on
       <Link
         href={`/tableros/${meta.slug}`}
         className={cn(
-          "group card relative grid h-full min-w-0 grid-cols-1 gap-y-3.5 overflow-hidden p-[18px] transition-[translate,border-color,box-shadow] duration-200 ease-out",
+          "group card relative grid h-full min-w-0 grid-cols-1 gap-y-3 overflow-hidden p-4 transition-[translate,border-color,box-shadow] duration-200 ease-out",
           "@min-[560px]/mods:row-span-3 @min-[560px]/mods:grid-rows-subgrid",
           "hover:-translate-y-0.5 hover:border-mod/35 hover:shadow-mod focus-visible:border-mod/35 focus-visible:shadow-mod motion-reduce:hover:translate-y-0",
           "@max-[560px]/mods:min-h-[72px] @max-[560px]/mods:grid-cols-[minmax(0,1fr)_auto] @max-[560px]/mods:items-center @max-[560px]/mods:gap-x-3 @max-[560px]/mods:rounded-2xl @max-[560px]/mods:py-3 @max-[560px]/mods:pl-3.5 @max-[560px]/mods:pr-12",
@@ -123,22 +127,29 @@ export function DashboardCard({ meta, item, range, loading, failed, favorite, on
             </span>
           </ViewTransition>
           <div className="min-w-0 @min-[560px]/mods:pt-px">
-            <div className="flex min-w-0 items-center gap-1.5">
+            <div className="flex min-w-0 items-start gap-1.5">
               <ViewTransition name={`dash-title-${meta.slug}`} share="morph" default="none">
                 <h3
                   title={meta.title}
-                  className="min-w-0 truncate text-[15px] font-bold leading-5 tracking-tight text-text transition-colors group-hover:text-mod-ink group-focus-visible:text-mod-ink @max-[560px]/mods:text-[14px]"
+                  className="line-clamp-2 min-w-0 text-pretty text-[15px] font-bold leading-5 tracking-tight text-text transition-colors group-hover:text-mod-ink group-focus-visible:text-mod-ink @max-[560px]/mods:text-[14px]"
                 >
                   {meta.short}
                 </h3>
               </ViewTransition>
               <ArrowRight
                 aria-hidden
-                className="size-4 shrink-0 -translate-x-1 text-mod-ink opacity-0 transition duration-200 group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:translate-x-0 group-focus-visible:opacity-100 @max-[560px]/mods:hidden"
+                className="mt-0.5 size-4 shrink-0 -translate-x-1 text-mod-ink opacity-0 transition duration-200 group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:translate-x-0 group-focus-visible:opacity-100 @max-[560px]/mods:hidden"
               />
             </div>
             <p className="mt-1 line-clamp-2 text-pretty text-[13px] leading-[18px] text-muted @max-[560px]/mods:hidden">{meta.summary}</p>
-            <p className="mt-0.5 truncate text-xs leading-4 text-muted @min-[560px]/mods:hidden">{rowSubtitle}</p>
+            {/* Fila compacta: la salud (la señal accionable) en lugar de repetir "Radicados en el mes". */}
+            <div className="mt-0.5 min-w-0 @min-[560px]/mods:hidden">
+              {health && !loading ? (
+                <HealthLine slug={meta.slug} fig={health} loading={false} failed={failed} range={range} compact />
+              ) : (
+                <p className="truncate text-xs leading-4 text-muted">{rowSubtitle}</p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -147,14 +158,14 @@ export function DashboardCard({ meta, item, range, loading, failed, favorite, on
           {loading ? (
             <span className="skeleton block h-3 w-24 @max-[560px]/mods:hidden" />
           ) : (
-            <p className="truncate text-xs font-medium leading-4 text-muted @max-[560px]/mods:hidden">{heroLabel}</p>
+            <p className="truncate text-xs font-medium leading-4 text-muted @max-[560px]/mods:sr-only">{heroLabel}</p>
           )}
           <div className="mt-1 flex min-w-0 items-end justify-between gap-3 @max-[560px]/mods:mt-0">
             <HeroFigure hero={hero} loading={loading} failed={failed} range={range} />
             {/* Ancho fluido (96–184 px): cede espacio antes de que la cifra y su variación se partan. */}
             <div className={cn("w-[clamp(96px,calc(100%-180px),184px)] min-w-20 shrink @max-[560px]/mods:hidden", wide && WIDE_HIDE[wide])}>
               {loading ? (
-                <span className="skeleton block h-10 w-full" />
+                <span className="skeleton block h-8 w-full" />
               ) : hero && range ? (
                 <MicroColumns values={hero.spark} from={range.from} format={hero.format} label={`${hero.label} por día`} partialLast={partialLast} />
               ) : null}
@@ -162,10 +173,15 @@ export function DashboardCard({ meta, item, range, loading, failed, favorite, on
           </div>
         </div>
 
-        {/* Fila 3 · salud + capacidades (pr-7 reserva la estrella) */}
-        <div className="@container/foot col-start-1 row-start-3 flex min-h-8 min-w-0 items-center justify-between gap-3 border-t border-[var(--hairline)] pr-7 pt-3 @max-[560px]/mods:hidden">
-          <HealthLine slug={meta.slug} fig={item?.health ?? null} loading={loading} failed={failed} range={range} />
-          <ul className="flex shrink-0 items-center gap-0.5 @max-[272px]/foot:hidden" aria-label="Incluye">
+        {/*
+          Fila 3 · salud + capacidades (pr-7 reserva la estrella). La salud tiene prioridad: los íconos de capacidades
+          solo ocupan el espacio sobrante (flex 1 1 0) y los que no caben pasan a una 2.ª línea oculta (nunca se ven a
+          medias). La salud solo se trunca si ni sola cabe.
+        */}
+        <div className="col-start-1 row-start-3 flex min-h-8 min-w-0 items-center gap-3 border-t border-[var(--hairline)] pr-7 pt-2 @max-[560px]/mods:hidden">
+          <HealthLine slug={meta.slug} fig={health} loading={loading} failed={failed} range={range} />
+          <ul className="flex h-5 min-w-0 flex-1 flex-wrap justify-end gap-0.5 overflow-hidden" aria-label="Incluye">
+            <li aria-hidden className="h-5 w-0" />
             {meta.features.map((f) => {
               const FIcon = FEATURE_ICON[f];
               return (
@@ -188,7 +204,16 @@ export function DashboardCard({ meta, item, range, loading, failed, favorite, on
             {loading ? (
               <span className="skeleton block h-[172px] w-full" />
             ) : hero && range ? (
-              <MicroColumns variant="wide" values={hero.spark} from={range.from} format={hero.format} label={`${hero.label} por día`} partialLast={partialLast} />
+              <MicroColumns
+                variant="wide"
+                values={hero.spark}
+                from={range.from}
+                format={hero.format}
+                label={`${hero.label} por día`}
+                partialLast={partialLast}
+                // Promedios y porcentajes: la línea es la cifra del mes (la media simple de los días no coincide con ella).
+                reference={hero.format === "days" || hero.format === "pct" ? hero.value : null}
+              />
             ) : null}
           </div>
         )}
@@ -202,7 +227,7 @@ export function DashboardCard({ meta, item, range, loading, failed, favorite, on
         aria-label={`Favorito: ${meta.short}`}
         title={favorite ? "Quitar de favoritos" : "Agregar a favoritos"}
         className={cn(
-          "absolute bottom-[19px] right-2.5 grid size-8 place-items-center rounded-full transition-colors",
+          "absolute bottom-3 right-2.5 grid size-8 place-items-center rounded-full transition-colors",
           "@max-[560px]/mods:bottom-auto @max-[560px]/mods:right-2 @max-[560px]/mods:top-1/2 @max-[560px]/mods:-translate-y-1/2",
           favorite ? "text-primary hover:bg-primary-soft" : "text-muted hover:bg-surface-3 hover:text-text",
         )}
@@ -223,7 +248,7 @@ function HeroFigure({ hero, loading, failed, range }: { hero: CatalogFigure | nu
   const format = hero?.format ?? "int";
   // Los días llevan la unidad aparte (más pequeña) para que la cifra y su variación quepan en una línea.
   const fmt = (n: number) => (format === "days" ? formatValue(n, "days").replace(/\s+días?$/, "") : formatValue(n, format, { compact: true }));
-  const unit = format === "days" && hero?.value !== null && hero?.value !== undefined ? (Math.abs(hero.value) === 1 ? "día" : "días") : null;
+  const unit = format === "days" && hero?.value !== null && hero?.value !== undefined ? "días" : null;
   return (
     <div className="flex shrink-0 flex-nowrap items-center gap-x-2 @max-[560px]/mods:flex-col @max-[560px]/mods:items-end @max-[560px]/mods:gap-0.5">
       {hero && hero.value !== null ? (
@@ -249,43 +274,60 @@ function HealthLine({
   loading,
   failed,
   range,
+  compact = false,
 }: {
   slug: string;
   fig: CatalogFigure | null;
   loading: boolean;
   failed: boolean;
   range: CatalogResponse["range"] | undefined;
+  /** Subtítulo de la fila compacta (móvil): cifra más discreta que la cifra del mes. */
+  compact?: boolean;
 }) {
   if (loading) return <span className="skeleton block h-4 w-32" />;
   if (!fig) return <span className="text-xs text-muted">{failed ? "Salud: —" : "Sin indicador de salud"}</span>;
   const note = healthNote(slug, fig);
-  // Hallazgo de calidad de la vista (AGENTS §6): la cifra no informa; se muestra el aviso en su lugar.
-  if (note?.kind === "quality") {
-    return (
-      <Tooltip content={<span className="block max-w-72">{note.hint}</span>} focusable className="min-w-0">
-        <span className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap rounded-full bg-warning-soft px-2 py-0.5 text-[11px] font-semibold text-warning-ink">
-          <TriangleAlert className="size-3 shrink-0" aria-hidden />
-          <span className="truncate">{note.label}</span>
-        </span>
-      </Tooltip>
-    );
-  }
+  // Siempre "etiqueta + cifra + un chip": variación, o el aviso de la vista cuando la cifra no informa (AGENTS §6).
+  // En la fila compacta (móvil) el chip baja a una 2.ª línea si no cabe: la etiqueta nunca se trunca a 1–2 letras.
   return (
-    <div className="flex min-w-0 flex-nowrap items-center gap-x-1">
-      <Tooltip content={fig.label} className="min-w-0">
-        <span className="truncate text-xs font-medium text-muted">{figureShort(slug, fig)}</span>
+    <div className={cn("flex min-w-0 items-center gap-x-1", compact ? "flex-wrap gap-y-0.5" : "flex-nowrap")}>
+      <Tooltip content={fig.label} className="min-w-0 max-w-full">
+        <span className="truncate text-xs font-medium text-muted">{figureShort(fig)}</span>
       </Tooltip>
-      <span className="tabular mr-0.5 shrink-0 whitespace-nowrap text-[13px] font-bold text-text">{formatValue(fig.value, fig.format, { compact: true })}</span>
-      {note?.kind === "info" ? (
-        <Tooltip content={<span className="block max-w-72">{note.hint}</span>} focusable className="shrink-0">
-          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-surface-3 px-1.5 py-px text-[11px] font-semibold text-text-2">
-            <Info className="size-3" aria-hidden />
-            {note.label}
-          </span>
-        </Tooltip>
+      <span className={cn("tabular mr-0.5 shrink-0 whitespace-nowrap", compact ? "text-xs font-semibold text-text-2" : "text-[13px] font-bold text-text")}>
+        {formatValue(fig.value, fig.format, { compact: true })}
+      </span>
+      {note ? (
+        <NoteChip note={note} fig={fig} />
       ) : (
-        fig.value !== null && <DeltaChip value={fig.value} previous={fig.previous} format={fig.format} polarity={fig.polarity} prevRange={range} className="shrink-0" />
+        fig.value !== null && <DeltaChip value={fig.value} previous={fig.previous} format={fig.format} polarity={fig.polarity} prevRange={range} className="min-w-0 shrink-0" />
       )}
     </div>
+  );
+}
+
+/**
+ * Chip de la salud cuando la vista tiene un hallazgo documentado (misma forma que DeltaChip sm):
+ * - "quality": la cifra no informa (p. ej. 0 % de cruce por un join roto) → chip warning con el aviso;
+ * - "info": la cifra es constante por construcción → chip neutral con la variación ("0,0 p.p.") y el ícono ⓘ.
+ * La explicación va en el tooltip (enfocable).
+ */
+function NoteChip({ note, fig }: { note: HealthNote; fig: CatalogFigure }) {
+  const quality = note.kind === "quality";
+  const text = quality ? note.label : describeDelta(fig.value, fig.previous, fig.format, fig.polarity).text;
+  const Icon = quality ? TriangleAlert : Info;
+  return (
+    <Tooltip content={<span className="block max-w-72">{note.hint}</span>} focusable className="shrink-0">
+      <span
+        className={cn(
+          "tabular inline-flex items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-px text-[11px] font-semibold",
+          quality ? "bg-warning-soft text-warning-ink" : "bg-surface-3 text-text-2",
+        )}
+      >
+        <Icon className="size-3 shrink-0" aria-hidden />
+        {text}
+        {!quality && <span className="sr-only"> ({note.label})</span>}
+      </span>
+    </Tooltip>
   );
 }

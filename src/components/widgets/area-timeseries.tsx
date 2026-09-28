@@ -14,7 +14,22 @@ import { alpha, categoryColors, useChartTheme } from "@/lib/charts/theme";
 import { DAY_MS, formatDayShort, formatRange, isoToMs, MONTHS_ES, MONTHS_ES_LONG, msToISO, todayISO, WEEKDAYS_ES, weekStart } from "@/lib/dates";
 import { describeDelta, formatAxis, formatCompact, formatInt, formatPct, formatValue } from "@/lib/format";
 import { displayLabel } from "@/lib/labels";
-import { bandsPlugin, chartToPng, crosshairPlugin, labelsPlugin, useChartAnimation, useChartKeyboard, useChartResizeGuard, type BandSpec, type CanvasLabel } from "./canvas-helpers";
+import {
+  axisQuantum,
+  bandsPlugin,
+  blend,
+  chartToPng,
+  crosshairPlugin,
+  labelsPlugin,
+  niceScale,
+  partialBarsPlugin,
+  useChartAnimation,
+  useChartKeyboard,
+  useChartResizeGuard,
+  type BandSpec,
+  type CanvasLabel,
+  type PartialBar,
+} from "./canvas-helpers";
 import { areaGradient } from "./chart-kit";
 import { useExporter, useWidgetFrame } from "./frame-context";
 import { ChartLegend, type LegendItem } from "./kit/chart-legend";
@@ -28,12 +43,15 @@ registerCharts();
  * AreaTimeseries (TimeseriesChart v2) · docs/ui-design-system.md §AreaTimeseries.
  * Modos: area (1 serie) · lines (2–4 series con tokens de métrica) · stacked (partes por splitBy,
  * tonos de la familia) · columns (automático con > 60 % de días en 0, o por día cuando los fines de
- * semana están en 0 —el "peine"—; periodo anterior fantasma).
- * Granularidad en cliente (Día/Semana/Mes, semanas ISO), bandas de fin de semana, tramo parcial
- * punteado, etiquetas directas sin colisión (L10), crosshair y ChartTooltip con Δ.
+ * semana son un "peine"; el periodo anterior es un marcador de 2 px y el fin de semana, una franja
+ * bajo el eje).
+ * Granularidad en cliente (Día/Semana/Mes, semanas ISO) independiente del ancho de la tarjeta (salvo
+ * teléfono), bandas de fin de semana, tramo parcial punteado (y aparte, como punto hueco, si cubre
+ * < 50 % de sus días), eje Y justo (niceScale), etiquetas directas sin colisión (L10), crosshair y
+ * ChartTooltip con Δ.
  * Gramática fija en cualquier ancho: "Periodo anterior" y "Fin de semana" van en la leyenda (nunca en el
- * pie). Si la franja de 24 px no alcanza, cede primero la clave de la serie única (L3: el título la
- * nombra) y, con varias series, la de fin de semana; el pie pierde el Pico antes de envolver.
+ * pie). Si la franja de 24 px no alcanza, cede primero "Fin de semana"; la clave de la serie principal
+ * nunca sale. El pie pierde el Pico antes de envolver.
  */
 
 type Gran = "day" | "week" | "month";
@@ -164,9 +182,10 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
   const todayMs = isoToMs(data?.generatedAt ? todayISO(Date.parse(data.generatedAt)) : msToISO(startMs + days * DAY_MS));
   const prevStartMs = result.prevStart ? isoToMs(result.prevStart) : null;
 
-  // Proporción de días en 0 (sin contar hoy ni días futuros) y "peine" de fin de semana: ≥ 80 % de
-  // los sábados y domingos en ~0 (≤ 15 % del promedio de los días hábiles, p. ej. sáb 0 · dom 1 frente
-  // a 7/día) con ≥ 50 % de los días hábiles con dato
+  // Proporción de días en 0 (sin contar hoy ni días futuros) y "peine" semanal: los fines de semana
+  // promedian ≤ 40 % de un día hábil y ≥ 75 % de ellos quedan en ≤ 50 % (p. ej. sáb 8 · dom 6 frente a
+  // 40/día, o sáb 0 · dom 1 frente a 7/día), con ≥ 50 % de los días hábiles con dato. Una sola regla
+  // para el mismo fenómeno en todos los tableros (antes el umbral de 15 % dejaba la mitad en área).
   const { zeroShare, weekendComb } = useMemo(() => {
     let past = 0;
     let zeros = 0;
@@ -188,16 +207,25 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
         if (total) weekdayData++;
       }
     }
-    const nearZero = weekday ? 0.15 * (weekdaySum / weekday) : 0;
-    const low = weekendTotals.filter((v) => v <= nearZero).length;
+    const weekdayAvg = weekday ? weekdaySum / weekday : 0;
+    const weekendAvg = weekendTotals.length ? weekendTotals.reduce((a, v) => a + v, 0) / weekendTotals.length : 0;
+    const low = weekendTotals.filter((v) => v <= 0.5 * weekdayAvg).length;
     return {
       zeroShare: past ? zeros / past : 0,
-      weekendComb: weekendTotals.length >= 2 && low / weekendTotals.length >= 0.8 && weekday > 0 && weekdayData / weekday >= 0.5,
+      weekendComb:
+        weekendTotals.length >= 2 && weekday > 0 && weekdayAvg > 0 && weekdayData / weekday >= 0.5 && weekendAvg <= 0.4 * weekdayAvg && low / weekendTotals.length >= 0.75,
     };
   }, [days, startMs, todayMs, result.series]);
 
-  // Con peine y contenedor angosto (< 600 px) se agrupa por semana: el día se lee como un sismógrafo
-  const autoGran: Gran = days > 240 ? "month" : days <= 31 && zeroShare < 0.4 ? (weekendComb && width < 600 ? "week" : "day") : "week";
+  const declared = vo?.mode ?? "auto";
+  // El peine por día se dibuja en columnas cuando hay una sola serie; con varias series (líneas o
+  // apiladas) no hay columnas posibles y se agrupa por semana.
+  const dayColumns = declared === "columns" || (declared === "auto" && result.series.length === 1);
+  // La granularidad NO depende del ancho de la tarjeta (antes < 600 px pasaba a semanas y la misma
+  // serie cambiaba de forma entre 1440, 1280 y 1024, o entre dos tarjetas hermanas de la misma fila).
+  // Solo en teléfono (< 440 px, ~15 px por día) el peine diario se agrupa por semana.
+  const phone = width < 440;
+  const autoGran: Gran = days > 240 ? "month" : days <= 31 && zeroShare < 0.4 ? (weekendComb && (phone || !dayColumns) ? "week" : "day") : "week";
   const available = useMemo(() => {
     const count = (g: Gran) => buildBuckets(startMs, days, g, todayMs).length;
     return GRAN_OPTIONS.filter((o) => {
@@ -209,19 +237,27 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
   const g: Gran = granPick && available.some((o) => o.value === granPick) ? granPick : autoGran;
 
   const mode: Mode = useMemo(() => {
-    const declared = vo?.mode ?? "auto";
     if (declared !== "auto") return declared;
     if (zeroShare > 0.6) return "columns";
     if (result.series.length > 1) return widget.splitBy ? "stacked" : "lines";
-    // Peine por día: columnas (los ceros se leen como columnas ausentes sobre la banda de fin de semana)
+    // Peine por día: columnas (los fines de semana se leen como columnas bajas, no como un sismógrafo)
     if (weekendComb && g === "day") return "columns";
     return "area";
-  }, [vo?.mode, zeroShare, result.series.length, widget.splitBy, weekendComb, g]);
+  }, [declared, zeroShare, result.series.length, widget.splitBy, weekendComb, g]);
 
   const buckets = useMemo(() => buildBuckets(startMs, days, g, todayMs), [startMs, days, g, todayMs]);
   const n = buckets.length;
   const last = buckets[n - 1];
   const partialIdx = last && !last.complete && (g !== "day" || last.last >= todayMs) ? n - 1 : -1;
+  // Primer tramo parcial: el rango no empieza en lunes (semana) ni en el día 1 (mes)
+  const partialFirst = g !== "day" && n > 1 && buckets[0].first !== buckets[0].key ? 0 : -1;
+  // Tramo parcial corto (< 50 % de sus días, p. ej. solo el lunes de la semana en curso): unido a la
+  // línea simularía una caída (252 → 30). Se dibuja aparte, como punto hueco con "1 de 7 días".
+  const stubs = useMemo(
+    () => buckets.map((b, i) => g !== "day" && buckets.length > 2 && (i === partialIdx || i === partialFirst) && b.idx.length / b.calDays < 0.5),
+    [buckets, g, partialIdx, partialFirst],
+  );
+  const hasStub = stubs.some(Boolean);
   const multiYear = n > 0 && new Date(buckets[0].first).getUTCFullYear() !== new Date(buckets[n - 1].last).getUTCFullYear();
   const labels = useMemo(() => buckets.map((b, i) => tickLabel(b, g, multiYear, i)), [buckets, g, multiYear]);
 
@@ -248,9 +284,18 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
 
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
   const showWeekend = g === "day" && days <= 93 && mode !== "stacked" && !hidden.has(WEEKEND_KEY);
-  const weekendColor = theme.resolve("var(--surface-3)");
+  const columns = mode === "columns";
+  // Fin de semana. Área y líneas: banda a alto completo (contexto detrás de la curva), opaca y en
+  // oscuro más tenue que --surface-3 para no igualar el tono de ninguna marca. Columnas: franja de
+  // 4 px bajo el eje; una banda alta junto a las columnas se leía como una columna de valor máximo.
+  const surface3 = theme.resolve("var(--surface-3)");
+  const weekendColor = theme.mode === "dark" ? blend(surface3, theme.surface, 0.55) : surface3;
+  const weekendStrip = blend(theme.tick, theme.surface, theme.mode === "dark" ? 0.5 : 0.4);
+  // Muestra de la leyenda: en oscuro, el --surface-3 pleno (la banda tenue sería invisible como cuadro de 10 px)
+  const weekendKeyColor = columns ? weekendStrip : surface3;
   const prevColor = alpha(theme.tick, 0.55);
-  const ghostFill = alpha(theme.tick, theme.mode === "dark" ? 0.22 : 0.16);
+  // Periodo anterior en columnas: marcador de 2 px (sin relleno), encima de la columna actual
+  const prevMarker = blend(theme.tick, theme.surface, 0.85);
 
   const bands: BandSpec[] = useMemo(() => {
     if (g !== "day" || days > 93) return [];
@@ -260,10 +305,10 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
       if (dow !== 0 && dow !== 6) return;
       const prevBand = out[out.length - 1];
       if (prevBand && prevBand.to === i - 1) prevBand.to = i;
-      else out.push({ from: i, to: i, color: weekendColor });
+      else out.push({ from: i, to: i, color: columns ? weekendStrip : weekendColor, strip: columns ? 4 : undefined });
     });
     return out;
-  }, [g, days, buckets, weekendColor]);
+  }, [g, days, buckets, columns, weekendColor, weekendStrip]);
 
   // ─── Resumen (pie) ───────────────────────────────────────────────────────
   const summary = useMemo(() => {
@@ -299,22 +344,32 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
     const fmt = (v: number) => formatAxis(v, format);
     // Por debajo de 400 px el rótulo es solo la cifra: "parcial" queda en el tooltip (y el tramo punteado)
     const partialSub = width >= 400 ? "parcial" : undefined;
+    // Tramo corto separado de la línea: dice cuántos días cubre ("1 de 7 días")
+    const stubSub = (i: number) => (width >= 400 ? `${buckets[i].idx.length} de ${buckets[i].calDays} días` : "parcial");
     if (mode === "columns") {
       if (n > 12 || series.length > 1) return out;
       series[0]?.values.forEach((v, i) => {
-        if (v > 0 || i === partialIdx) out.push({ datasetIndex: 0, index: i, text: fmt(v), sub: i === partialIdx ? partialSub : undefined, priority: 1, clear: prev ? [1] : undefined });
+        const partial = i === partialIdx || i === partialFirst;
+        if (v > 0 || i === partialIdx) out.push({ datasetIndex: 0, index: i, text: fmt(v), sub: stubs[i] ? stubSub(i) : partial ? partialSub : undefined, priority: 1, clear: prev ? [1] : undefined });
       });
       return out;
     }
+    // Con el último tramo aparte, la etiqueta final va en el último punto unido (L10) y el tramo
+    // corto lleva su propia cifra (solo la serie principal, para no amontonar rótulos)
+    const lastIdx = stubs[n - 1] ? n - 2 : n - 1;
     series.forEach((s, si) => {
       if (mode === "area" && si > 0) return;
-      out.push({ datasetIndex: si, index: n - 1, text: fmt(s.values[n - 1] ?? 0), sub: partialIdx === n - 1 ? partialSub : undefined, marker: true, color: s.color, priority: 10 - si });
+      out.push({ datasetIndex: si, index: lastIdx, text: fmt(s.values[lastIdx] ?? 0), sub: lastIdx === partialIdx ? partialSub : undefined, marker: true, color: s.color, priority: 10 - si });
     });
-    if (mode === "area" && series[0] && summary.peak !== n - 1 && summary.peakValue > 0 && height >= 180) {
-      out.push({ datasetIndex: 0, index: summary.peak, text: fmt(summary.peakValue), marker: true, color: series[0].color, priority: 5 });
+    if (stubs[n - 1] && series[0]) {
+      out.push({ datasetIndex: series.length + (prev ? 1 : 0), index: n - 1, text: fmt(series[0].values[n - 1] ?? 0), sub: stubSub(n - 1), priority: 6 });
+    }
+    const pk = summary.peak;
+    if (mode === "area" && series[0] && pk !== lastIdx && !stubs[pk] && summary.peakValue > 0 && height >= 180) {
+      out.push({ datasetIndex: 0, index: pk, text: fmt(summary.peakValue), sub: pk === partialFirst ? partialSub : undefined, marker: true, color: series[0].color, priority: 5 });
     }
     return out;
-  }, [n, mode, series, partialIdx, format, summary.peak, summary.peakValue, height, prev, width]);
+  }, [n, mode, series, partialIdx, partialFirst, stubs, buckets, format, summary.peak, summary.peakValue, height, prev, width]);
 
   // ─── Tooltip ─────────────────────────────────────────────────────────────
   const contentAt = useCallback(
@@ -324,7 +379,9 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
       const vis = series.filter((s) => !hidden.has(s.key));
       const fmt = (v: number) => formatValue(v, format);
       let hint: string | undefined;
-      if (i === partialIdx) hint = g === "day" ? "Parcial: el día está en curso." : `Parcial: ${b.idx.length} de ${b.calDays} días.`;
+      if (stubs[i]) hint = `Parcial: ${b.idx.length} de ${b.calDays} días.${mode === "columns" ? "" : " Va aparte: no se compara con un tramo completo."}`;
+      else if (i === partialIdx) hint = g === "day" ? "Parcial: el día está en curso." : `Parcial: ${b.idx.length} de ${b.calDays} días.`;
+      else if (i === partialFirst) hint = `Parcial: ${b.idx.length} de ${b.calDays} días en el rango.`;
       else if (g !== "day" && !b.complete) hint = `Incompleto: ${b.idx.length} de ${b.calDays} días en el rango.`;
       if (mode === "stacked") {
         const total = vis.reduce((s, x) => s + x.values[i], 0);
@@ -339,7 +396,7 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
       const p = vis[0];
       const rows: TooltipRow[] = vis.slice(1).map((s) => ({ label: s.name, value: fmt(s.values[i]), color: s.color, shape: mode === "columns" ? "square" : "line" }));
       const pv = prev && !hidden.has(PREV_KEY) ? prev[i] : null;
-      if (pv !== null && prevStartMs !== null) rows.push({ label: `Anterior (${prevLabel(prevStartMs, b, g)})`, value: fmt(pv), color: prevColor, shape: mode === "columns" ? "square" : "line-prev" });
+      if (pv !== null && prevStartMs !== null) rows.push({ label: `Anterior (${prevLabel(prevStartMs, b, g)})`, value: fmt(pv), color: mode === "columns" ? prevMarker : prevColor, shape: "line-prev" });
       const d = p && pv !== null && p.key === series[0]?.key ? describeDelta(p.values[i], pv, format, "neutral") : null;
       return {
         title: bucketTitle(b, g),
@@ -350,7 +407,7 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
         hint,
       };
     },
-    [buckets, series, hidden, format, partialIdx, g, mode, unitPlural, prev, prevStartMs, prevColor],
+    [buckets, series, hidden, format, partialIdx, partialFirst, stubs, g, mode, unitPlural, prev, prevStartMs, prevColor, prevMarker],
   );
 
   const describe = useCallback(
@@ -382,21 +439,21 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
       value: mode === "stacked" && !narrow ? formatValue(s.total, format) : undefined,
       hidden: hidden.has(s.key),
     }));
-    if (prev) items.push({ key: PREV_KEY, label: "Periodo anterior", color: mode === "columns" ? alpha(theme.tick, 0.35) : prevColor, shape: mode === "columns" ? "square" : "line-prev", hidden: hidden.has(PREV_KEY) });
-    if (hasWeekendKey) items.push({ key: WEEKEND_KEY, label: "Fin de semana", color: weekendColor, shape: "band", hidden: hidden.has(WEEKEND_KEY) });
+    // L4: el periodo anterior es una línea (serie) o un marcador de 2 px (columnas): muestra de línea en ambos
+    if (prev) items.push({ key: PREV_KEY, label: "Periodo anterior", color: mode === "columns" ? prevMarker : prevColor, shape: "line-prev", hidden: hidden.has(PREV_KEY) });
+    if (hasWeekendKey) items.push({ key: WEEKEND_KEY, label: "Fin de semana", color: weekendKeyColor, shape: "band", hidden: hidden.has(WEEKEND_KEY) });
     // L3: con una sola serie y sin codificaciones adicionales, el título la nombra
     if (items.length < 2) return [];
-    // La franja es de 24 px (una línea): si no cabe todo, con una sola serie sale su clave (el título la
-    // nombra) antes que "Periodo anterior" o "Fin de semana"; con varias series cede "Fin de semana"
-    // (las bandas siguen y el tooltip nombra el día). Nunca se recortan etiquetas con "…".
+    // La franja es de 24 px (una línea): si no cabe todo, cede primero "Fin de semana" (las bandas siguen
+    // y el tooltip nombra el día). La clave de la serie principal nunca sale: es la marca protagonista.
+    // Nunca se recortan etiquetas con "…".
     const est = items.reduce((w, it, i) => w + 16 + 6 + 8 + (it.label.length + (it.value?.length ?? 0)) * 6.6 + (i ? 14 : 0), 0);
     if (inStrip && est > width) {
-      if (series.length === 1 && items.length > 2) return items.slice(1);
       const withoutWeekend = items.filter((it) => it.key !== WEEKEND_KEY);
       if (withoutWeekend.length >= 2 && withoutWeekend.length < items.length) return withoutWeekend;
     }
     return items;
-  }, [vo?.legendFrom, series, mode, format, hidden, prev, narrow, theme.tick, prevColor, hasWeekendKey, weekendColor, inStrip, width]);
+  }, [vo?.legendFrom, series, mode, format, hidden, prev, narrow, prevMarker, prevColor, hasWeekendKey, weekendKeyColor, inStrip, width]);
 
   const onLegendClick = useCallback(
     (key: string, e: MouseEvent<HTMLButtonElement>) => {
@@ -419,27 +476,34 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
   );
 
   // ─── Chart.js ────────────────────────────────────────────────────────────
-  const lineRef = useRef<ChartJS<"line", number[], string> | null>(null);
+  const lineRef = useRef<ChartJS<"line", (number | null)[], string> | null>(null);
   const barRef = useRef<ChartJS<"bar", number[], string> | null>(null);
   const guardRef = useChartResizeGuard(lineRef, barRef);
   const exporter = useCallback(() => chartToPng(lineRef.current ?? barRef.current, theme.surface), [theme.surface]);
   useExporter(exporter);
   const lineKeys = useChartKeyboard(lineRef, n, describe);
   const barKeys = useChartKeyboard(barRef, n, describe);
-  const keys = mode === "columns" ? barKeys : lineKeys;
+  const keys = columns ? barKeys : lineKeys;
 
-  const dashed = useCallback((c: ScriptableLineSegmentContext) => (partialIdx > 0 && c.p1DataIndex >= partialIdx ? [4, 4] : undefined), [partialIdx]);
+  // Tramo parcial punteado en ambos extremos: el último (semana/mes/día en curso) y el primero
+  // (el rango no empieza en lunes o en el día 1)
+  const dashed = useCallback(
+    (c: ScriptableLineSegmentContext) => ((partialIdx > 0 && c.p1DataIndex >= partialIdx) || (partialFirst === 0 && c.p0DataIndex === 0) ? [4, 4] : undefined),
+    [partialIdx, partialFirst],
+  );
 
-  const lineData: ChartData<"line", number[], string> = useMemo(() => {
+  const lineData: ChartData<"line", (number | null)[], string> = useMemo(() => {
     const strength = theme.mode === "dark" ? 0.18 : 0.12;
     const stacked = mode === "stacked";
+    // Los tramos cortos quedan fuera de la línea (null, sin spanGaps) y se dibujan como punto hueco
+    const cut = (values: number[]) => (hasStub ? values.map((v, i) => (stubs[i] ? null : v)) : values);
     // Apilado: el primero de la familia queda arriba (mismo orden que la leyenda)
     const drawOrder = stacked ? [...series].reverse() : series;
-    const datasets: ChartData<"line", number[], string>["datasets"] = drawOrder.map((s, i) => {
+    const datasets: ChartData<"line", (number | null)[], string>["datasets"] = drawOrder.map((s, i) => {
       const areaFill = !stacked && i === 0;
       return {
         label: s.name,
-        data: s.values,
+        data: cut(s.values),
         borderColor: s.color,
         borderWidth: stacked ? 1.5 : 2,
         backgroundColor: stacked ? alpha(s.color, theme.mode === "dark" ? 0.62 : 0.72) : areaFill ? (ctx: ScriptableContext<"line">) => areaGradient(ctx.chart, s.color, strength) : "transparent",
@@ -453,6 +517,7 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
         pointBorderColor: theme.surface,
         pointBorderWidth: 2,
         pointHoverBorderWidth: 2,
+        spanGaps: false,
         hidden: hidden.has(s.key),
         segment: { borderDash: dashed },
         order: i,
@@ -461,7 +526,7 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
     if (prev) {
       datasets.push({
         label: "Periodo anterior",
-        data: prev,
+        data: cut(prev),
         borderColor: prevColor,
         backgroundColor: "transparent",
         borderWidth: 1.5,
@@ -474,76 +539,138 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
         pointBackgroundColor: prevColor,
         pointBorderColor: theme.surface,
         pointBorderWidth: 1.5,
+        spanGaps: false,
         hidden: hidden.has(PREV_KEY),
         order: 50,
       });
     }
+    if (hasStub) {
+      // Punto hueco por serie (apilado: uno solo en el total, en gris y en su propia pila)
+      const marks = stacked
+        ? [{ key: "__stub", color: theme.tick, values: buckets.map((_b, i) => series.reduce((a, s) => a + (hidden.has(s.key) ? 0 : s.values[i]), 0)), hide: false }]
+        : series.map((s) => ({ key: s.key, color: s.color, values: s.values, hide: hidden.has(s.key) }));
+      marks.forEach((m) =>
+        datasets.push({
+          label: "Tramo parcial",
+          data: m.values.map((v, i) => (stubs[i] ? v : null)),
+          showLine: false,
+          fill: false,
+          borderColor: m.color,
+          backgroundColor: theme.surface,
+          pointRadius: 4,
+          pointHoverRadius: 5,
+          pointHitRadius: 10,
+          pointBackgroundColor: theme.surface,
+          pointHoverBackgroundColor: theme.surface,
+          pointBorderColor: m.color,
+          pointHoverBorderColor: m.color,
+          pointBorderWidth: 2,
+          pointHoverBorderWidth: 2,
+          stack: stacked ? "__stub" : undefined,
+          hidden: m.hide,
+          order: -1,
+        }),
+      );
+    }
     return { labels, datasets };
-  }, [theme, mode, series, n, hidden, dashed, prev, prevColor, labels]);
+  }, [theme, mode, series, n, hidden, dashed, prev, prevColor, labels, hasStub, stubs, buckets]);
+
+  // Relleno del tramo parcial (en oscuro más tenue: al 0,28 el naranja se lee marrón)
+  const partialFill = theme.mode === "dark" ? 0.18 : 0.28;
+  const partialCols = useCallback((j: number) => j === partialIdx || j === partialFirst, [partialIdx, partialFirst]);
 
   const barData: ChartData<"bar", number[], string> = useMemo(() => {
     const multi = series.length > 1;
+    // Pocas columnas (≤ 6 semanas o meses): barras de hasta 40 px para no dejar el lienzo vacío
+    const barMax = n <= 6 ? 40 : 24;
     const datasets: ChartData<"bar", number[], string>["datasets"] = series.map((s, i) => ({
       label: s.name,
       data: s.values,
-      backgroundColor: s.values.map((_v, j) => (j === partialIdx ? alpha(s.color, 0.5) : s.color)),
-      hoverBackgroundColor: s.color,
+      // Parcial: relleno tenue + contorno punteado (partialBarsPlugin), igual que el tramo punteado de la línea
+      backgroundColor: s.values.map((_v, j) => (partialCols(j) ? alpha(s.color, partialFill) : s.color)),
+      hoverBackgroundColor: s.values.map((_v, j) => (partialCols(j) ? alpha(s.color, partialFill + 0.12) : s.color)),
       borderRadius: multi && i < series.length - 1 ? 0 : { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
       borderSkipped: "start",
       grouped: multi,
       stack: widget.splitBy ? "s" : undefined,
-      maxBarThickness: 24,
+      maxBarThickness: barMax,
       barPercentage: multi ? 0.9 : 0.62,
       categoryPercentage: 0.8,
       hidden: hidden.has(s.key),
       order: i,
     }));
     if (prev) {
+      // Periodo anterior como marcador (raya de 2 px, sin relleno) ENCIMA de la columna actual: se lee
+      // como referencia y nunca como otra columna gris junto a la banda de fin de semana
       datasets.push({
         label: "Periodo anterior",
         data: prev,
-        backgroundColor: ghostFill,
-        hoverBackgroundColor: alpha(theme.tick, 0.3),
-        borderColor: alpha(theme.tick, 0.6),
-        borderWidth: { top: 1.5, left: 0, right: 0, bottom: 0 },
+        backgroundColor: "transparent",
+        hoverBackgroundColor: "transparent",
+        borderColor: prevMarker,
+        hoverBorderColor: theme.text,
+        borderWidth: { top: 2, left: 0, right: 0, bottom: 0 },
+        // Chart.js acepta el objeto en hover igual que en borderWidth (sus tipos solo declaran número); sin él,
+        // al pasar el mouse el marcador se volvía un rectángulo con borde en los 4 lados
+        hoverBorderWidth: { top: 2, left: 0, right: 0, bottom: 0 } as unknown as number,
         borderRadius: 0,
         borderSkipped: "start",
         grouped: false,
-        maxBarThickness: 36,
+        maxBarThickness: barMax + 8,
         barPercentage: 1,
         categoryPercentage: 0.8,
         hidden: hidden.has(PREV_KEY),
-        order: 50,
+        order: -1,
       });
     }
     return { labels, datasets };
-  }, [series, partialIdx, widget.splitBy, hidden, prev, ghostFill, theme.tick, labels]);
+  }, [series, n, partialCols, partialFill, widget.splitBy, hidden, prev, prevMarker, theme.text, labels]);
+
+  const partialItems: PartialBar[] = useMemo(
+    () => (columns ? series.flatMap((s, si) => [partialIdx, partialFirst].filter((j) => j >= 0).map((j) => ({ datasetIndex: si, index: j, color: s.color }))) : []),
+    [columns, series, partialIdx, partialFirst],
+  );
+
+  // Eje Y justo: máximo visible (+5 %) con pasos finos; sin grace ni el niceNum de Chart.js, que con
+  // 4 ticks saltaba a 0–100 para un máximo de 57 y dejaba vacío el 40 % del alto
+  const yStacked = mode === "stacked" || (columns && Boolean(widget.splitBy));
+  const yMax = useMemo(() => {
+    const vis = series.filter((s) => !hidden.has(s.key));
+    let m = 0;
+    if (yStacked) for (let i = 0; i < n; i++) m = Math.max(m, vis.reduce((a, s) => a + (s.values[i] ?? 0), 0));
+    else for (const s of vis) for (const v of s.values) m = Math.max(m, v);
+    if (prev && !hidden.has(PREV_KEY)) for (const v of prev) m = Math.max(m, v);
+    return m;
+  }, [series, hidden, yStacked, n, prev]);
+  const yNice = niceScale(yMax, height > 0 && height < 150 ? 3 : 4, axisQuantum(format));
 
   const scales = useMemo(
     () => ({
       x: {
-        stacked: mode === "stacked" || (mode === "columns" && Boolean(widget.splitBy)),
+        stacked: yStacked,
         grid: { display: false },
         border: { color: theme.axis },
-        ticks: { color: theme.tick, font: { size: 11 }, maxRotation: 0, minRotation: 0, autoSkip: true, autoSkipPadding: 14, maxTicksLimit: 8, padding: 6 },
+        // Con columnas, la franja de fin de semana ocupa 2–6 px bajo el eje: los rótulos bajan a 10 px
+        ticks: { color: theme.tick, font: { size: 11 }, maxRotation: 0, minRotation: 0, autoSkip: true, autoSkipPadding: 14, maxTicksLimit: 8, padding: columns ? 10 : 6 },
       },
       y: {
         beginAtZero: true,
-        stacked: mode === "stacked" || (mode === "columns" && Boolean(widget.splitBy)),
-        grace: "8%",
+        min: 0,
+        max: yNice.max,
+        stacked: yStacked,
         grid: { color: theme.grid, drawTicks: false },
         border: { display: false },
         ticks: {
           color: theme.tick,
           font: { size: 11 },
           padding: 8,
-          maxTicksLimit: 4,
-          precision: format === "int" || format === "compact" ? 0 : undefined,
+          stepSize: yNice.stepSize,
+          maxTicksLimit: 6,
           callback: (v: string | number) => formatAxis(Number(v), format),
         },
       },
     }),
-    [mode, widget.splitBy, theme, format],
+    [yStacked, columns, theme, format, yNice.max, yNice.stepSize],
   );
 
   const pluginOpts = useMemo(
@@ -551,10 +678,11 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
       legend: { display: false },
       tooltip: { enabled: false, external },
       docBands: { bands: showWeekend ? bands : [] },
-      docCrosshair: { color: mode === "columns" ? undefined : alpha(theme.tick, 0.45) },
-      docLabels: { items: directLabels, text: theme.text, muted: theme.muted, surface: theme.surface, kind: mode === "columns" ? "bar" : "point", minGap: 16 },
+      docCrosshair: { color: columns ? undefined : alpha(theme.tick, 0.45) },
+      docPartial: { items: partialItems },
+      docLabels: { items: directLabels, text: theme.text, muted: theme.muted, surface: theme.surface, kind: columns ? "bar" : "point", minGap: 16 },
     }),
-    [external, showWeekend, bands, mode, theme, directLabels],
+    [external, showWeekend, bands, columns, theme, partialItems, directLabels],
   );
 
   const lineOptions = useMemo(
@@ -609,8 +737,8 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
         onBlur={keys.onBlur}
         onMouseLeave={hide}
       >
-        {mode === "columns" ? (
-          <Bar ref={barRef} data={barData} options={barOptions} plugins={[bandsPlugin, labelsPlugin]} role="img" aria-label={`${widget.title}: ${footerText}`} />
+        {columns ? (
+          <Bar ref={barRef} data={barData} options={barOptions} plugins={[bandsPlugin, partialBarsPlugin, labelsPlugin]} role="img" aria-label={`${widget.title}: ${footerText}`} />
         ) : (
           <Line ref={lineRef} data={lineData} options={lineOptions} plugins={[bandsPlugin, crosshairPlugin, labelsPlugin]} role="img" aria-label={`${widget.title}: ${footerText}`} />
         )}

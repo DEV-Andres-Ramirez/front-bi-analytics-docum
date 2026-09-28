@@ -30,7 +30,7 @@ interface Family {
 const DEFAULT_FAMILIES: { label: string; tone: StatusTone }[] = [
   { label: "Favorable", tone: "good" },
   { label: "Desfavorable", tone: "critical" },
-  { label: "Trámite o informativo", tone: "neutral" },
+  { label: "Trámite o informativo", tone: "info" },
 ];
 
 function buildFamilies(result: CategoryResult, widget: BarWidget | DonutWidget): { families: Family[]; noData: Entry[] } {
@@ -70,7 +70,7 @@ function buildFamilies(result: CategoryResult, widget: BarWidget | DonutWidget):
 
 /**
  * FamilySplit (Tutelas · Estado del fallo): cabecera split por familias
- * (Favorable good · Desfavorable critical · Trámite o informativo neutral) con cifra de 28 px y %
+ * (Favorable good · Desfavorable critical · Trámite o informativo info) con cifra de 28 px y %
  * sobre los registros con dato; barra 100 % de 8 px; "Sin dato" en nota; legend-table en 2 columnas
  * (filas de 20 px) agrupada por familia con TODOS los estados. Clic en un estado filtra la dimensión.
  */

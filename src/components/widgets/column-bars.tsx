@@ -12,7 +12,7 @@ import { isNeutral, resolveStatus } from "@/lib/charts/semantic";
 import { alpha, useChartTheme } from "@/lib/charts/theme";
 import { formatAxis, formatPct, formatValue } from "@/lib/format";
 import { dayShort, displayLabel, stripOrdinal } from "@/lib/labels";
-import { bandsPlugin, chartToPng, labelsPlugin, useChartAnimation, useChartKeyboard, useChartResizeGuard, type BandSpec, type CanvasLabel } from "./canvas-helpers";
+import { axisQuantum, bandsPlugin, chartToPng, labelsPlugin, niceScale, useChartAnimation, useChartKeyboard, useChartResizeGuard, type BandSpec, type CanvasLabel } from "./canvas-helpers";
 import { useExporter } from "./frame-context";
 import { ChartLegend, type LegendItem } from "./kit/chart-legend";
 import { ChartTooltip, chartJsExternal, useChartTooltip, type TooltipContent } from "./kit/chart-tooltip";
@@ -28,7 +28,11 @@ registerCharts();
  * categoryPercentage 0,72, orden natural, valor arriba con ≤ 12 columnas, eje X de 11 px
  * sin rotación (autoSkip si no cabe) y filtro cruzado con la selección resaltada.
  * Preset semana: todas las columnas en el token pleno (el atenuado a 0,45 queda reservado a
- * "filtrar es resaltar"); el máximo se marca con la cifra en 700 y el rótulo "máx" en muted.
+ * "filtrar es resaltar"); el máximo se marca con la cifra en 700 y el rótulo "máx" en text-2, y un
+ * pie con la anatomía del de AreaTimeseries (Total · Fin de semana · Pico) alinea la línea base con
+ * la serie vecina de la fila.
+ * Eje Y justo: con las cifras sobre las columnas (eje oculto) el máximo es el dato (sin redondeo);
+ * con eje visible, niceScale (pasos finos) en lugar del niceNum de Chart.js.
  */
 
 const DAY_ORDER = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -156,6 +160,11 @@ export function ColumnBars({ widget, result, span }: VizProps<BarWidget | DonutW
   const slot = vo?.colorSlot === 2 ? 1 : 0;
   const metric = theme.series[slot];
   const maxReal = Math.max(0, ...columns.filter((c) => !c.neutral).map((c) => c.value));
+  const maxAll = Math.max(0, ...columns.map((c) => c.value));
+  // Eje oculto: la columna más alta llega al techo del área (las cifras van en el padding superior);
+  // eje visible: escala justa. Antes grace 10 % + niceNum dejaban la más alta al 71 % (213 → 300).
+  const yNice = niceScale(maxAll, 4, axisQuantum(format));
+  const yMax = showValues ? (maxAll > 0 ? maxAll * 1.04 : 1) : yNice.max;
   // Semana: el máximo se marca con la cifra (700 + "máx"), nunca con el color (que es el código del filtro)
   const maxIdx = preset === "semana" && maxReal > 0 ? columns.findIndex((c) => !c.neutral && c.value === maxReal) : -1;
   const hasSel = selected.length > 0;
@@ -209,6 +218,20 @@ export function ColumnBars({ widget, result, span }: VizProps<BarWidget | DonutW
         : [],
     [showValues, columns, format, maxIdx],
   );
+
+  // ─── Pie (preset semana): misma anatomía que el de AreaTimeseries ─────────
+  // Alinea la línea base con la serie vecina de la fila (8-4) y suma el peso del fin de semana.
+  const footer = useMemo(() => {
+    if (preset !== "semana" || !total) return [];
+    const weekend = columns.filter((c) => c.tick === "Sáb" || c.tick === "Dom").reduce((a, c) => a + c.value, 0);
+    const items = [{ label: "Total", value: formatValue(total, format) }];
+    if (maxIdx >= 0) items.push({ label: "Pico", value: `${columns[maxIdx].tick} ${formatValue(maxReal, format)} (${formatPct(maxReal / total)})` });
+    items.push({ label: "Fin de semana", value: formatPct(weekend / total) });
+    return items;
+  }, [preset, total, columns, maxIdx, maxReal, format]);
+  // Una sola línea: si no cabe, sale el Pico (la columna ya lo marca con "máx")
+  const footerWidth = footer.reduce((w, f, i) => w + (f.label.length + f.value.length + 1) * 6.3 + (i ? 12 : 0), 0);
+  const footerShown = footerWidth > width ? footer.filter((f) => f.label !== "Pico") : footer;
 
   const canFilter = useCallback((c: Column | undefined) => Boolean(c && c.raw !== null && !noCross && !c.folded && dimension), [noCross, dimension]);
   const activate = useCallback(
@@ -290,17 +313,19 @@ export function ColumnBars({ widget, result, span }: VizProps<BarWidget | DonutW
           y: {
             display: !showValues,
             beginAtZero: true,
-            grace: "10%",
+            min: 0,
+            max: yMax,
             grid: { color: theme.grid, drawTicks: false },
             border: { display: false },
-            ticks: { color: theme.tick, font: { size: 11 }, padding: 8, maxTicksLimit: 4, precision: format === "int" ? 0 : undefined, callback: (v: string | number) => formatAxis(Number(v), format) },
+            ticks: { color: theme.tick, font: { size: 11 }, padding: 8, stepSize: yNice.stepSize, maxTicksLimit: 6, callback: (v: string | number) => formatAxis(Number(v), format) },
           },
         },
         plugins: {
           legend: { display: false },
           tooltip: { enabled: false, external },
           docBands: { bands },
-          docLabels: { items: valueLabels, text: theme.text, muted: theme.muted, surface: theme.surface, kind: "bar" },
+          // "máx" en text-2 (en muted quedaba al límite de contraste sobre la banda de fin de semana)
+          docLabels: { items: valueLabels, text: theme.text, muted: maxIdx >= 0 ? theme.resolve("var(--text-2)") : theme.muted, surface: theme.surface, kind: "bar" },
         },
         onHover: (e: { native: Event | null }, els: unknown[]) => {
           const t = e.native?.target as HTMLElement | undefined;
@@ -310,7 +335,7 @@ export function ColumnBars({ widget, result, span }: VizProps<BarWidget | DonutW
           if (els.length) activate(els[0].index);
         },
       }) as unknown as ChartOptions<"bar">,
-    [motion, showValues, maxIdx, theme, fits, tickLines, columns, hasSel, isSel, preset, format, external, bands, valueLabels, noCross, activate],
+    [motion, showValues, maxIdx, theme, fits, tickLines, columns, hasSel, isSel, preset, format, external, bands, valueLabels, noCross, activate, yMax, yNice.stepSize],
   );
 
   // ─── Franja: leyenda de estados (con ícono) y chip de calidad ───────────
@@ -350,6 +375,15 @@ export function ColumnBars({ widget, result, span }: VizProps<BarWidget | DonutW
           aria-label={`${widget.title}: ${columns.map((c) => `${c.full} ${formatValue(c.value, format)}`).join(", ")}`}
         />
       </div>
+      {footerShown.length > 0 && (
+        <ul role="list" aria-label="Resumen por día de la semana" className="tabular mt-2.5 flex shrink-0 flex-wrap gap-x-3 gap-y-0.5 text-[11px] leading-4 text-muted">
+          {footerShown.map((f) => (
+            <li key={f.label} className="whitespace-nowrap">
+              {f.label} <span className="font-semibold text-text-2">{f.value}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       <span className="sr-only" aria-live="polite">
         {keys.announce}
       </span>

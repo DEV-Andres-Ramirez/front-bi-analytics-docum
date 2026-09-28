@@ -1,6 +1,6 @@
 import "server-only";
 
-import { canal, orNoReporta } from "../normalizers";
+import { canal, orNoReporta, tiempoPorVencer } from "../normalizers";
 import type { Profile } from "../mock/generator";
 import { radicado } from "../mock/generator";
 import { fakeDigits, fakeObservation } from "../mock/fake";
@@ -60,7 +60,7 @@ export const smartM3: DatasetDef = {
   normalize: (r) => ({
     ...r,
     pqrd_estado: orNoReporta(r.pqrd_estado),
-    pqrd_tiempo_por_vencer: orNoReporta(r.pqrd_tiempo_por_vencer),
+    pqrd_tiempo_por_vencer: tiempoPorVencer(r.pqrd_tiempo_por_vencer),
     pqrd_canal_radicacion: canal(r.pqrd_canal_radicacion),
     pqrd_oficina_responsable: orNoReporta(r.pqrd_oficina_responsable),
     pqrd_tipologia: orNoReporta(r.pqrd_tipologia),

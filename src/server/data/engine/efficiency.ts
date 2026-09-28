@@ -10,6 +10,11 @@ import { keyReader } from "./core";
  * promedio semanal por gerencia de cada fase, cuartiles sobre 52 semanas y
  * mensaje de tendencia comparando la semana actual con hace 2 semanas.
  * Con BD real se lee la vista directamente.
+ *
+ * Puesto: `score` = cuartil promedio de las fases con dato en la semana actual (sin cambios). El orden
+ * es (score asc, fases con dato desc, volumen de la semana desc, nombre) y solo hay empate si coinciden
+ * score y cobertura: una gerencia con Q1 en 1 de 3 fases ya no empata en el puesto 1 con las que tienen
+ * Q1 en las 3 fases; queda debajo de ellas.
  */
 const PHASES = {
   asignacion: "num_dias_asignacion_gestionador",
@@ -63,8 +68,10 @@ export function efficiencyResult(table: Table, rows: Uint32Array, dateField: str
   const office = keyReader(column(table, "oficina_responsable_de_respuesta"));
   const phaseCols = Object.fromEntries(Object.entries(PHASES).map(([k, f]) => [k, column(table, f)])) as Record<Phase, ReturnType<typeof column>>;
 
-  // suma y conteo por gerencia × semana × fase
+  const lastWeek = 51;
+  // suma y conteo por gerencia × semana × fase; radicados de la semana actual por gerencia (desempate)
   const agg = new Map<string, Map<number, Record<Phase, [number, number]>>>();
+  const volume = new Map<string, number>();
   for (let k = 0; k < rows.length; k++) {
     const i = rows[k];
     const d = numberAt(dateCol, i);
@@ -75,6 +82,7 @@ export function efficiencyResult(table: Table, rows: Uint32Array, dateField: str
     if (!weeks) agg.set(g, (weeks = new Map()));
     let cell = weeks.get(w);
     if (!cell) weeks.set(w, (cell = { asignacion: [0, 0], gestion: [0, 0], revision: [0, 0], aprobacion: [0, 0] }));
+    if (w === lastWeek) volume.set(g, (volume.get(g) ?? 0) + 1);
     for (const p of Object.keys(PHASES) as Phase[]) {
       const v = numberAt(phaseCols[p], i);
       if (Number.isFinite(v)) {
@@ -91,7 +99,7 @@ export function efficiencyResult(table: Table, rows: Uint32Array, dateField: str
     cuts[p] = quantiles(all);
   }
 
-  const lastWeeks = [49, 50, 51];
+  const lastWeeks = [lastWeek - 2, lastWeek - 1, lastWeek];
   const weekLabel = (w: number) => {
     const s = new Date(first + w * 7 * DAY_MS);
     const e = new Date(first + w * 7 * DAY_MS + 6 * DAY_MS);
@@ -113,17 +121,17 @@ export function efficiencyResult(table: Table, rows: Uint32Array, dateField: str
       if (qs[2] !== null) current.push(qs[2]);
     }
     const score = current.length ? current.reduce((a, b) => a + b, 0) / current.length : null;
-    return { gerencia, score, ranking: null as number | null, phases };
+    return { gerencia, score, ranking: null as number | null, phases, coverage: current.length, volume: volume.get(gerencia) ?? 0 };
   });
 
-  const ranked = out.filter((r) => r.score !== null).sort((a, b) => a.score! - b.score!);
-  let prevScore: number | null = null;
-  let prevRank = 0;
+  const ranked = out
+    .filter((r) => r.score !== null)
+    .sort((a, b) => a.score! - b.score! || b.coverage - a.coverage || b.volume - a.volume || a.gerencia.localeCompare(b.gerencia, "es-CO"));
+  // Ranking de competición ("1, 1, 1, 4"): empate solo con el mismo score Y la misma cobertura
   ranked.forEach((r, idx) => {
-    r.ranking = r.score === prevScore ? prevRank : idx + 1;
-    prevScore = r.score;
-    prevRank = r.ranking;
+    const prev = ranked[idx - 1];
+    r.ranking = prev && prev.score === r.score && prev.coverage === r.coverage ? prev.ranking : idx + 1;
   });
-  const rowsOut = [...ranked, ...out.filter((r) => r.score === null)];
+  const rowsOut = [...ranked, ...out.filter((r) => r.score === null)].map(({ gerencia, score, ranking, phases }) => ({ gerencia, score, ranking, phases }));
   return { kind: "efficiency", weeks: lastWeeks.map(weekLabel), rows: rowsOut.slice(0, 60) };
 }

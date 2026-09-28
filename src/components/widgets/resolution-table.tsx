@@ -7,7 +7,7 @@ import type { BarTableWidget, StatusTone } from "@/dashboards/types";
 import { cn } from "@/lib/cn";
 import { isNeutral, resolveStatus, statusDisplay, TONE_VARS } from "@/lib/charts/semantic";
 import { DAY_MS, formatDayShort, isoToMs, todayISO } from "@/lib/dates";
-import { formatCOP, formatInt, formatValue, nf1 } from "@/lib/format";
+import { formatCOP, formatInt, formatValue, NBSP, nf1 } from "@/lib/format";
 import { displayLabel } from "@/lib/labels";
 import { StatusIcon } from "./kit/status-icon";
 import { MoreButton } from "./list-kit";
@@ -21,8 +21,10 @@ import type { VizProps } from "./types";
  * valor (barra de 80–160 px + cifra de 96 px) nunca se recorta. Las resoluciones vacías o de relleno
  * (99999999999999) se agrupan al final bajo "Sin resolución válida" con la nota visible.
  * Fechas y rangos no se parten a mitad (el único corte posible es la flecha o la etiqueta).
- * Tarjetas por debajo de 740 px de contenedor: alto por contenido (sin scroll anidado) y cada
+ * Tarjetas por debajo de 760 px de contenedor: alto por contenido (sin scroll anidado) y cada
  * resolución con más de 3 combinaciones se pliega tras "Ver N más".
+ * Una sola unidad COP en la tabla ("M"); si el Total en la unidad compacta del KPI se lee distinto
+ * ("$ 1,41 mil M" frente a "$ 1.407,2 M"), el pie muestra esa equivalencia debajo, en gris.
  */
 
 const FIELDS = {
@@ -101,11 +103,33 @@ function buildGroups(widget: BarTableWidget, result: BarTableResult) {
   return { valid: groups.filter((g) => !g.invalid), invalid: groups.filter((g) => g.invalid), known: idx.nro >= 0 };
 }
 
-/** Una sola unidad COP para toda la tabla ("M" desde un millón). */
+/** Divisor de la unidad COP de la tabla ("M" desde un millón, sin "mil M": las filas pequeñas no quedan en 0,01). */
+const tableDivisor = (max: number) => (max >= 1e6 ? 1e6 : max >= 1e4 ? 1e3 : 1);
+/** Divisor de la cifra compacta de los KPI (formatCOP): mil M, M, mil o unidades. */
+const compactDivisor = (n: number) => (Math.abs(n) >= 1e9 ? 1e9 : Math.abs(n) >= 1e6 ? 1e6 : Math.abs(n) >= 1e4 ? 1e3 : 1);
+
+/** Una sola unidad COP para toda la tabla (espacio duro: la unidad no queda sola al envolver). */
 function copFormatter(max: number) {
-  const [div, suffix] = max >= 1e6 ? [1e6, " M"] : max >= 1e4 ? [1e3, " mil"] : [1, ""];
+  const div = tableDivisor(max);
+  const suffix = div === 1e6 ? `${NBSP}M` : div === 1e3 ? `${NBSP}mil` : "";
   const nf = div === 1 ? new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 }) : nf1;
-  return (n: number) => `$ ${nf.format(n / div)}${suffix}`;
+  return (n: number) => `$${NBSP}${nf.format(n / div)}${suffix}`;
+}
+
+/** El Total en la unidad del KPI ("≈ $ 1,41 mil M") cuando difiere de la unidad de la tabla; si no, null. */
+function kpiEquivalent(total: number, max: number): string | null {
+  return compactDivisor(total) !== tableDivisor(max) ? formatCOP(total) : null;
+}
+
+/** Cifra del Total con su equivalencia en la unidad del KPI (mismo número que la banda de KPIs). */
+function TotalFigure({ total, max, fmt, label }: { total: number; max: number; fmt: (n: number) => string; label: string }) {
+  const equiv = kpiEquivalent(total, max);
+  return (
+    <span className="block" title={`${label}: ${formatCOP(total, false)}`}>
+      <span className="block">{fmt(total)}</span>
+      {equiv && <span className="block text-[11px] font-medium text-muted">≈ {equiv}</span>}
+    </span>
+  );
 }
 
 // ─── Piezas ──────────────────────────────────────────────────────────────────
@@ -278,13 +302,14 @@ export function ResolutionTable({ widget, result, expanded }: VizProps<BarTableW
   const invalidCount = invalid.reduce((a, g) => a + g.lines.length, 0);
   const th = "sticky top-0 z-10 border-b border-border bg-surface px-3 pb-2 text-left align-bottom text-[11px] font-bold text-text-2";
 
-  // Tarjetas con contenedor < 740 px (alto por contenido); tabla desde 740 con tope de 640 px
-  // y scroll interno (Rango como columna propia desde 940).
+  // Tarjetas con contenedor < 760 px (alto por contenido); tabla desde 760 con tope de 640 px
+  // y scroll interno (Rango como columna propia desde 940). Anchos: 140 + 60 + 136 + Vigencia 212
+  // (las dos fechas en una línea) = 548; a 760 quedan 212 para Valor neto (barra 80 + cifra 96 + relleno).
   return (
     <div className={cn("@container/rt min-h-0", expanded && "h-full")}>
-      <div className={cn("flex min-h-0 flex-col", expanded ? "h-full" : "@min-[740px]/rt:max-h-[640px]")}>
-        <div ref={scrollRef} onScroll={onScroll} {...dataAttrs} className="group/sc relative min-h-0 flex-1 overflow-auto overscroll-contain">
-          <div className="flex flex-col gap-3 @min-[740px]/rt:hidden">
+      <div className={cn("flex min-h-0 flex-col", expanded ? "h-full" : "@min-[760px]/rt:max-h-[640px]")}>
+        <div ref={scrollRef} onScroll={onScroll} {...dataAttrs} className="group/sc relative isolate min-h-0 flex-1 overflow-auto overscroll-contain">
+          <div className="flex flex-col gap-3 @min-[760px]/rt:hidden">
             <ResolutionCards groups={valid} max={result.max} fmt={fmt} today={today} />
             {invalid.length > 0 && (
               <section aria-label="Sin resolución válida" className="flex flex-col gap-2">
@@ -294,28 +319,28 @@ export function ResolutionTable({ widget, result, expanded }: VizProps<BarTableW
             )}
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2.5">
               {footer}
-              <span className="tabular text-[13px] font-bold text-text" title={formatCOP(result.total, false)}>
-                {fmt(result.total)}
+              <span className="tabular ml-auto text-right text-[13px] font-bold text-text">
+                <TotalFigure total={result.total} max={result.max} fmt={fmt} label={widget.measureLabel} />
               </span>
             </div>
           </div>
 
-          <table className="hidden w-full table-fixed border-separate border-spacing-0 text-[12.5px] @min-[740px]/rt:table" aria-label={widget.title}>
+          <table className="hidden w-full table-fixed border-separate border-spacing-0 text-[12.5px] @min-[760px]/rt:table" aria-label={widget.title}>
             <thead>
               <tr>
-                <th scope="col" className={cn(th, "w-[150px] @min-[940px]/rt:w-[172px]", EDGE_T)}>
+                <th scope="col" className={cn(th, "w-[140px] @min-[940px]/rt:w-[172px]", EDGE_T)}>
                   Resolución
                 </th>
-                <th scope="col" className={cn(th, "w-14 @min-[940px]/rt:w-[88px]", EDGE_T)}>
+                <th scope="col" className={cn(th, "w-[60px] @min-[940px]/rt:w-[88px]", EDGE_T)}>
                   <span className="@min-[940px]/rt:hidden" aria-hidden>
                     Doc.
                   </span>
                   <span className="sr-only @min-[940px]/rt:not-sr-only">Documento</span>
                 </th>
-                <th scope="col" className={cn(th, "w-[124px] @min-[940px]/rt:w-[136px]", EDGE_T)}>
+                <th scope="col" className={cn(th, "w-[136px]", EDGE_T)}>
                   Estado
                 </th>
-                <th scope="col" className={cn(th, "w-[188px] @min-[940px]/rt:w-[212px]", EDGE_T)}>
+                <th scope="col" className={cn(th, "w-[212px]", EDGE_T)}>
                   Vigencia
                 </th>
                 <th scope="col" className={cn(th, "hidden w-[156px] @min-[940px]/rt:table-cell", EDGE_T)}>
@@ -351,8 +376,8 @@ export function ResolutionTable({ widget, result, expanded }: VizProps<BarTableW
                   {footer}
                 </td>
                 <td className={cn("sticky bottom-0 hidden border-t border-border bg-surface @min-[940px]/rt:table-cell", EDGE_B)} />
-                <td className={cn("tabular sticky bottom-0 border-t border-border bg-surface px-3 py-2.5 text-right text-[13px] font-bold text-text", EDGE_B)} title={formatCOP(result.total, false)}>
-                  {fmt(result.total)}
+                <td className={cn("tabular sticky bottom-0 border-t border-border bg-surface px-3 py-2.5 text-right text-[13px] font-bold text-text", EDGE_B)}>
+                  <TotalFigure total={result.total} max={result.max} fmt={fmt} label={widget.measureLabel} />
                 </td>
               </tr>
             </tfoot>

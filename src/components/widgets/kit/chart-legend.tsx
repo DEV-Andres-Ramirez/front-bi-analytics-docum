@@ -93,7 +93,9 @@ export function ChartLegend({ items, mode = "static", onItemClick, layout = "inl
           </>
         );
         return (
-          <li key={it.key} className={cn("min-w-0", interactive && "-mx-1")}>
+          // flex + items-center: la alineación no depende de la línea base de la muestra (banda de 10 px vs.
+          // línea de 2 px), así los ítems que mezclan formas quedan a la misma altura
+          <li key={it.key} className={cn("flex min-w-0 items-center", interactive && "-mx-1")}>
             {interactive ? (
               <button
                 type="button"
@@ -129,6 +131,8 @@ type ScaleProps = {
   note?: string;
   /** Muestra la muestra "Sin registros". */
   noData?: boolean;
+  /** Rayado de "Sin registros" (mapa en oscuro: el mismo rayado del lienzo). */
+  noDataHatch?: boolean;
   className?: string;
 } & (
   | { classes: { color: string; label: string }[]; gradient?: never }
@@ -137,7 +141,7 @@ type ScaleProps = {
 
 /** Escala de magnitud: clases con rangos reales o barra continua con mínimo y máximo reales. */
 export function ScaleLegend(props: ScaleProps) {
-  const { title, note, noData, className } = props;
+  const { title, note, noData, noDataHatch, className } = props;
   return (
     <div className={cn("min-w-0", className)}>
       {title && <p className="mb-1.5 text-[11px] font-semibold text-text-2">{title}</p>}
@@ -147,7 +151,8 @@ export function ScaleLegend(props: ScaleProps) {
             {props.classes.map((c) => (
               <li key={c.label} className="flex min-w-[42px] flex-col gap-1">
                 <span className="h-2 rounded-[2px]" style={{ background: c.color }} aria-hidden />
-                <span className="tabular whitespace-nowrap text-[10.5px] text-muted">{c.label}</span>
+                {/* pr-1.5: los rangos contiguos no se leen como una sola cifra ("12–16 | 2 474"); la rampa sigue continua */}
+                <span className="tabular whitespace-nowrap pr-1.5 text-[10.5px] text-muted">{c.label}</span>
               </li>
             ))}
           </ol>
@@ -162,7 +167,13 @@ export function ScaleLegend(props: ScaleProps) {
         )}
         {noData && (
           <span className="flex flex-col gap-1">
-            <span className="h-2 w-[42px] rounded-[2px] border border-border bg-surface-3" aria-hidden />
+            <span
+              className={cn(
+                "h-2 w-[42px] rounded-[2px] border border-border bg-surface-3",
+                noDataHatch && "bg-[repeating-linear-gradient(135deg,color-mix(in_srgb,var(--text-2)_28%,transparent)_0_0.75px,transparent_0.75px_4.25px)]",
+              )}
+              aria-hidden
+            />
             <span className="whitespace-nowrap text-[10.5px] text-muted">Sin registros</span>
           </span>
         )}

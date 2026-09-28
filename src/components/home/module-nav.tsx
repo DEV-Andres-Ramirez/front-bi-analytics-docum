@@ -8,10 +8,13 @@ import { cn } from "@/lib/cn";
 /** Alto del topbar (64) + esta barra (52): el scroll-spy y las anclas descuentan esta franja. */
 const STICKY_OFFSET = 64 + 52;
 /**
- * Línea de activación: un módulo es el activo cuando su borde superior la cruza. Las secciones llevan
- * scroll-mt de 136 px, así que tras un clic en el chip el módulo destino queda justo por encima de la línea.
+ * Línea de activación: a un 30 % del área visible bajo la franja sticky (≈ 350 px a 900 de alto). Un módulo es el
+ * activo cuando su borde superior la cruza: así manda el que ocupa la vista, no uno del que solo queda el pie
+ * bajo la barra. Tras un clic en un chip (scroll-mt de 136 px) el módulo destino queda por encima de la línea.
  */
-const SPY_LINE = STICKY_OFFSET + 40;
+function spyLine(): number {
+  return STICKY_OFFSET + Math.round((window.innerHeight - STICKY_OFFSET) * 0.3);
+}
 /** Desplazamiento (px) que el usuario debe hacer tras un clic en un chip para que el scroll-spy vuelva a mandar. */
 const LOCK_SLACK = 32;
 
@@ -30,13 +33,14 @@ interface Props {
 function spyActive(): ModuleId | null {
   const doc = document.documentElement;
   const atBottom = window.scrollY + window.innerHeight >= doc.scrollHeight - 4;
+  const line = spyLine();
   let current: ModuleId | null = null;
   let lastVisible: ModuleId | null = null;
   for (const m of MODULES) {
     const el = document.getElementById(m.id);
     if (!el) continue;
     const r = el.getBoundingClientRect();
-    if (r.top <= SPY_LINE && r.bottom > STICKY_OFFSET) current = m.id;
+    if (r.top <= line && r.bottom > STICKY_OFFSET) current = m.id;
     if (r.bottom > STICKY_OFFSET && r.top < window.innerHeight) lastVisible = m.id;
   }
   return atBottom && lastVisible ? lastVisible : current;
@@ -153,7 +157,7 @@ export function ModuleNav({ counts, searching }: Props) {
         ref={ref}
         onScroll={(e) => measure(e.currentTarget)}
         style={mask ? { maskImage: mask, WebkitMaskImage: mask } : undefined}
-        className="relative mx-auto flex h-[52px] max-w-[var(--content-max)] items-center gap-1.5 overflow-x-auto px-4 [scrollbar-width:none] sm:px-6 lg:px-10 [&::-webkit-scrollbar]:hidden"
+        className="relative mx-auto flex h-[52px] max-w-[var(--content-max)] items-center gap-1.5 overflow-x-auto px-4 [scrollbar-width:none] sm:px-5 xl:px-8 [&::-webkit-scrollbar]:hidden"
       >
         {MODULES.map((m) => {
           const n = counts[m.id];

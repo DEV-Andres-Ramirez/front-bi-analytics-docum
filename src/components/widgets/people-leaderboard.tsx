@@ -38,7 +38,9 @@ import type { VizProps } from "./types";
 
 /**
  * PeopleLeaderboard (docs/ui-design-system.md § PeopleLeaderboard): rankings de personas.
- * - Fila de 44 px (avatar 28, nombre 13/600, "x % del total", valor 15/700, barra 4 px) o compacta de 34 px.
+ * - Fila de 44 px (avatar 28, nombre 13/600, barra 4 px con su % en una columna de ancho fijo —así todos los
+ *   rieles terminan en la misma x—, valor 15/700) o compacta de 34 px. "del total" se dice una vez, en el
+ *   resumen ("concentran el 56 % del total"), no en cada fila.
  * - Anillo --primary y medalla solo en el top 3.
  * - "No reporta" sale del ranking: callout warning-soft si supera el 15 %; si no, línea neutra con UserX en el pie.
  * - Cabecera "Top 10 de 37 · concentran 68 %" en el header de la tarjeta (sin alto extra) o en el pie si no cabe;
@@ -86,8 +88,9 @@ function Avatar({ name, rank, size }: { name: string; rank: number; size: 22 | 2
       {top && (
         <span
           className={cn(
-            "tabular absolute grid place-items-center rounded-full bg-surface font-bold text-primary-text ring-1 ring-primary",
-            size === 28 ? "-bottom-1 -right-1.5 size-4 text-[9px]" : "-bottom-1 -right-1.5 size-3.5 text-[8px]",
+            // Fuera de las iniciales, con halo del color de la superficie para separarlo del avatar
+            "tabular absolute grid place-items-center rounded-full bg-surface font-bold text-primary-text shadow-[0_0_0_2px_var(--surface)] ring-1 ring-primary",
+            size === 28 ? "-bottom-1.5 -right-2 size-4 text-[9px]" : "-bottom-1.5 -right-2 size-3.5 text-[8px]",
           )}
         >
           {rank}
@@ -166,6 +169,7 @@ function PersonRow({ person, rank, compact, height, max, total, format, valueW, 
     );
   }
   const lead = rank === 1 && share >= 0.25;
+  const pct = formatPct(share);
   return (
     <li>
       <Tag {...props} className={cn(base, "grid-cols-[28px_minmax(0,1fr)_auto] py-[5px]")} style={height ? { minHeight: height } : undefined}>
@@ -175,8 +179,13 @@ function PersonRow({ person, rank, compact, height, max, total, format, valueW, 
           <span className="flex items-center gap-2">
             {bar}
             {showPct && (
-              <span className={cn("tabular shrink-0 whitespace-nowrap text-[11.5px] leading-[13px]", lead ? "font-semibold text-text-2" : "text-muted")}>
-                {lead ? `concentra ${formatPct(share)}` : `${formatPct(share)} del total`}
+              // Ancho fijo tabular: el riel termina en la misma x en todas las filas (escala común exacta)
+              <span
+                className={cn("tabular shrink-0 whitespace-nowrap text-right text-[11.5px] leading-[13px]", lead ? "font-semibold text-text-2" : "text-muted")}
+                style={{ minWidth: pctW }}
+                title={`${pct} del total`}
+              >
+                {pct}
               </span>
             )}
           </span>
@@ -246,7 +255,8 @@ export function PeopleLeaderboard({ widget, result, height, span, expanded }: Vi
   const foldedPeople = hasOthersRow ? (result.folded ?? 0) : (result.rest?.count ?? result.folded ?? 0);
   const allPeople = people.length + foldedPeople;
   const concentration = total ? people.reduce((a, p) => a + p.value, 0) / total : 0;
-  const summaryLong = `Top ${formatInt(people.length)} de ${formatInt(allPeople)} · concentran ${formatPct(concentration, 0)}`;
+  // "del total" una sola vez (las filas muestran solo "10,4 %")
+  const summaryLong = `Top ${formatInt(people.length)} de ${formatInt(allPeople)} · concentran el ${formatPct(concentration, 0)} del total`;
   const summaryShort = `Top ${formatInt(people.length)} de ${formatInt(allPeople)} · ${formatPct(concentration, 0)}`;
   const summaryFull = `Top ${formatInt(people.length)} de ${formatInt(allPeople)} personas · concentran el ${formatPct(concentration)} del total`;
   const hasSummary = additive && people.length > 0;
@@ -273,7 +283,8 @@ export function PeopleLeaderboard({ widget, result, height, span, expanded }: Vi
     for (let c = 1; c <= maxCols; c++) {
       const rowW = columnRowWidth(W, c);
       const pctOn = showPct && (!compact || rowW >= 260);
-      const pctW = pctOn ? Math.max(...people.map((p) => numWidth(formatPct(p.value / total), 400, 11.5)), numWidth("0,0 %", 400, 11.5)) : 0;
+      // Regular: el % lleva peso 600 en el primero si concentra ≥ 25 %; se mide con el más ancho
+      const pctW = pctOn ? Math.max(...people.map((p) => numWidth(formatPct(p.value / total), compact ? 400 : 600, 11.5)), numWidth("0,0 %", 400, 11.5)) : 0;
       const nameW = compact ? rowW - 22 - 10 - valueW - (pctOn ? 8 + pctW : 0) : rowW - 28 - 10 - 10 - valueW;
       if (c > 1 && nameW < MIN_NAME) break;
       const heights = people.map((p) => {

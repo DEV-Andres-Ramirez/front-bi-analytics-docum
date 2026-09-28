@@ -199,8 +199,11 @@ export interface VizOptions {
   twoLine?: boolean;
   /** ranking: cabecera de concentración (top1 · top2 · resto). */
   concentration?: boolean;
-  /** ranking: fila fijada destacada (p. ej. "Adquiriente no encontrado"). */
-  pinned?: { label: string; cta?: string; filter?: { field: string; value: string } };
+  /**
+   * ranking: fila fijada destacada (p. ej. "Adquiriente no encontrado"). `tone` explícito o, si falta,
+   * el del valor que filtra su CTA en su familia (warning por defecto).
+   */
+  pinned?: { label: string; cta?: string; filter?: { field: string; value: string }; tone?: StatusTone };
   /** ranking: bullet de la métrica secundaria con marcador en el valor global de un KPI. */
   bulletKpi?: string;
   /** histogram: referencia punteada tomada de un KPI (p. ej. promedio de días). */
@@ -231,6 +234,8 @@ export interface VizOptions {
   fallbackViz?: Viz;
   /** hero-map: contexto adicional del panel (p. ej. municipios cubiertos). */
   mapContext?: string;
+  /** hero-map: KPI cuyo valor encabeza el contexto del panel ("93 municipios cubiertos"); si falta, mapContext. */
+  mapContextKpi?: string;
   /** pivot/role-pivot: columnas agrupadas por ciclo de vida / severidad. */
   columnFamily?: SemanticFamily;
 }
@@ -313,6 +318,8 @@ export interface MonthlyWidget extends WidgetBase {
   scope: "ytd" | "range";
   /** Color de las barras (slot categórico 1-8). */
   colorSlot?: number;
+  /** Tono de la variación mensual (DeltaChip). Sin declarar: neutral, como el KPI de la misma métrica. */
+  polarity?: Polarity;
 }
 
 export interface PivotWidget extends WidgetBase {

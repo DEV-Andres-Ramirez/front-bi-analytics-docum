@@ -74,6 +74,7 @@ export const correspondenciaEntradas: DashboardSpec = {
           kpis: ["aprobados", "pct-aprobados", "pendientes"],
           accents: { pendientes: "warning" },
           anchors: { pendientes: "#gestion" },
+          gauges: ["pct-aprobados"],
         },
       ],
     },
@@ -126,6 +127,8 @@ export const correspondenciaEntradas: DashboardSpec = {
           maxItems: 7,
         },
       ],
+      // 7-5, igual que Salidas: los CategoryTiles 2×2 necesitan span 5 (a span 4 miden ≈ 116 px a 1024, < 136
+      // mínimo, y recortan "Otros trámites").
       rows: [{ template: "7-5", tier: "M", cells: ["serie", "tipo-tramite"] }],
     },
     {
@@ -185,7 +188,8 @@ export const correspondenciaEntradas: DashboardSpec = {
           type: "bar",
           orientation: "horizontal",
           title: "Oficinas asignadas",
-          subtitle: "Top 20 por radicados + otras",
+          // Sin número: las filas visibles dependen del ancho; el pie "Otras N oficinas · Ver N más" informa el plegado
+          subtitle: "Radicados por oficina asignada",
           dimension: "Oficina_asignada",
           topN: 20,
           others: true,

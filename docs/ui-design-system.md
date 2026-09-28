@@ -186,8 +186,8 @@ El texto siempre va en tinta.
   - lista compacta: 40 + n·32.
 - PipelineSteps: horizontal si el interno es de al menos n·150 (alto 120); si no, vertical con 24 + n·48.
 - CompositionBar:
-  - layout legend: 50 + ⌈n / cols⌉·24; cols = 1 con menos de 400, 2 entre 400 y 639, 3 a partir de 640;
-  - layout split: ≈ 120 en columnas si el interno es de al menos n·110; si no, en filas con n·32 + 24.
+  - layout legend: 24 + ⌈n / cols⌉·24; cols = ⌊(interno + 16) / 248⌋ entre 1 y 3 (columnas de ≥ 232 px, como colRange del componente; el total va en la cabecera o la franja);
+  - layout split: ≈ 120 en columnas si el interno es de al menos n·140; si no, en filas con n·32 + 24.
 - Tiles:
   - CategoryTiles 2×2: tile de 136×104 como mínimo.
   - EntityTiles: tile de 180×112 como mínimo, 5 por línea a 12 columnas.
@@ -712,16 +712,16 @@ Fila de 40 px:
 Variantes:
 - 2 líneas (56);
 - compacta (32, barra inline);
-- fijada (44, en warning-soft con CTA; p. ej. 'Adquiriente no encontrado');
+- fijada (44, en el tono soft de la familia del valor que filtra su CTA —'Adquiriente no encontrado' → critical, como el tile '% Inconsistentes'—; warning-soft si no hay familia; `pinned.tone` lo fija explícitamente);
 - bullet secundario: columna propia de 56×4 con marcador de referencia (p. ej. '% entregadas' frente al KPI global).
 
 Cabecera de concentración: barra top1 · top2 · resto + 'N concentran X %'.
 
-Neutrales: después de una hairline, sin rango, fuera del máximo; 'Otros' se muestra como 'Otras N categorías'.
+Neutrales: después de una hairline, sin rango, fuera del máximo; 'Otros' se muestra como 'Otras N categorías'. Si la capacidad oculta filas con nombre, se suman a 'Otras N' (miembros en el tooltip) y su 'Ver N más' va en línea en esa fila, nunca en un pie después del agregado.
 
 Pie: 'Top 15 de 42 · 91 % del total'.
 
-Columnas: 1, 2 o 3 según layoutSystem §6, con numeración continua y escala común. 'Ver N más' abre scroll interno (Dialog con búsqueda si hay más de 30).
+Columnas: 1, 2 o 3 según layoutSystem §6, con numeración continua y escala común. 'Ver N más' abre scroll interno (Dialog con búsqueda si hay más de 30). En varias columnas las filas se alinean al pie de su fila de la grilla (barras a la misma altura); si el identificador secundario partiría filas, se omite en la fila y queda en el tooltip, el aria-label y el diálogo.
 
 Interacción: la fila es un botón que llama toggleValue; seleccionada en primary-soft con borde de 2 px; el resto baja a 0,45.
 
@@ -753,16 +753,16 @@ Cabecera: 'Top 10 de 37 · concentran 68 %' en el subtítulo, sin alto extra.
 - reemplaza: Las 20 donas, ProportionBar y SplitComparison por separado, y las barras o columnas de pocas categorías
 - cuándo: Toda parte de un todo con hasta 7 entradas visibles. Layout split con 2–3 categorías reales; legend con 4–7. Toda dimensión 'canal' usa este componente, para que los hermanos coincidan.
 - spec: legend:
-- total de 12 px arriba a la derecha;
+- total de 12 px en la cabecera de la tarjeta o en la franja de leyenda;
 - barra 100 % de 14 px con 2 px entre segmentos y radio 7 en los extremos;
 - % dentro del segmento solo si mide 56 px o más (color inkOn);
-- debajo, legend-table de 1–3 columnas: muestra, etiqueta, valor y %;
+- debajo, legend-table (muestra, etiqueta, valor y %) con columnas de ≥ 232 px; se usa la menor cantidad de columnas que cabe en el alto medido y las filas crecen hasta 34 px (40 con ≤ 3 filas);
 - más de 5 partes se pliegan en 'Otras N', con sus miembros listados en el tooltip y en 'Ver datos'.
 
 split:
 - 2–3 columnas con muestra, etiqueta, cifra de 32 px y %, más una barra de 8 px que las une;
-- neutrales como nota al pie;
-- en celdas angostas pasa a filas;
+- neutrales como nota al pie; los % se calculan sobre las partes con dato (total · N con dato);
+- anatomías: columnas (≥ 140 px por parte), apilada (celda < 480 px con alto: fila 1fr por parte con barra propia) y filas (legend-table);
 - variante estado × subtipo (EMITIDA/INCONSISTENTE con barra FC/NC/ND y glosario).
 
 Color: familia semántica o slots 1–5 estables.
@@ -779,14 +779,16 @@ Chip de calidad si el neutral está entre el 15 y el 85 %.
 - cuándo: StatusStrip: dimensiones con familia semántica y hasta 7 valores. StatusBoard: estados de flujo con más de 7 valores.
 - spec: StatusStrip:
 - barra 100 % de 12 px en el orden de la familia;
-- tiles en grid auto-fit minmax(112px, 1fr), agrupados (Abiertos | Cerrados);
-- cada tile: borde superior de 3 px en el tono, ícono de 16 px en -ink, etiqueta de 12,5 px sin prefijo, cifra de 24 px/700 y %; en critical-soft si el tono es critical y el valor es mayor que 0;
-- los neutrales se fusionan en un solo tile 'Sin clasificar', con el desglose en el tooltip;
+- tiles (≥ 112 px) en flex-wrap, agrupados (Abiertos | Cerrados); la última línea se estira (sin huecos);
+- cada tile: borde superior de 3 px en el tono, ícono de 16 px en -ink y etiqueta de 12,5 px sin prefijo; cifra de 24 px/700 y % juntos arriba, y barra de participación de 4 px al pie; en critical-soft si el tono es critical y el valor es mayor que 0;
+- los neutrales se fusionan en un solo tile y forman el grupo 'Sin clasificar' (cabecera muted y separador discontinuo, o su propia línea con el ancho de un tile), con el desglose en el tooltip;
+- con order declarado, los estados sin casos se muestran en 0 atenuados (los hermanos se leen igual);
 - variantes: vertical (span 4 o menos; puede actuar como legendFrom de la gráfica vecina) y lista compacta con cabecera fuera de escala (guías: 'Sin guía física: 818 · 93,9 %').
 
 StatusBoard:
 - barra de ciclo de vida;
-- columnas Finalizado, En curso, Devuelto y Anulado, con subtotal y filas de 28 px (punto, etiqueta, valor y mini barra);
+- columnas Finalizado, En curso, Devuelto y Anulado, consecutivas en el orden de la barra, con subtotal y filas de 28 px (punto, etiqueta, valor y mini barra);
+- dentro de un grupo, opacidad escalonada 100/72/48 solo con ≤ 3 estados;
 - override de grupos por spec.
 
 Clic en tile o fila: toggleValue.
@@ -799,8 +801,8 @@ Accesibilidad: role=list y aria-label 'Abierto vencido: 71 (7,3 %), crítico'.
 - spec: Orden: spec.order o el de la familia.
 
 Horizontal (interno de al menos n·150; alto 120):
-- chevrons de 64 px con etiqueta de 12,5 px, cifra de 20 px/700, % y barra fina relativa al máximo;
-- la etapa pendiente con más casos lleva anillo --primary y 'Mayor acumulación';
+- chevrons de 64 px con etiqueta de 12,5 px que reserva 2 líneas (cifras en la misma línea base), cifra de 20 px/700, % y barra fina que mide la participación (el mismo % impreso, no el valor relativo al máximo);
+- la etapa pendiente con más casos es una alerta de cuello de botella: relleno warning-soft, trazo --warning de 2 px y chip 'Mayor acumulación' en warning-soft/warning-ink con AlertTriangle (el naranja Balú queda para marca e interacción);
 - la etapa final va en good-soft.
 
 Vertical: pasos de 40 px unidos por un conector.
@@ -831,7 +833,7 @@ EntityTiles:
 - reemplaza: La barra de 'Estados de etapas procesales' (título engañoso, 10 de 16 estados, 'No reporta' en naranja)
 - cuándo: Tutelas 'fallos', rebautizado 'Estado del fallo'.
 - spec: Cabecera split de familias:
-- Favorable (good) · Desfavorable (critical) · Trámite o informativo (neutral), cada una con cifra de 28 px y %;
+- Favorable (good) · Desfavorable (critical) · Trámite o informativo (info: categoría real, así "Sin dato" es el único gris; badges y tooltips usan el mismo tono), cada una con cifra de 28 px y %;
 - 'Sin dato' en nota.
 
 Barra 100 % de 8 px.
@@ -1590,7 +1592,7 @@ Se conservan scope ytd, splitTopN 4, topN 10 y compare. Único derivado nuevo: l
 - hero: P1: matriz 'Facturas por día y hora' (HeatmapMatrix con marginales) a 12 L. KpiHero: facturas. La calidad se ve desde la banda como KpiTile de estado.
 - layout: KPIs 4-4-4. El tile de inconsistentes muestra la TASA; el volumen por tipo va en S3 (regla de duplicación).
 
-S1 RITMO DE EMISIÓN — ¿Cuándo emite la operación?
+S1 RITMO — ¿Cuándo emite la operación?
 Fila 12 L:
 - composite HeatmapMatrix [dia-hora (nuevo), dias, horas]. Celdas ≈ 33×39, horas en rango continuo con datos, banda 7–17 h, ScaleLegend raíz. El marginal derecho de 'dias' muestra conteo y % (el widget no mide COP).
 
@@ -1599,12 +1601,12 @@ Fila 6-6 M:
 - mensual-cantidad → chart-1.
 - mensual-valor → chart-2 (antes aqua slot 3). Se omite enero en 0 y con eso el '+428 %'.
 
-S3 CALIDAD Y ADQUIRIENTES — ¿Qué parte es inconsistente y a quién facturamos?
+S3 CALIDAD — ¿Qué parte es inconsistente y a quién facturamos?
 Fila 4-8 L:
 - estado-tipo → CompositionBar split estado × tipo: EMITIDA good / INCONSISTENTE critical, con barra FC/NC/ND y glosario.
 - top-adquirientes → RankingList: fila fijada 'Adquiriente no encontrado' (warning, CTA 'Ver inconsistentes'), 7 visibles y 'Ver los 60'. Alto 44 + 280 + 28 = 352 ≤ 384.
 
-S4 RESOLUCIONES DIAN
+S4 RESOLUCIONES — ¿Con qué resoluciones se factura?
 Fila 12 auto:
 - resoluciones → ResolutionTable.
 
@@ -1628,16 +1630,17 @@ Tabla completa.
 - layout: KPIs 3-3-6 (stepper de fases).
 
 S1 CUMPLIMIENTO — ¿Respondemos a tiempo y dónde se acumulan los casos?
-- Fila 12 S: semaforo → StatusStrip agrupado (Abiertos 3 | Cerrados 2). Alto 128 ≤ 184.
-- Fila 12 S: estados → PipelineSteps horizontal: Por asignar → Para gestión → En edición → Por aprobar → Aprobado. Alto 120.
+Fila 7-5 M:
+- semaforo → StatusStrip agrupado (Abiertos 3 | Cerrados 2; etiquetas sin prefijo). Alto 240 ≤ 284.
+- estados → PipelineSteps vertical 'Estado del flujo': Por asignar → Para gestión → En edición → Por aprobar → Aprobado. Alto 24 + 5·48 = 264 ≤ 284.
 
 S2 TERRITORIO (P1)
 Fila 12 XL:
 - mapa → HeroMap con desglose por canal.
 
-S3 ENTRADA Y COMPOSICIÓN — ¿Cómo evoluciona y por dónde llega?
+S3 TENDENCIA — ¿Cómo evoluciona y por dónde llega?
 - Fila 12 M: serie → AreaTimeseries (P2), serie 'Radicados'.
-- Fila 6-6 S: tipologia | canales → CompositionBar legend (5 partes, 2 columnas). Alto 122 ≤ 184.
+- Fila 6-6 S: tipologia | canales ('Canal de radicación') → CompositionBar legend (5 partes, 2 columnas). Alto 122 ≤ 184.
 
 S4 OFICINAS — ¿Qué oficina responde?
 Fila 12 L:
@@ -1663,21 +1666,22 @@ Tabla intacta.
 - hero: P1: HeroMap en S2 con desglose por ente. Es el mismo esqueleto que PQRD. KpiHero: radicados.
 - layout: KPIs 3-3-6 (alerts).
 
-S1 CUMPLIMIENTO Y FLUJO
-- Fila 12 S: semaforo → StatusStrip.
-- Fila 12 S: estado → PipelineSteps con las 8 categorías: flujo Por asignar → Para gestión → En edición → Aprobado; rama 'Reclasificación: Solicitud → Aprobada'; chips de salida Aprobación rechazada y Cerrado.
+S1 CUMPLIMIENTO — ¿Respondemos a tiempo y en qué etapa está cada requerimiento?
+Fila 7-5 M (igual que PQRD):
+- semaforo → StatusStrip agrupado. Alto 240 ≤ 284.
+- estado → PipelineSteps vertical 'Estado del flujo' con las 8 categorías (maxItems 8): 4 pasos Por asignar → Para gestión → En edición → Aprobado; rama 'Reclasificación: Solicitud → Aprobada' y salidas Aprobación rechazada y Cerrado como chips; modo denso si el pie no cabe. Alto 24 + 4·48 + 32 = 248 ≤ 284.
 
 S2 TERRITORIO (P1)
 Fila 12 XL:
 - mapa → HeroMap con desglose por ente y '16 sin ubicación'.
 
-S3 TENDENCIA Y COMPOSICIÓN
+S3 TENDENCIA — ¿Cómo evoluciona y qué tipo de requerimiento llega?
 - Fila 12 M: serie → AreaTimeseries (P2).
 - Fila 6-6 S: tipo | canal → CompositionBar split (3 categorías cada uno).
 
 S4 ENTES Y OFICINAS — ¿Quién nos requiere y quién responde?
 - Fila 12 M: entes → EntityTiles 5×2 con siglas; 'No identificados' (Otros y Sin clasificar) al final en neutral. Alto 232 ≤ 284.
-- Fila 12 L: oficinas → RankingList en 2 columnas (7 | 6) con 'Otras N oficinas'.
+- Fila 12 M: oficinas → RankingList en 2 columnas (6 | 6: top 11 + 'Otras N oficinas', porque el slot de Otros cuenta dentro del topN 12). Alto 40 + 6·40 = 280 ≤ 284.
 
 DETALLE: la nota de spec.notes pasa a DataNotesPopover.
 
@@ -1793,11 +1797,11 @@ S2 TERRITORIO (P1)
 Fila 12 XL:
 - mapa → HeroMap con el banner 'El mapa representa el 26 % de las quejas (290 sin ubicación)' y desglose por canal.
 
-S3 TENDENCIA
+S3 TENDENCIA — ¿Cómo evoluciona el ingreso de quejas al momento 3?
 Fila 12 M:
 - serie → AreaTimeseries (P2).
 
-S4 TRABAJO PENDIENTE — ¿Dónde se acumula la gestión?
+S4 PENDIENTE — ¿Dónde se acumula la gestión?
 SectionLegend: Gestión info · Cierre good. Fila 4-4-4 M:
 - estado-momento → SplitRows (6 × 36 = 216).
 - canal-momento → SplitRows compacta (7 × 32 = 224).
@@ -1808,11 +1812,11 @@ Fila 7-5 L:
 - drill → DrilldownBars v2 (366 ≤ 384).
 - sankey → Sankey v2.
 
-S6 CATEGORÍA SLA
+S6 SLA — ¿En qué estados, oficinas y tipos de solicitud se concentra el riesgo?
 Fila 12 auto:
 - pivot-estado, pivot-oficina y pivot-tipo → PivotHeatmap v2 en pestañas.
 
-DETALLE: Alerta con familia alerta; badge de semáforo.
+DETALLE: Alerta con familia alerta; Estado y Semáforo (badges) justo después del radicado, a la vista sin desplazar.
 
 Formas: 3 de 13 horizontales (23 %).
 - coverage: KPIs 6/6: total (héroe); cierre y gestion (Avance); por-vencer, vencidos y alertas (Riesgo).
@@ -1833,7 +1837,7 @@ Tabla intacta.
 - layout: KPIs 3-6-3.
 
 S1 ETAPA Y ESTADO — ¿En qué punto del proceso están?
-- Fila 12 S: etapas → PipelineSteps: Avoco → Oficios → Fallo 1.ª → Fallo 2.ª → Desacato (critical); chip Duplicado; nota No reporta.
+- Fila 12 S: etapas → PipelineSteps: Avoco → Oficios → Fallo 1.ª instancia → Fallo 2.ª instancia (alias cortos en vizOptions.overrides) → Desacato (critical); chip Duplicado; nota No reporta.
 - Fila 4-4-4 S:
   - estado → CompositionBar legend, familia flujo (5; 170 ≤ 184);
   - canal → split (Mail · Mail IA · Ventanilla);
@@ -1854,8 +1858,8 @@ S4 FALLOS, CAUSALES Y JUZGADOS — ¿Cómo se falla, por qué y desde dónde nos
   - departamentos → RankingList compacta en 2 columnas (6 | 5; 220 ≤ 284), con título 'Juzgado remitente · departamento' y subtítulo 'Geografía del juzgado, distinta al mapa'.
 
 S5 RESPONSABLES
-Fila 12 L:
-- gestionadores → PeopleLeaderboard en 3 columnas (7 | 7 | 6; 336 ≤ 384), con chip 'concentra 30 %' en el #1.
+Fila 12 M:
+- gestionadores → PeopleLeaderboard compacta en 3 columnas (7 | 7 | 6; 7·34 = 238 ≤ 284), con chip 'concentra 30 %' en el #1.
 
 DETALLE: encabezado con container query (arregla el colapso a 1024).
 
@@ -1927,29 +1931,28 @@ S1 DESTINO (P1)
 Fila 12 XL:
 - mapa → HeroMap con desglose por forma de envío, nota de geografía del destinatario y '6 sin ubicación'.
 
-S2 ENVÍO Y NOTIFICACIÓN — ¿Qué pasó con cada envío?
+S2 NOTIFICACIÓN — ¿Qué pasó con cada envío?
 La banda muestra tasas sobre notificables; el widget, volumen con 'Sin evento'.
 - Fila 6-6 S:
-  - resultado → StatusStrip, familia notificación (4 en 1 línea; 100 ≤ 184);
+  - resultado → StatusStrip, familia notificación, con las etiquetas de la banda: Entregada · Abierta · Fallida (4 en 1 línea; 100 ≤ 184);
   - medio → CompositionBar legend (5).
 - Fila 4-4-4 M:
   - guias → StatusStrip lista compacta con la cabecera 'Sin guía física (envío electrónico): 818 · 93,9 %' fuera de escala y los 5 estados reales (200 ≤ 284);
   - copia → ColumnBars ordinal con 9 columnas (Ppal, 1–8);
   - tramite → CompositionBar split (Medicina laboral · Comunicaciones ML).
 
-S3 OFICINAS — ¿Qué oficinas notifican mejor?
+S3 OFICINAS — ¿Qué oficinas envían más y cuáles notifican mejor?
 Fila 12 M:
 - oficinas → RankingList en 2 columnas (4 | 4) con bullet '% entregadas' y marcador en el valor global del KPI. Alto 216 ≤ 284.
 
-S4 RITMO DE APROBACIÓN
-Fila 12 M:
-- serie → AreaTimeseries (P2), en modo columns automático porque los datos llegan por lotes.
+S4 RITMO — ¿Cómo se aprueban las salidas y con qué plazo?
+Fila 8-4 M:
+- serie → AreaTimeseries (P2), subtítulo 'Por fecha de aprobación', vizOptions.mode 'auto': área con datos diarios; pasa a columns solo si > 60 % de los días están en 0.
+- tiempo-definido → Histogram v2 con 'Sin dato: 253' (chip de calidad si pasa del 15 %).
 
-S5 RESPONSABLES Y PROCESOS
+S5 RESPONSABLES — ¿Quién gestiona las salidas y en qué procesos?
 - Fila 6-6 L: gestionadores | revisores → PeopleLeaderboard compacta (340 ≤ 384).
-- Fila 7-5 M:
-  - procesos → Treemap (11 procesos con etiquetas cortas);
-  - tiempo-definido → Histogram v2 con 'Sin dato: 253'.
+- Fila 12 M: procesos → Treemap con alternancia Lista (11 procesos con etiquetas cortas).
 
 Formas: 3 de 12 horizontales (25 %).
 - coverage: KPIs 8/8: total (héroe); entregadas, abiertas y fallidas (Notificación); digital y guias (Envío); aprobacion y sla (Aprobación).
@@ -1958,8 +1961,8 @@ Widgets 12/12:
 - S1: mapa;
 - S2: resultado, medio, guias, copia, tramite;
 - S3: oficinas, con su métrica secundaria;
-- S4: serie;
-- S5: gestionadores, revisores, procesos, tiempo-definido.
+- S4: serie, tiempo-definido;
+- S5: gestionadores, revisores, procesos.
 
 copia pasa de dona a barra ordinal con las 9 categorías: superconjunto, porque hoy la dona pliega Copia 5–8 en 'Otros'. tramite tiene 2 valores efectivos por el override del dataset; verificar con la BD real.
 
@@ -2014,7 +2017,7 @@ Fila 8-4 M:
 
 S3 CANAL Y SEALMAIL — ¿Qué tan digital es el envío?
 Fila 4-8 M:
-- canal → CompositionBar split, familia canal-envio: Digital chart-1 · SealMail chart-2 · Sin canal neutral.
+- canal → CompositionBar split, familia canal-envio: Correo simple (chart-1) · SealMail (chart-2) · Sin canal (neutral).
 - sealmail → AreaTimeseries en chart-2, el mismo color de su segmento, con periodo anterior.
 
 S4 ESTADO, ANEXOS Y APROBADORES
@@ -2024,7 +2027,7 @@ S4 ESTADO, ANEXOS Y APROBADORES
 - Fila 12 M: aprobadores → PeopleLeaderboard en 2 columnas (5 | 5) + 'Sin aprobador: 24'. Alto 248 ≤ 284.
 
 Formas: 1 de 8 horizontal.
-- coverage: KPIs 10/10: total (héroe); aprobado, enviado y devoluciones (Estado); digital, sealmail y con-correo (Canal); unicos, municipios y folios (Cobertura; folios conserva la exclusión de valores ≥ 9.999). municipios se repite como contexto en el panel del mapa.
+- coverage: KPIs 10/10: total (héroe); aprobado, enviado y devoluciones (Estado); digital, sealmail y con-correo (Canal); unicos, municipios y folios (Cobertura; folios conserva la exclusión de valores ≥ 9.999). municipios se repite como contexto en el panel del mapa (vizOptions.mapContextKpi: '93 municipios cubiertos', también en el panel de escritorio).
 
 Widgets 8/8:
 - S1: mapa;
@@ -2032,7 +2035,7 @@ Widgets 8/8:
 - S3: canal, sealmail;
 - S4: estado, anexos, aprobadores (top 10).
 
-Tabla intacta.
+Tabla intacta, más la columna Copia (explica los radicados repetidos).
 
 ## implementationOrder
 - F0 · Correcciones inmediatas (1–2 días, visibles en la próxima demo):

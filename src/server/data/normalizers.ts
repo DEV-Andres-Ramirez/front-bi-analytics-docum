@@ -83,6 +83,37 @@ export function diasPlazo(value: unknown): string {
   return `${dias} ${dias === 1 ? "día" : "días"}`;
 }
 
+/**
+ * Tiempo por vencer con unidad en mayúscula y sin concordancia: "1 Días" / "4 Días" / "5 Horas" →
+ * "1 día" / "4 días" / "5 horas". Los estados ("En término", "Vencido") y los plazos en días hábiles
+ * ("6 día(s) hábiles", que la UI ya muestra como "6 días hábiles") pasan solo por orNoReporta.
+ * (Entes · Tiempo_por_Vencer; SMART M3 · pqrd_tiempo_por_vencer, que mezcla ambas formas.)
+ */
+export function tiempoPorVencer(value: unknown): string {
+  const v = orNoReporta(value);
+  const m = v.match(/^(\d+)\s*(d[ií]as?|horas?)$/i);
+  if (!m) return v;
+  const n = Number(m[1]);
+  const unit = /^h/i.test(m[2]) ? (n === 1 ? "hora" : "horas") : n === 1 ? "día" : "días";
+  return `${n} ${unit}`;
+}
+
+/** Centinelas de relleno de la fuente en "Cantidad de folios" (además de todo valor ≥ FOLIOS_TOPE). */
+export const FOLIOS_RELLENO: readonly number[] = [999];
+/** Desde aquí un conteo de folios es relleno (9.999, 10.000, 55.555, 99.999…): mismo umbral del KPI. */
+export const FOLIOS_TOPE = 9999;
+
+/**
+ * Cantidad de folios sin valores de relleno: 999 y ≥ 9.999 (y negativos o no numéricos) → null (sin dato).
+ * Así no inflan la suma de folios ni se leen como folios reales en el detalle.
+ * (Correspondencia salidas · Cantidad_de_folios.)
+ */
+export function folios(value: unknown): number | null {
+  const n = typeof value === "number" ? value : Number(cleanText(value) || NaN);
+  if (!Number.isFinite(n) || n < 0 || n >= FOLIOS_TOPE || FOLIOS_RELLENO.includes(n)) return null;
+  return n;
+}
+
 /** Categoría SLA de Entes: corrige el bug de la vista ("En término" y "5 Horas" nunca se mapean). */
 export function entesAuxCategoria(value: unknown): string {
   const v = orNoReporta(value);

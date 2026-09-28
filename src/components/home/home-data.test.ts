@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DASHBOARD_BY_SLUG } from "@/config/dashboards";
 import type { CatalogFigure, CatalogItem } from "@/dashboards/dto";
-import { compactRange, computePulse, daysInMonthOf, figureShort, greetingFor, healthNote, heroShort, isWeekend, matchesQuery, nowBogotaHour } from "./home-data";
+import { compactRange, computePulse, daysInMonthOf, figureShort, fitChips, greetingFor, healthNote, heroShort, isWeekend, matchesQuery, nowBogotaHour } from "./home-data";
 
 function fig(partial: Partial<CatalogFigure>): CatalogFigure {
   return { kpi: "k", label: "K", format: "pct", polarity: "up-good", value: 0.5, previous: 0.5, spark: [], ...partial };
@@ -39,11 +39,11 @@ describe("home-data", () => {
     expect(matchesQuery(DASHBOARD_BY_SLUG["facturas-recibidas"], "  ")).toBe(true);
   });
 
-  it("nombre corto de salud: alias de presentación, short del spec o etiqueta, siempre sin '%'", () => {
-    expect(figureShort("pqrd", fig({ kpi: "sla", label: "% Cumplimiento SLA", short: "% SLA" }))).toBe("SLA");
-    expect(figureShort("x", fig({ kpi: "otro", label: "% Algo largo", short: "% Algo" }))).toBe("Algo");
-    expect(figureShort("x", fig({ kpi: "otro", label: "% Algo" }))).toBe("Algo");
-    expect(figureShort("correspondencia-salidas", fig({ kpi: "digital", label: "% Canal digital", short: "% Digital" }))).toBe("Canal digital");
+  it("nombre corto de salud: short del spec o etiqueta, siempre sin '%'", () => {
+    expect(figureShort(fig({ kpi: "sla", label: "% Cumplimiento SLA", short: "% SLA" }))).toBe("SLA");
+    expect(figureShort(fig({ kpi: "otro", label: "% Algo largo", short: "% Algo" }))).toBe("Algo");
+    expect(figureShort(fig({ kpi: "otro", label: "% Algo" }))).toBe("Algo");
+    expect(figureShort(fig({ kpi: "digital", label: "% Canal digital", short: "% Canal digital" }))).toBe("Canal digital");
   });
 
   it("etiqueta de la cifra titular: no repite el título y los hermanos se leen igual", () => {
@@ -62,25 +62,37 @@ describe("home-data", () => {
     expect(healthNote("facturas-emitidas", fig({ kpi: "inconsistentes", value: 0, previous: 0 }))).toBeNull();
   });
 
-  it("pulso: top 3 que más empeoraron, sin polaridad neutral, con bases pequeñas y variaciones menores como estables", () => {
+  it("pulso: misma regla que los chips (tono de describeDelta), sin polaridad neutral ni notas de calidad", () => {
     const items: CatalogItem[] = [
       { slug: "facturas-recibidas", hero: null, health: fig({ polarity: "neutral", value: 10, previous: 1, format: "cop" }) },
       { slug: "pqrd", hero: null, health: fig({ value: 0.6, previous: 0.7 }) }, // −10 p.p. → empeora
       { slug: "entes-control", hero: null, health: fig({ value: 0.5, previous: 0.7 }) }, // −20 p.p. → empeora (mayor)
-      { slug: "tutelas", hero: null, health: fig({ value: 0.8, previous: 0.7 }) }, // mejora
-      { slug: "smart-momento-3", hero: null, health: fig({ format: "int", polarity: "up-bad", value: 9, previous: 8 }) }, // base pequeña
-      { slug: "medicina-laboral-entradas", hero: null, health: fig({ format: "pct", polarity: "up-bad", value: 0.3, previous: 0.25 }) }, // empeora
-      { slug: "correspondencia-salidas", hero: null, health: fig({ value: 0.986, previous: 0.991 }) }, // −0,5 p.p. → estable (ruido)
-      { slug: "correspondencia-entradas", hero: null, health: fig({ format: "int", polarity: "up-bad", value: 102, previous: 100 }) }, // +2 % → estable
-      { slug: "entes-control-eficiencia", hero: null, health: fig({ format: "int", polarity: "up-bad", value: 104, previous: 100 }) }, // +4 % → empeora (supera el 3 %)
+      { slug: "tutelas", hero: null, health: fig({ value: 0.2976, previous: 0.30715 }) }, // −0,955 p.p. (chip "−1,0 p.p." rojo) → empeora
+      { slug: "smart-momento-3", hero: null, health: fig({ format: "int", polarity: "up-bad", value: 9, previous: 8 }) }, // base pequeña → estable
+      { slug: "medicina-laboral-entradas", hero: null, health: fig({ format: "pct", polarity: "up-bad", value: 0.3, previous: 0.25 }) }, // +5 p.p. → empeora
+      { slug: "medicina-laboral-salidas", hero: null, health: fig({ value: 0.9, previous: 0.86 }) }, // mejora
+      { slug: "correspondencia-salidas", hero: null, health: fig({ value: 0.5, previous: 0.5004 }) }, // 0,0 p.p. al redondear → estable
+      { slug: "correspondencia-entradas", hero: null, health: fig({ format: "int", polarity: "up-bad", value: 285, previous: 375 }) }, // −24 % → mejora
+      { slug: "facturas-emitidas", hero: null, health: fig({ polarity: "up-bad", value: 0.101, previous: 0.108 }) }, // −0,7 p.p. (chip verde) → mejora
       { slug: "smart-momento-1", hero: null, health: fig({ kpi: "cruce", value: 0, previous: 0 }) }, // hallazgo de calidad: no entra
       { slug: "smart-momento-2", hero: null, health: null },
     ];
     const p = computePulse(items);
-    expect(p.total).toBe(8);
-    expect(p.improved).toBe(1);
-    expect(p.worsened).toBe(4);
-    expect(p.stable).toBe(3);
+    expect(p.total).toBe(9);
+    expect(p.improved).toBe(3);
+    expect(p.worsened).toBe(4); // incluye Tutelas (−0,955 p.p.): su chip es rojo
+    expect(p.stable).toBe(2);
     expect(p.top.map((s) => s.meta.slug)).toEqual(["entes-control", "pqrd", "medicina-laboral-entradas"]);
+  });
+
+  it("accesos rápidos: chips completos en 2 líneas y el resto en un chip +N", () => {
+    // Carril de 300 px, separación 8: todo cabe en 2 líneas.
+    expect(fitChips([100, 100, 80, 120], 300, 8, 2, 40)).toBe(4);
+    // No caben: se reserva el chip +N (40 px) en la 2.ª línea → [100,100] | [120, +N].
+    expect(fitChips([100, 100, 120, 150, 90], 300, 8, 2, 40)).toBe(3);
+    // Sin medir (ancho 0) se muestran todos.
+    expect(fitChips([100, 200], 0, 8, 2, 40)).toBe(2);
+    // Un chip más ancho que el carril ocupa su propia línea (no se descarta).
+    expect(fitChips([400], 300, 8, 2, 40)).toBe(1);
   });
 });

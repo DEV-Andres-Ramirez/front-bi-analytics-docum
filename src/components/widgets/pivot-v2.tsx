@@ -1,8 +1,9 @@
 "use client";
 
-import { ArrowDown, ArrowRight, ChevronDown, ChevronsDownUp, ChevronsLeftRight, ChevronsRightLeft, ChevronsUpDown, CircleDashed, Info } from "lucide-react";
-import { useCallback, useMemo, useState, type CSSProperties, type PointerEvent } from "react";
+import { ArrowDown, ArrowDownRight, ArrowRight, ChevronDown, ChevronsDownUp, ChevronsLeftRight, ChevronsRightLeft, ChevronsUpDown, CircleDashed, Info } from "lucide-react";
+import { useCallback, useMemo, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { useDashboard } from "@/components/dashboard/dashboard-context";
+import { textWidth } from "@/components/dashboard/kpi/shared";
 import { useElementSize } from "@/hooks/use-element-size";
 import type { PivotResult } from "@/dashboards/dto";
 import type { PivotWidget, StatusTone } from "@/dashboards/types";
@@ -27,9 +28,16 @@ import type { VizProps } from "./types";
  * - Filas agrupadas (oficina › persona) plegables con subtotal; neutrales en gris, al final y fuera de escala.
  * - Cabecera, primera columna y totales fijos, con bandas de sombra continuas (table-scroll.ts)
  *   y un aviso "N filas · desplaza" cuando hay contenido oculto.
- * - Ancho medido: si primera columna + columnas + Total no caben, los grupos de columnas de menor
- *   volumen arrancan contraídos en una columna de subtotal (clic en la cabecera para expandir).
- * - Píldoras con ancho tope uniforme (56 px con muchas columnas, 96 px con pocas).
+ * - Ancho medido: si primera columna + columnas + Total no caben, los grupos de columnas arrancan
+ *   contraídos en una columna de subtotal (clic en la cabecera para expandir): primero lo cerrado
+ *   (Finalizado, Anulado) y lo de menor volumen; el grupo más accionable (En curso = Pendientes) nunca
+ *   se contrae solo: si no cabe, la tabla se desplaza en horizontal.
+ * - Cabeceras sin palabras partidas: cada columna reserva el ancho de su palabra más larga y, con muchas
+ *   columnas, las palabras de más de 12 letras se abrevian ("corresp.") con el nombre completo en title.
+ *   Un grupo de una sola columna es su propia cabecera ("⚠ Reclasificar"; el estado va en el tooltip).
+ * - Píldoras con ancho tope uniforme (≤ 56 px con muchas columnas, ≤ 96 px con pocas) y, si todo cabe,
+ *   columnas de ancho igual salvo las que necesitan más para su cabecera (table-layout fixed); la fila
+ *   parcialmente oculta se desvanece sobre el Total.
  * Tier "auto": ≥ 600 px, tabla con máximo de 640 px y scroll interno; < 600 px, vista por filas
  * (nombre, total, barra 100 % por grupo o columna y cifras) con alto por contenido y "Ver N más".
  */
@@ -87,6 +95,10 @@ interface ColumnRun {
 interface DisplayCol {
   key: string;
   label: string;
+  /** Texto visible de la cabecera (abreviado con muchas columnas; el grupo si es su única columna). */
+  head: string;
+  /** Nombre completo (title, lector de pantalla y tooltip): "Reclasificar › Solicitud de reclasificación". */
+  full: string;
   tone: StatusTone | null;
   neutral: boolean;
   total: number;
@@ -96,10 +108,17 @@ interface DisplayCol {
   folded: number;
   /** Clave del plegado que la produce (para expandirla). */
   foldKey?: string;
-  /** Nombre del grupo cuando la columna es la única de su grupo (va encima de la etiqueta). */
-  eyebrow?: string;
+  /** Única columna de su grupo: una sola cabecera (ocupa las dos filas) en lugar de franja + etiqueta. */
+  solo?: boolean;
   /** Ancho mínimo estimado (px). */
   width: number;
+}
+
+/** Cabecera efectiva de una columna del modelo. */
+interface ColHead {
+  head: string;
+  full: string;
+  solo: boolean;
 }
 
 /** Plegado posible: un grupo de varias columnas, o una secuencia contigua de grupos de una sola columna. */
@@ -115,8 +134,8 @@ interface Fold {
   small: boolean;
 }
 
-/** Segmento de la cabecera de grupos: un grupo tal cual o un plegado contraído. */
-type Segment = { type: "run"; run: ColumnRun } | { type: "fold"; fold: Fold; col: DisplayCol };
+/** Segmento de la cabecera de grupos: un grupo tal cual, un grupo de una sola columna o un plegado contraído. */
+type Segment = { type: "run"; run: ColumnRun } | { type: "solo"; run: ColumnRun; col: DisplayCol } | { type: "fold"; fold: Fold; col: DisplayCol };
 
 /** Parte de la barra 100 % de la vista por filas (móvil): un grupo de columnas o una columna. */
 interface Part {
@@ -287,7 +306,11 @@ function buildModel(widget: PivotWidget, result: PivotResult) {
   const grand = cols.reduce((a, c) => a + c.total, 0);
   const neutralRows = (grouped ? groups.flatMap((g) => g.leaves) : flat).filter((l) => l.neutral).reduce((a, l) => a + l.total, 0);
   const neutralCols = cols.filter((c) => c.neutral).reduce((a, c) => a + c.total, 0);
-  return { cols, runs: columnRuns(cols), grouped, groups, flat, allMerged, leafKind, groupKind, max, min, grand, neutralRows, neutralCols };
+  const runs = columnRuns(cols);
+  const many = cols.length > MANY_COLS;
+  const heads = colHeads(cols, runs, many);
+  const widths = heads.map((h) => colWidth(h.head, many));
+  return { cols, runs, heads, widths, many, grouped, groups, flat, allMerged, leafKind, groupKind, max, min, grand, neutralRows, neutralCols };
 }
 
 type Model = ReturnType<typeof buildModel>;
@@ -331,26 +354,59 @@ function buildLines(m: Model, sort: number[] | null, collapsed: Set<string>): Li
 }
 
 // ─── Ancho: columnas y grupos contraídos ─────────────────────────────────────
-/** Más columnas que esto: cabeceras compactas (56–84 px, con guiones) y píldoras de 56 px. */
+/** Más columnas que esto: cabeceras compactas (10,5 px, palabras largas abreviadas) y píldoras de ≤ 56 px. */
 const MANY_COLS = 8;
 const TOTAL_W = 104;
 const FOLDED_W = 84;
-/** Ancho medio de un carácter de cabecera (Montserrat 11 px semibold); +16 px de relleno del botón y la celda. */
-const CHAR_W = 5.6;
+/** Ancho mínimo de columna con muchas columnas (píldora de 50 px: 3 cifras holgadas) y con pocas. */
+const MIN_COL_MANY = 52;
+const MIN_COL_FEW = 76;
+/** Relleno horizontal de la cabecera (botón + celda) + 2 px de holgura, por modo. */
+const HEAD_PAD_MANY = 6;
+const HEAD_PAD_FEW = 12;
+/** Cuerpo de la cabecera (px) por modo; ColHeader usa los mismos tamaños. */
+const HEAD_PX_MANY = 10.5;
+const HEAD_PX_FEW = 11;
+/** Con muchas columnas, las palabras de más letras que esto se abrevian en la cabecera. */
+const LONG_WORD = 12;
 const EMPTY = new Set<string>();
 
-/** Ancho mínimo de una columna según su cabecera: la palabra más larga cabe o se parte con guion (≤ 3 líneas). */
-function colWidth(text: string, many: boolean): number {
-  if (!many) return 76;
-  const longest = Math.max(...text.split(/\s+/).map((w) => w.length));
-  return Math.min(84, Math.max(56, Math.ceil(longest * CHAR_W) + 16));
+const VOWEL = /[aeiouáéíóúü]/i;
+const LETTER = /\p{L}/u;
+
+/**
+ * Abreviatura por truncamiento, como se abrevia en español: corte ante vocal tras consonante con al
+ * menos 7 letras y punto final ("correspondencia" → "corresp.", "reclasificación" → "reclasif.").
+ */
+function abbreviateWord(word: string): string {
+  if (word.length <= LONG_WORD) return word;
+  for (let i = 7; i <= word.length - 3; i++) if (LETTER.test(word[i - 1]) && !VOWEL.test(word[i - 1]) && VOWEL.test(word[i])) return `${word.slice(0, i)}.`;
+  return word;
 }
 
-/** Cabecera efectiva de cada columna: su etiqueta más el nombre del grupo si es la única del grupo. */
-function headerTexts(cols: PivotCol[], runs: ColumnRun[] | null): string[] {
-  const texts = cols.map((c) => c.label);
-  for (const r of runs ?? []) if (r.key && r.span === 1) texts[r.start] = `${r.label} ${texts[r.start]}`;
-  return texts;
+/** Ancho mínimo de una columna según su cabecera: la palabra más larga cabe entera (nunca se parte con guion). */
+function colWidth(text: string, many: boolean): number {
+  const longest = Math.max(0, ...text.split(/\s+/).map((w) => textWidth(w, many ? HEAD_PX_MANY : HEAD_PX_FEW, "semibold")));
+  return Math.max(many ? MIN_COL_MANY : MIN_COL_FEW, longest + (many ? HEAD_PAD_MANY : HEAD_PAD_FEW));
+}
+
+/**
+ * Cabecera efectiva de cada columna: su etiqueta o, si es la única de su grupo, el nombre del grupo
+ * (una sola cabecera "⚠ Reclasificar"; el estado queda en title y tooltip). Con muchas columnas, las
+ * palabras largas se abrevian.
+ */
+function colHeads(cols: PivotCol[], runs: ColumnRun[] | null, many: boolean): ColHead[] {
+  const solo = new Map<number, string>();
+  for (const r of runs ?? []) if (r.key && r.span === 1) solo.set(r.start, r.label);
+  return cols.map((c, i) => {
+    const group = solo.get(i);
+    const text = group ?? c.label;
+    return {
+      head: many ? text.split(" ").map(abbreviateWord).join(" ") : text,
+      full: group && group !== c.label ? `${group} › ${c.label}` : c.label,
+      solo: group !== undefined,
+    };
+  });
 }
 
 const SMALL_FOLD = "__pequenos";
@@ -396,59 +452,129 @@ function buildFolds(runs: ColumnRun[] | null): Fold[] {
 
 /** Ancho medio de un carácter de la primera columna (Montserrat 12,5 px). */
 const ROW_CHAR_W = 6.4;
+/** Holgura para la barra de scroll vertical clásica (Windows): la tabla nunca desborda por ella. */
+const SLACK = 16;
+/** Tope del ancho uniforme de columna (con muchas columnas, píldoras de 56 px; con pocas, de 96 px). */
+const CELL_MAX_MANY = 96;
+const CELL_MAX_FEW = 200;
 
-/**
- * Plan de la tabla para un ancho de contenedor (≥ 600 px): qué plegados arrancan contraídos y
- * cuánto mide la primera columna. `rowNeed` es el ancho con el que las etiquetas de fila caben
- * en una línea. Orden: 1) los grupos pequeños (una columna cada uno) se funden en una columna si
- * así los nombres caben en una línea; 2) si ni con la primera columna mínima caben, se contraen
- * los grupos grandes de MENOR volumen (el de más registros, p. ej. "Finalizado" con "Aprobado",
- * queda abierto hasta el final); 3) los grupos pequeños se reabren si ya caben. Lo que sobra
- * ensancha la primera columna hasta su máximo.
- */
-function planLayout(width: number, cols: PivotCol[], runs: ColumnRun[] | null, folds: Fold[], rowNeed: number): { collapsed: Set<string>; first: number } | null {
-  if (width < 600) return null;
-  const many = cols.length > MANY_COLS;
-  const widths = headerTexts(cols, runs).map((t) => colWidth(t, many));
+/** Ancho de la columna Total: mini barra de 40 px + cifra del gran total (nunca se recorta). */
+function totalWidth(grand: number): number {
+  return Math.max(TOTAL_W, 68 + Math.ceil(formatInt(grand).length * 7.4));
+}
+
+/** Anchos de la tabla (px) para un conjunto de grupos contraídos. */
+interface TableSizes {
+  first: number;
+  /**
+   * Nivel común de las columnas abiertas cuando todo cabe: cada una mide max(su mínimo, cell), así que
+   * son iguales salvo las que necesitan más para su cabecera (null = anchos mínimos y scroll horizontal).
+   */
+  cell: number | null;
+  total: number;
+}
+
+/** Medidas compartidas por el plan de plegado y el reparto de anchos. */
+function tableMetrics(width: number, m: Model, folds: Fold[], rowNeed: number, total: number) {
+  const { many, widths } = m;
   const minFirst = width < 900 ? 180 : 200;
   const maxFirst = many ? 280 : 300;
-  const prefFirst = Math.max(minFirst, Math.min(maxFirst, rowNeed));
-  const collapsed = new Set<string>();
-  const need = () => {
+  const room = width - SLACK - total;
+  const need = (collapsed: Set<string>) => {
     let w = widths.reduce((a, x) => a + x, 0);
     for (const f of folds) if (collapsed.has(f.key)) w += FOLDED_W - f.idx.reduce((a, i) => a + widths[i], 0);
     return w;
   };
-  const fits = (first: number) => first + need() + TOTAL_W <= width;
-  if (runs) {
-    const small = folds.filter((f) => f.small);
-    const big = folds.filter((f) => !f.small).sort((a, b) => a.total - b.total || a.idx.length - b.idx.length);
-    for (const f of small) if (!fits(prefFirst)) collapsed.add(f.key);
-    for (const f of big) if (!fits(minFirst)) collapsed.add(f.key);
-    // Reabrir los grupos pequeños si contraer un grupo grande liberó espacio
-    for (const f of small) {
-      if (!collapsed.has(f.key)) continue;
-      collapsed.delete(f.key);
-      if (!fits(prefFirst)) collapsed.add(f.key);
-    }
+  return { many, minFirst, prefFirst: Math.max(minFirst, Math.min(maxFirst, rowNeed)), room, need, fits: (first: number, collapsed: Set<string>) => first + need(collapsed) <= room };
+}
+
+/**
+ * Prioridad de plegado por tono del grupo: primero lo cerrado (Finalizado, Anulado), luego lo mixto
+ * y al final lo accionable (En curso, Reclasificar, Devuelto, Vencido).
+ */
+const FOLD_RANK: Record<StatusTone, number> = { good: 0, neutral: 1, info: 3, warning: 4, serious: 5, critical: 6 };
+const foldRank = (tone: StatusTone | null) => (tone ? FOLD_RANK[tone] : 2);
+
+/**
+ * Qué plegados arrancan contraídos para un ancho de contenedor (≥ 600 px). `rowNeed` es el ancho
+ * con el que las etiquetas de fila caben en una línea. Orden: 1) los grupos pequeños (una columna
+ * cada uno) se funden en una columna si así los nombres caben en una línea; 2) si ni con la primera
+ * columna mínima caben, se contraen los grupos grandes en orden de FOLD_RANK y, a igual tono, el de
+ * menor volumen. El grupo más accionable (el último del orden: "En curso", que coincide con el KPI
+ * Pendientes) nunca se contrae solo: si aun así no cabe, la tabla se desplaza en horizontal con la
+ * primera columna y el Total fijos; 3) los grupos pequeños se reabren si ya caben.
+ */
+function planFolds(width: number, m: Model, folds: Fold[], rowNeed: number, total: number): Set<string> | null {
+  if (width < 600) return null;
+  const { minFirst, prefFirst, fits } = tableMetrics(width, m, folds, rowNeed, total);
+  const collapsed = new Set<string>();
+  if (!m.runs) return collapsed;
+  const small = folds.filter((f) => f.small);
+  const big = folds.filter((f) => !f.small).sort((a, b) => foldRank(a.tone) - foldRank(b.tone) || a.total - b.total || a.idx.length - b.idx.length);
+  for (const f of small) if (!fits(prefFirst, collapsed)) collapsed.add(f.key);
+  for (const f of big.slice(0, -1)) if (!fits(minFirst, collapsed)) collapsed.add(f.key);
+  // Reabrir los grupos pequeños si contraer un grupo grande liberó espacio
+  for (const f of small) {
+    if (!collapsed.has(f.key)) continue;
+    collapsed.delete(f.key);
+    if (!fits(prefFirst, collapsed)) collapsed.add(f.key);
   }
-  const first = Math.round(Math.max(minFirst, Math.min(maxFirst, width - TOTAL_W - need())));
-  return { collapsed, first };
+  return collapsed;
+}
+
+/**
+ * Nivel de reparto: ancho común c tal que Σ max(wᵢ, c) = space. Las columnas cuya cabecera pide más
+ * que c conservan su mínimo y el resto se reparte en partes iguales.
+ */
+function waterLevel(widths: number[], space: number): number {
+  let n = widths.length;
+  let fixed = 0;
+  let c = space / n;
+  for (const w of [...widths].sort((a, b) => b - a)) {
+    if (w <= c) break;
+    fixed += w;
+    n--;
+    c = n ? (space - fixed) / n : 0;
+  }
+  return Math.floor(c);
+}
+
+/**
+ * Reparto de anchos para los grupos contraídos vigentes (automáticos o elegidos por la persona).
+ * Si todo cabe, las columnas abiertas se reparten el espacio por nivel (waterLevel: iguales salvo las
+ * que necesitan más para su palabra más larga) y lo que excede el tope va a la primera columna. Si no
+ * cabe, anchos mínimos y scroll horizontal.
+ */
+function sizeTable(width: number, m: Model, folds: Fold[], collapsed: Set<string>, rowNeed: number, total: number): TableSizes | null {
+  if (width < 600) return null;
+  const { many, minFirst, prefFirst, room, need, fits } = tableMetrics(width, m, folds, rowNeed, total);
+  if (!fits(minFirst, collapsed)) return { first: minFirst, cell: null, total };
+  const shut = folds.filter((f) => collapsed.has(f.key));
+  const hidden = new Set(shut.flatMap((f) => f.idx));
+  const open = m.widths.filter((_, i) => !hidden.has(i));
+  const avail = room - shut.length * FOLDED_W;
+  if (!open.length) return { first: Math.round(avail), cell: null, total };
+  const first = Math.max(minFirst, Math.min(prefFirst, room - need(collapsed)));
+  const cell = Math.min(many ? CELL_MAX_MANY : CELL_MAX_FEW, waterLevel(open, avail - first));
+  const used = open.reduce((a, w) => a + Math.max(w, cell), 0);
+  return { first: Math.round(avail - used), cell, total };
 }
 
 /** Segmentos de la cabecera de grupos y columnas visibles según los plegados contraídos. */
-function layoutCols(cols: PivotCol[], runs: ColumnRun[] | null, folds: Fold[], collapsed: Set<string>): { dcols: DisplayCol[]; segments: Segment[] } {
-  const many = cols.length > MANY_COLS;
-  const single = (c: PivotCol, i: number, eyebrow?: string): DisplayCol => ({
+function layoutCols(m: Model, folds: Fold[], collapsed: Set<string>): { dcols: DisplayCol[]; segments: Segment[] } {
+  const { cols, runs, heads, widths } = m;
+  const single = (c: PivotCol, i: number): DisplayCol => ({
     key: c.key,
     label: c.label,
+    head: heads[i].head,
+    full: heads[i].full,
     tone: c.tone,
     neutral: c.neutral,
     total: c.total,
     idx: [i],
     folded: 0,
-    eyebrow,
-    width: colWidth(eyebrow ? `${eyebrow} ${c.label}` : c.label, many),
+    solo: heads[i].solo,
+    width: widths[i],
   });
   if (!runs) return { dcols: cols.map((c, i) => single(c, i)), segments: [] };
   const dcols: DisplayCol[] = [];
@@ -467,6 +593,8 @@ function layoutCols(cols: PivotCol[], runs: ColumnRun[] | null, folds: Fold[], c
       const col: DisplayCol = {
         key: `grp:${f.key}`,
         label: f.label,
+        head: f.label,
+        full: f.label,
         tone: f.tone,
         neutral: f.idx.every((k) => cols[k].neutral),
         total: f.total,
@@ -479,8 +607,14 @@ function layoutCols(cols: PivotCol[], runs: ColumnRun[] | null, folds: Fold[], c
       segments.push({ type: "fold", fold: f, col });
       return;
     }
+    if (r.key && r.span === 1) {
+      const col = single(cols[r.start], r.start);
+      dcols.push(col);
+      segments.push({ type: "solo", run: r, col });
+      return;
+    }
     segments.push({ type: "run", run: r });
-    for (let k = r.start; k < r.start + r.span; k++) dcols.push(single(cols[k], k, r.key && r.span === 1 ? r.label : undefined));
+    for (let k = r.start; k < r.start + r.span; k++) dcols.push(single(cols[k], k));
   });
   return { dcols, segments };
 }
@@ -539,13 +673,20 @@ function Avatar({ name, neutral }: { name: string; neutral: boolean }) {
   );
 }
 
-function ColHeader({ col, active, top, compact, onSort }: { col: DisplayCol; active: boolean; top: number; compact: boolean; onSort: () => void }) {
+function ColHeader({ col, active, top, compact, rowSpan, onSort }: { col: DisplayCol; active: boolean; top: number; compact: boolean; rowSpan?: number; onSort: () => void }) {
+  const abbreviated = col.head !== col.full;
   return (
-    <th scope="col" aria-sort={active ? "descending" : "none"} style={{ top }} className={cn("sticky z-20 border-b border-border bg-surface px-px pb-1 pt-1 align-bottom", EDGE_T)}>
+    <th
+      scope="col"
+      rowSpan={rowSpan}
+      aria-sort={active ? "descending" : "none"}
+      style={{ top }}
+      className={cn("sticky z-20 border-b border-border bg-surface pb-1 pt-1 align-bottom", compact ? "px-0" : "px-px", EDGE_T)}
+    >
       <button
         type="button"
         onClick={onSort}
-        title={`Ordenar por ${col.label}`}
+        title={`Ordenar por ${col.full}`}
         className={cn(
           "mx-auto flex w-full max-w-[120px] flex-col items-center gap-1 rounded-md pb-1 pt-1 text-center text-[11px] font-semibold leading-tight transition hover:bg-surface-3",
           compact ? "px-0.5" : "min-w-14 px-1",
@@ -553,11 +694,13 @@ function ColHeader({ col, active, top, compact, onSort }: { col: DisplayCol; act
           active && "bg-primary-soft text-text",
         )}
       >
-        {col.eyebrow && <span className="text-balance text-[10px] font-bold leading-none text-muted hyphens-auto">{col.eyebrow}</span>}
         {col.tone && <StatusIcon tone={col.tone} />}
-        {/* Nunca truncado: con muchas columnas la palabra larga se parte con guion (lang="es") */}
-        <span className="text-balance hyphens-auto">
-          {col.label}
+        {/* Nunca se parte una palabra: la columna reserva el ancho de la más larga (colWidth) y, con muchas
+            columnas (10,5 px), las de más de 12 letras llegan abreviadas ("corresp.") con el nombre completo
+            en title y para el lector de pantalla */}
+        <span className={cn("break-normal hyphens-manual", compact ? "text-wrap text-[10.5px]" : "text-balance")}>
+          <span aria-hidden={abbreviated || undefined}>{col.head}</span>
+          {abbreviated && <span className="sr-only">{col.full}</span>}
           {active && <ArrowDown className="ml-0.5 inline size-3 align-[-2px] text-primary-text" aria-label="Orden descendente" />}
         </span>
         <span aria-hidden className="mt-0.5 h-[3px] w-6 rounded-full" style={{ background: col.tone ? TONE_VARS[col.tone].solid : col.neutral ? "var(--neutral-mark)" : "transparent" }} />
@@ -575,11 +718,11 @@ function FoldedHeader({ col, onToggle }: { col: DisplayCol; onToggle: () => void
         onClick={onToggle}
         aria-expanded={false}
         title={`Expandir ${col.label} (${col.folded} columnas)`}
-        className="mx-auto flex w-full flex-col items-center gap-1 rounded-md border border-dashed border-border-strong px-1 pb-1 pt-1.5 text-center text-[11px] font-semibold leading-tight text-text-2 transition hover:bg-surface-3"
+        className="mx-auto flex w-full flex-col items-center gap-1 rounded-md border border-dashed border-border-strong px-0.5 pb-1 pt-1.5 text-center text-[11px] font-semibold leading-tight text-text-2 transition hover:bg-surface-3"
         style={col.tone ? { background: TONE_VARS[col.tone].soft, color: TONE_VARS[col.tone].ink, borderColor: "transparent" } : undefined}
       >
         {col.tone && <StatusIcon tone={col.tone} />}
-        <span className="text-balance">{col.label}</span>
+        <span className="break-normal text-balance hyphens-manual">{col.label}</span>
         <span className="tabular inline-flex items-center gap-0.5 text-[10.5px] font-medium opacity-80">
           <ChevronsLeftRight className="size-3" aria-hidden />
           {col.folded} columnas
@@ -589,7 +732,10 @@ function FoldedHeader({ col, onToggle }: { col: DisplayCol; onToggle: () => void
   );
 }
 
-function Pill({ v, bg, fg, gray, cell, cap }: { v: number; bg: string; fg: string; gray: boolean; cell: string; cap: string }) {
+/** Ancho tope de las píldoras (var --pv-pill): uniforme aunque alguna columna sea más ancha por su cabecera. */
+const PILL_CAP = "max-w-(--pv-pill)";
+
+function Pill({ v, bg, fg, gray, cell }: { v: number; bg: string; fg: string; gray: boolean; cell: string }) {
   if (!v)
     return (
       <td className="p-px" data-cell={cell}>
@@ -602,7 +748,7 @@ function Pill({ v, bg, fg, gray, cell, cap }: { v: number; bg: string; fg: strin
     <td className="p-px" data-cell={cell}>
       {/* Ancho tope uniforme: la intensidad se lee como color, no como área */}
       <div
-        className={cn("tabular mx-auto grid h-7 w-full place-items-center rounded-[4px] px-1.5 text-[12px] font-semibold", cap, gray && "bg-surface-3 text-text-2")}
+        className={cn("tabular mx-auto grid h-7 w-full place-items-center rounded-[4px] px-1.5 text-[12px] font-semibold", PILL_CAP, gray && "bg-surface-3 text-text-2")}
         style={gray ? undefined : { background: bg, color: fg }}
       >
         {formatInt(v)}
@@ -612,10 +758,10 @@ function Pill({ v, bg, fg, gray, cell, cap }: { v: number; bg: string; fg: strin
 }
 
 /** Subtotal de un grupo contraído: fuera de la rampa (no es una celda del heatmap). */
-function FoldedCell({ v, cell, cap }: { v: number; cell: string; cap: string }) {
+function FoldedCell({ v, cell }: { v: number; cell: string }) {
   return (
     <td className="p-px" data-cell={cell}>
-      <div className={cn("tabular mx-auto grid h-7 w-full place-items-center rounded-[4px] border border-dashed border-border-strong text-[12px] font-bold", cap, v ? "text-text" : "font-normal text-muted")}>
+      <div className={cn("tabular mx-auto grid h-7 w-full place-items-center rounded-[4px] border border-dashed border-border-strong text-[12px] font-bold", PILL_CAP, v ? "text-text" : "font-normal text-muted")}>
         {v ? formatInt(v) : "·"}
       </div>
     </td>
@@ -637,8 +783,11 @@ function TotalCell({ total, max, neutral, strong }: { total: number; max: number
   );
 }
 
-/** Resumen: barra 100 % + chips por parte (RolePivot: rol activo; móvil: leyenda de la vista por filas). */
-function PivotSummary({ parts, total, unit }: { parts: Part[]; total: number; unit: string }) {
+/**
+ * Resumen: barra 100 % + chips por parte (RolePivot: rol activo; móvil: leyenda de la vista por filas).
+ * `action` va en la línea del Total (en tarjetas angostas, "Contraer todo" como enlace de texto).
+ */
+function PivotSummary({ parts, total, unit, action }: { parts: Part[]; total: number; unit: string; action?: ReactNode }) {
   const shares = parts.map((p) => ({ ...p, share: total ? p.total / total : 0 }));
   const label = shares.map((p) => `${p.label}: ${formatInt(p.total)} (${formatPct(p.share)})`).join(" · ");
   return (
@@ -667,8 +816,11 @@ function PivotSummary({ parts, total, unit }: { parts: Part[]; total: number; un
             </span>
           </li>
         ))}
-        <li className="tabular ml-auto whitespace-nowrap pl-2 text-xs text-muted">
-          Total <span className="font-semibold text-text">{formatInt(total)}</span> {unit}
+        <li className="ml-auto flex items-center gap-2 whitespace-nowrap pl-2 text-xs text-muted">
+          <span className="tabular">
+            Total <span className="font-semibold text-text">{formatInt(total)}</span> {unit}
+          </span>
+          {action}
         </li>
       </ul>
     </div>
@@ -785,11 +937,13 @@ function PivotView({ widget, result, expanded, summary }: VizProps<PivotWidget, 
       : Math.max(0, ...model.flat.map((l) => len(l) * ROW_CHAR_W + leafExtra));
     return Math.ceil(w + 18);
   }, [model]);
-  const plan = useMemo(() => (measured ? planLayout(width, model.cols, model.runs, folds, rowNeed) : null), [measured, width, model, folds, rowNeed]);
+  const totalW = totalWidth(model.grand);
+  const autoFolds = useMemo(() => (measured ? planFolds(width, model, folds, rowNeed, totalW) : null), [measured, width, model, folds, rowNeed, totalW]);
   // Grupos de columnas contraídos: automático según el ancho hasta que la persona los cambia
   const [colUser, setColUser] = useState<Set<string> | null>(null);
-  const colCollapsed = colUser ?? plan?.collapsed ?? EMPTY;
-  const { dcols, segments } = useMemo(() => layoutCols(model.cols, model.runs, folds, colCollapsed), [model, folds, colCollapsed]);
+  const colCollapsed = colUser ?? autoFolds ?? EMPTY;
+  const sizes = useMemo(() => (measured ? sizeTable(width, model, folds, colCollapsed, rowNeed, totalW) : null), [measured, width, model, folds, colCollapsed, rowNeed, totalW]);
+  const { dcols, segments } = useMemo(() => layoutCols(model, folds, colCollapsed), [model, folds, colCollapsed]);
   const parts = useMemo(() => buildParts(model.cols, model.runs), [model]);
   // Orden por clave de columna (sobrevive a cambios de filtros y de pestaña de rol)
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -803,8 +957,7 @@ function PivotView({ widget, result, expanded, summary }: VizProps<PivotWidget, 
   const { state: tip, show, hide } = useChartTooltip();
 
   const { cols, runs, grouped, max, min } = model;
-  const manyCols = cols.length > MANY_COLS;
-  const pillCap = manyCols ? "max-w-14" : "max-w-24";
+  const manyCols = model.many;
   const headerTop = runs ? 28 : 0;
   const rowsLabel = widget.rows.map((r) => r.label).join(" › ");
   const leafMax = useMemo(() => Math.max(1, ...lines.filter((l) => l.type === "leaf").map((l) => l.total)), [lines]);
@@ -859,7 +1012,7 @@ function PivotView({ widget, result, expanded, summary }: VizProps<PivotWidget, 
       show(r.right, r.top + r.height / 2, {
         title: ln.type === "leaf" && ln.groupLabel ? `${ln.groupLabel} › ${ln.label}` : ln.label,
         value: formatInt(v),
-        valueNote: `${unit} · ${col.label}${col.folded ? ` (${col.folded} columnas)` : ""}`,
+        valueNote: `${unit} · ${col.full}${col.folded ? ` (${col.folded} columnas)` : ""}`,
         rows: [
           { label: "Participación en la fila", value: ln.total ? formatPct(v / ln.total) : "—", color: "transparent" },
           { label: "Participación en la columna", value: col.total ? formatPct(v / col.total) : "—", color: "transparent" },
@@ -878,6 +1031,10 @@ function PivotView({ widget, result, expanded, summary }: VizProps<PivotWidget, 
   const hasGray = cols.some((c) => c.neutral) || lines.some((l) => l.type === "leaf" && l.neutral);
   const neutralRowShare = model.grand ? model.neutralRows / model.grand : 0;
   const neutralColShare = model.grand ? model.neutralCols / model.grand : 0;
+  // El chip usa el rótulo visible de la columna neutral ("44 % no reporta", como la columna y el resumen);
+  // con varias neutrales o un agregado ("Otros"), el genérico "sin categoría"
+  const neutralColNames = [...new Set(model.cols.filter((c) => c.neutral && c.total > 0).map((c) => c.label))];
+  const neutralColLabel = neutralColNames.length === 1 && /^(no|sin)\s/i.test(neutralColNames[0]) ? neutralColNames[0].toLocaleLowerCase("es-CO") : "sin categoría";
   const leafLabel = widget.rows.at(-1)?.label.toLocaleLowerCase("es-CO") ?? "responsable";
   const leafCount = grouped ? model.groups.reduce((a, g) => a + g.leaves.length, 0) : model.flat.length;
   const rowCount = grouped ? `${countOf(model.groups.length, model.groupKind)} · ${countOf(leafCount, model.leafKind)}` : countOf(leafCount, model.leafKind);
@@ -892,31 +1049,60 @@ function PivotView({ widget, result, expanded, summary }: VizProps<PivotWidget, 
   const listLines = lines.slice(0, listCut);
   const listHidden = lines.length - listCut;
   const partsDiffer = runs !== null && parts.length !== cols.length;
-  const firstStyle = plan ? ({ "--pv-first": `${plan.first}px` } as CSSProperties) : undefined;
+  // Píldoras de ancho uniforme: el tope es el nivel común de las columnas (las más anchas por su cabecera no las agrandan)
+  const pillW = Math.min(manyCols ? 56 : 96, (sizes?.cell ?? (manyCols ? MIN_COL_MANY : MIN_COL_FEW)) - 2);
+  const firstStyle = sizes ? ({ "--pv-first": `${sizes.first}px`, "--pv-pill": `${pillW}px` } as CSSProperties) : undefined;
+  // Con el reparto medido, table-layout fixed: los anchos del colgroup se respetan (nivel común o el mínimo de la cabecera)
+  const colW = (c: DisplayCol) => (c.folded ? FOLDED_W : sizes?.cell != null ? Math.max(c.width, sizes.cell) : c.width);
+
+  // "Contraer / Expandir todo": en el header de la tarjeta; con la tarjeta angosta (< 460 px) el Segmented de
+  // roles llena el header y el botón quedaba como ícono huérfano en su propia línea: pasa a enlace de texto
+  // en la línea del Total del resumen
+  const groupToggle = grouped && expandable.length > 1 && measured;
+  const narrow = width < 460;
+  const toggleLabel = allCollapsed ? "Expandir todo" : "Contraer todo";
+  const ToggleIcon = allCollapsed ? ChevronsUpDown : ChevronsDownUp;
+  const inlineToggle =
+    groupToggle && narrow ? (
+      <button
+        type="button"
+        onClick={toggleAll}
+        aria-label={allCollapsed ? "Expandir todos los grupos" : "Contraer todos los grupos"}
+        className="-mx-1 inline-flex h-6 items-center gap-1 rounded px-1 text-[11px] font-semibold text-primary-text underline-offset-2 transition hover:underline"
+      >
+        <ToggleIcon className="size-3.5" aria-hidden />
+        {toggleLabel}
+      </button>
+    ) : undefined;
 
   return (
     <div ref={sizeRef} className={cn("@container/pv min-h-0", expanded && "h-full")}>
       {/* Tope de 640 px con scroll interno solo en modo tabla; la vista por filas mide por contenido */}
       <div className={cn("flex min-h-0 flex-col", expanded ? "h-full" : "@min-[600px]/pv:max-h-[640px]")}>
         {summary && (
-          <PivotSummary parts={cols.map((c, i) => ({ key: c.key, label: c.label, tone: c.tone, neutral: c.neutral, total: c.total, color: toneColor(c, i), idx: [i] }))} total={model.grand} unit={unit} />
+          <PivotSummary
+            parts={cols.map((c, i) => ({ key: c.key, label: c.label, tone: c.tone, neutral: c.neutral, total: c.total, color: toneColor(c, i), idx: [i] }))}
+            total={model.grand}
+            unit={unit}
+            action={inlineToggle}
+          />
         )}
         {(!summary || partsDiffer) && (
           <div className="@min-[600px]/pv:hidden">
-            <PivotSummary parts={parts} total={model.grand} unit={unit} />
+            <PivotSummary parts={parts} total={model.grand} unit={unit} action={summary ? undefined : inlineToggle} />
           </div>
         )}
 
-        {grouped && expandable.length > 1 && (
+        {groupToggle && !narrow && (
           <HeaderSlot>
             <button
               type="button"
               onClick={toggleAll}
               aria-label={allCollapsed ? "Expandir todos los grupos" : "Contraer todos los grupos"}
-              className="inline-flex h-7 items-center gap-1 rounded-full border border-border px-2.5 text-[11px] font-semibold text-text-2 transition hover:bg-surface-3"
+              className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-full border border-border px-2.5 text-[11px] font-semibold text-text-2 transition hover:bg-surface-3"
             >
-              {allCollapsed ? <ChevronsUpDown className="size-3.5" aria-hidden /> : <ChevronsDownUp className="size-3.5" aria-hidden />}
-              <span className="hidden sm:inline">{allCollapsed ? "Expandir todo" : "Contraer todo"}</span>
+              <ToggleIcon className="size-3.5" aria-hidden />
+              {toggleLabel}
             </button>
           </HeaderSlot>
         )}
@@ -956,17 +1142,17 @@ function PivotView({ widget, result, expanded, summary }: VizProps<PivotWidget, 
           style={firstStyle}
           className={cn(
             "relative hidden min-h-0 flex-1 flex-col [--pv-first:220px] @min-[600px]/pv:flex",
-            manyCols ? "@min-[900px]/pv:[--pv-first:232px]" : "@min-[900px]/pv:[--pv-first:280px]",
+            manyCols ? "[--pv-pill:50px] @min-[900px]/pv:[--pv-first:232px]" : "[--pv-pill:74px] @min-[900px]/pv:[--pv-first:280px]",
           )}
         >
-          <div ref={scrollRef} onScroll={onScroll} {...dataAttrs} className="group/sc relative min-h-0 flex-1 overflow-auto overscroll-contain">
-            <table className="w-full border-separate border-spacing-0 text-[12.5px]" aria-label={widget.title}>
+          <div ref={scrollRef} onScroll={onScroll} {...dataAttrs} className="group/sc relative isolate min-h-0 flex-1 overflow-auto overscroll-contain">
+            <table className={cn("w-full border-separate border-spacing-0 text-[12.5px]", sizes && "table-fixed")} aria-label={widget.title}>
               <colgroup>
                 <col style={{ width: "var(--pv-first)" }} />
                 {dcols.map((c) => (
-                  <col key={c.key} style={{ width: c.width }} />
+                  <col key={c.key} style={{ width: colW(c) }} />
                 ))}
-                <col style={{ width: TOTAL_W }} />
+                <col style={{ width: sizes?.total ?? TOTAL_W }} />
               </colgroup>
               <thead>
                 {runs && (
@@ -981,19 +1167,15 @@ function PivotView({ widget, result, expanded, summary }: VizProps<PivotWidget, 
                     </th>
                     {segments.map((seg, i) => {
                       if (seg.type === "fold") return <FoldedHeader key={`f-${seg.fold.key}`} col={seg.col} onToggle={() => toggleColGroup(seg.fold.key)} />;
+                      if (seg.type === "solo") {
+                        // Grupo de una sola columna: una sola cabecera "ícono + grupo" en las dos filas (sin franja
+                        // de grupo ni eyebrow repetido); el estado va en title, lector de pantalla y tooltip
+                        const c = seg.col;
+                        return <ColHeader key={c.key} col={c} top={0} rowSpan={2} compact={manyCols} active={sortKey === c.key} onSort={() => setSortKey((k) => (k === c.key ? null : c.key))} />;
+                      }
                       const run = seg.run;
                       const chipStyle = run.tone ? { background: TONE_VARS[run.tone].soft, color: TONE_VARS[run.tone].ink } : undefined;
                       if (!run.label) return <th key={`r-${i}`} colSpan={run.span} scope="colgroup" className="sticky top-0 z-20 h-7 bg-surface px-px py-0" />;
-                      if (run.span === 1)
-                        // Grupo de una sola columna: franja con el ícono (el nombre va encima de la etiqueta de la columna)
-                        return (
-                          <th key={`r-${i}`} scope="colgroup" className="sticky top-0 z-20 h-7 bg-surface px-px py-0">
-                            <div title={run.label} className={cn("flex h-6 items-center justify-center rounded-[4px]", run.tone ? undefined : "bg-surface-3 text-text-2")} style={chipStyle}>
-                              {run.tone && <StatusIcon tone={run.tone} className="size-3" />}
-                              <span className="sr-only">{run.label}</span>
-                            </div>
-                          </th>
-                        );
                       const canFold = folds.some((f) => f.key === run.key);
                       const chip = (
                         // La etiqueta se queda visible al desplazar en horizontal
@@ -1046,7 +1228,7 @@ function PivotView({ widget, result, expanded, summary }: VizProps<PivotWidget, 
                     </th>
                   )}
                   {dcols.map((c) =>
-                    c.folded ? null : (
+                    c.folded || (runs && c.solo) ? null : (
                       <ColHeader key={c.key} col={c} top={headerTop} compact={manyCols} active={sortKey === c.key} onSort={() => setSortKey((k) => (k === c.key ? null : c.key))} />
                     ),
                   )}
@@ -1076,7 +1258,7 @@ function PivotView({ widget, result, expanded, summary }: VizProps<PivotWidget, 
                           >
                             <ChevronDown className={cn("mt-0.5 size-3.5 shrink-0 text-muted transition-transform duration-200 motion-reduce:transition-none", !ln.open && "-rotate-90")} aria-hidden />
                             <span className="min-w-0 flex-1">
-                              <span className={cn("block text-[12.5px] font-semibold leading-snug text-text", ln.neutral && "font-medium italic text-muted")}>{shown}</span>
+                              <span className={cn("block text-pretty text-[12.5px] font-semibold leading-snug text-text", ln.neutral && "font-medium italic text-muted")}>{shown}</span>
                               <span className="block text-[11px] text-muted">
                                 {model.leafKind === "persona" ? (ln.count === 1 ? "1 responsable" : `${formatInt(ln.count)} responsables`) : ln.count === 1 ? "1 fila" : `${formatInt(ln.count)} filas`}
                               </span>
@@ -1105,17 +1287,17 @@ function PivotView({ widget, result, expanded, summary }: VizProps<PivotWidget, 
                         <span className="flex items-center gap-2">
                           {ln.person && <Avatar name={ln.label} neutral={ln.neutral} />}
                           <span className="min-w-0">
-                            <span className={cn("block text-[12.5px] leading-snug", ln.neutral ? "italic text-muted" : ln.office ? "font-semibold text-text" : "text-text-2")}>{shown}</span>
+                            <span className={cn("block text-pretty text-[12.5px] leading-snug", ln.neutral ? "italic text-muted" : ln.office ? "font-semibold text-text" : "text-text-2")}>{shown}</span>
                             {ln.note && <span className="block text-[11px] italic text-muted">{ln.note}</span>}
                           </span>
                         </span>
                       </th>
                       {dv.map((v, ci) => {
                         const dc = dcols[ci];
-                        if (dc.folded) return <FoldedCell key={dc.key} v={v} cell={`${ri}:${ci}`} cap={pillCap} />;
+                        if (dc.folded) return <FoldedCell key={dc.key} v={v} cell={`${ri}:${ci}`} />;
                         const gray = dc.neutral || ln.neutral;
                         const s = gray || !v ? { bg: "", fg: "" } : scale(v);
-                        return <Pill key={dc.key} v={v} bg={s.bg} fg={s.fg} gray={gray} cell={`${ri}:${ci}`} cap={pillCap} />;
+                        return <Pill key={dc.key} v={v} bg={s.bg} fg={s.fg} gray={gray} cell={`${ri}:${ci}`} />;
                       })}
                       <TotalCell total={ln.total} max={leafMax} neutral={ln.neutral} />
                     </tr>
@@ -1176,13 +1358,21 @@ function PivotView({ widget, result, expanded, summary }: VizProps<PivotWidget, 
           <div className="flex flex-wrap items-center gap-1.5">
             {(edges.bottom || edges.right) && (
               <span className="hidden items-center gap-1 text-[11px] text-text-2 @min-[600px]/pv:inline-flex">
-                {edges.bottom ? <ArrowDown className="size-3.5 text-muted" aria-hidden /> : <ArrowRight className="size-3.5 text-muted" aria-hidden />}
+                {edges.bottom && edges.right ? (
+                  <ArrowDownRight className="size-3.5 text-muted" aria-hidden />
+                ) : edges.bottom ? (
+                  <ArrowDown className="size-3.5 text-muted" aria-hidden />
+                ) : (
+                  <ArrowRight className="size-3.5 text-muted" aria-hidden />
+                )}
                 <span className="tabular">{rowCount}</span>
-                <span className="text-muted">· {edges.bottom ? "desplaza la tabla para ver todas" : "desplaza para ver más columnas"}</span>
+                <span className="text-muted">
+                  · {edges.bottom && edges.right ? "desplaza la tabla: hay más filas y columnas" : edges.bottom ? "desplaza la tabla para ver todas" : "desplaza para ver más columnas"}
+                </span>
               </span>
             )}
             {neutralRowShare >= 0.15 && !model.allMerged && <QualityChip neutral={model.neutralRows} total={model.grand} label={model.leafKind === "persona" ? "sin responsable" : "sin dato"} force />}
-            {neutralColShare >= 0.15 && <QualityChip neutral={model.neutralCols} total={model.grand} label="sin categoría" force />}
+            {neutralColShare >= 0.15 && <QualityChip neutral={model.neutralCols} total={model.grand} label={neutralColLabel} force />}
             {result.truncated > 0 && <span className="text-[11px] text-muted">+{formatInt(result.truncated)} filas no mostradas</span>}
           </div>
         </div>

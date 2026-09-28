@@ -114,8 +114,8 @@ export function Sidebar({ rail: railProp, onToggleRail, onNavigate, mobile }: Pr
                 onClick={onNavigate}
                 aria-current={homeActive ? "page" : undefined}
                 className={cn(
-                  "relative flex h-[34px] items-center gap-2.5 rounded-lg px-3 text-[13px] transition-colors",
-                  homeActive ? "bg-primary-soft-2 font-semibold text-primary-text" : "font-medium text-text-2 hover:bg-surface-3 hover:text-text",
+                  "relative flex h-[34px] items-center gap-2.5 rounded-lg px-3 text-[13px] font-medium transition-colors",
+                  homeActive ? "bg-primary-soft-2 text-primary-text" : "text-text-2 hover:bg-surface-3 hover:text-text",
                 )}
               >
                 {homeActive && <ActiveIndicator id={indicatorId} className="-left-3" />}
@@ -208,9 +208,11 @@ export function Sidebar({ rail: railProp, onToggleRail, onNavigate, mobile }: Pr
                             onClick={onNavigate}
                             aria-current={active ? "page" : undefined}
                             title={d.title}
+                            // Mismo peso activo e inactivo: el énfasis lo dan el fondo, el color y el indicador.
+                            // En semibold, "Momento 3 · Gestión y cierre" se recortaba justo en su propio tablero
                             className={cn(
-                              "flex h-[34px] items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors",
-                              active ? "bg-primary-soft-2 font-semibold text-primary-text" : "font-medium text-text-2 hover:bg-surface-3 hover:text-text",
+                              "flex h-[34px] items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors",
+                              active ? "bg-primary-soft-2 text-primary-text" : "text-text-2 hover:bg-surface-3 hover:text-text",
                             )}
                           >
                             <Icon className={cn("size-4 shrink-0", !active && "text-muted")} />

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { copUnit, describeDelta, formatPct, formatValue } from "@/lib/format";
-import { displayLabel, initials } from "@/lib/labels";
-import { isNeutral, resolveStatus, statusDisplay } from "./semantic";
+import { displayLabel, durationLabel, initials, sentenceCase } from "@/lib/labels";
+import { isNeutral, resolveStatus, statusDisplay, toneStep, toneStepHex } from "./semantic";
 import { inkOn } from "./theme";
 
 /** Espacio duro entre cifra y unidad. */
@@ -33,7 +33,7 @@ describe("SemanticRegistry (etiquetas reales de los perfiles)", () => {
     ["Preventiva", "sla", "warning"],
     ["Revoca Sanción", "fallo", "good"],
     ["Confirma en Contra", "fallo", "critical"],
-    ["Informativos", "fallo", "neutral"],
+    ["Informativos", "fallo", "info"],
   ] as const)("%s (%s) → %s", (label, family, tone) => {
     expect(resolveStatus(label, family)?.tone).toBe(tone);
   });
@@ -41,6 +41,8 @@ describe("SemanticRegistry (etiquetas reales de los perfiles)", () => {
   it("agrupa y muestra sin prefijo ordinal", () => {
     expect(resolveStatus("2. Abierto En Término", "semaforo")?.group).toBe("Abiertos");
     expect(statusDisplay("2. Abierto En Término")).toBe("Abierto en término");
+    // Marcas con mayúscula interna se conservan (tooltips, badges y la serie SealMail)
+    expect(statusDisplay("Certificado SealMail")).toBe("Certificado SealMail");
     expect(resolveStatus("Sin Evento Radian", "radian")?.display).toBe("Pendiente de acuse");
     expect(resolveStatus("No Reporta", "guia")?.display).toBe("Sin guía física");
   });
@@ -52,10 +54,47 @@ describe("SemanticRegistry (etiquetas reales de los perfiles)", () => {
     expect(resolveStatus("032. Recibo del bien o prestación del servicio", "radian")?.display).toBe("Recibo del bien o prestación del servicio");
   });
 
-  it("notificación con los nombres de la banda de KPIs", () => {
-    expect(resolveStatus("Acuse de recibo", "notificacion")?.display).toBe("Entregada (acuse de recibo)");
-    expect(resolveStatus("El destinatario abrio la notificacion", "notificacion")?.display).toBe("Abierta por el destinatario");
-    expect(resolveStatus("No fue posible la entrega al destinatario", "notificacion")?.display).toBe("Entrega fallida");
+  it("notificación con los nombres de la banda de KPIs (en singular)", () => {
+    expect(resolveStatus("Acuse de recibo", "notificacion")?.display).toBe("Entregada");
+    expect(resolveStatus("El destinatario abrio la notificacion", "notificacion")?.display).toBe("Abierta");
+    expect(resolveStatus("No fue posible la entrega al destinatario", "notificacion")?.display).toBe("Fallida");
+  });
+
+  it("RADIAN: forma corta para el badge de la tabla, completa en display", () => {
+    const s = resolveStatus("032. Recibo del bien o prestación del servicio", "radian");
+    expect(s?.short).toBe("Recibo del bien");
+    expect(s?.code).toBe("032");
+    expect(resolveStatus("030. Acuse de recibo", "radian")?.short).toBeUndefined();
+    // Un alias del spec manda sobre la forma corta
+    expect(resolveStatus("032. Recibo del bien o prestación del servicio", "radian", { "032. Recibo del bien o prestación del servicio": { label: "Recibido" } })?.short).toBeUndefined();
+  });
+
+  it("plazos con concordancia de número", () => {
+    expect(statusDisplay("6 día(s) hábiles")).toBe("6 días hábiles");
+    expect(statusDisplay("1 día(s) hábiles")).toBe("1 día hábil");
+    expect(resolveStatus("6 día(s) hábiles", "cumplimiento")?.display).toBe("6 días hábiles");
+    expect(statusDisplay("5 Horas")).toBe("5 horas");
+  });
+
+  it("siglas finales EL y AT en mayúsculas", () => {
+    expect(statusDisplay("ORIGEN EL")).toBe("Origen EL");
+    expect(statusDisplay("ORIGEN AT")).toBe("Origen AT");
+  });
+
+  it("escalones de tono: en oscuro se aclaran (≥ 3:1 sobre la superficie)", () => {
+    expect(toneStep("var(--good)", 0)).toBe("var(--good)");
+    expect(toneStep("var(--good)", 2)).toContain("var(--tone-step-2)");
+    expect(toneStep("var(--good)", 3)).toBe("var(--good)");
+    // #22b35a sobre #161a21: el 3.er escalón ya no se apaga hacia el fondo
+    const surface = "#161a21";
+    const lum = (hex: string) => {
+      const c = [0, 2, 4].map((i) => parseInt(hex.slice(1 + i, 3 + i), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
+    const ratio = (a: string, b: string) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+    for (const step of [1, 2]) expect(ratio(toneStepHex("#22b35a", step, "dark", surface), surface)).toBeGreaterThanOrEqual(3);
+    // Claro: igual que antes (72 % sobre la superficie)
+    expect(toneStepHex("#0ca30c", 1, "light", "#ffffff")).toBe("#50bd50");
   });
 
   it("detecta neutrales sin confundir categorías reales", () => {
@@ -154,5 +193,22 @@ describe("displayLabel", () => {
     expect(displayLabel("Cuenta De Cobro").full).toBe("Cuenta de cobro");
     expect(displayLabel("Pago De Incapacidad").full).toBe("Pago de incapacidad");
     expect(displayLabel("Contact Center").full).toBe("Contact Center");
+  });
+  it("plazos en una sola forma", () => {
+    expect(displayLabel("1 Días").full).toBe("1 día");
+    expect(displayLabel("4 Días").full).toBe("4 días");
+    expect(displayLabel("6 día(s) hábiles").full).toBe("6 días hábiles");
+    expect(displayLabel("5 Horas").full).toBe("5 horas");
+    expect(durationLabel("En término")).toBeNull();
+  });
+  it("EL final en mayúsculas es sigla (enfermedad laboral)", () => {
+    expect(displayLabel("ORIGEN EL").full).toBe("Origen EL");
+    expect(displayLabel("ORIGEN AT").full).toBe("Origen AT");
+    expect(displayLabel("CALIFICACION EN EL ORIGEN").full).toBe("Calificación en el Origen");
+  });
+  it("tipo oración para listas de estados", () => {
+    expect(sentenceCase("Confirma a Favor")).toBe("Confirma a favor");
+    expect(sentenceCase("Oficios de Trámite")).toBe("Oficios de trámite");
+    expect(sentenceCase("Revoca Sanción")).toBe("Revoca sanción");
   });
 });

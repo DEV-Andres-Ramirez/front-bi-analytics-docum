@@ -1,6 +1,6 @@
 import "server-only";
 
-import { orNoReporta } from "../normalizers";
+import { folios, orNoReporta } from "../normalizers";
 import type { Profile } from "../mock/generator";
 import { radicado } from "../mock/generator";
 import { fakeCompany, fakeHex } from "../mock/fake";
@@ -61,6 +61,10 @@ export const salidasGenerales: DatasetDef = {
     profile: profile as unknown as Profile,
     seed: 1212,
     perDay: 44,
+    // El histograma de hora del perfil llega corrido −5 h (pico 02–10 h: salidas "radicadas" de madrugada),
+    // probablemente por un doble ajuste UTC→Bogotá en scripts/mock/build-profiles.mjs. Mientras se corrige
+    // allí, se usa el mismo histograma desplazado +5 h: jornada 06–18 h con la pausa del mediodía.
+    hour: [1, 0, 0, 1, 0, 0, 13, 79, 90, 108, 114, 103, 89, 62, 109, 153, 49, 16, 1, 4, 3, 0, 2, 3],
     geoEmpty: 0.05,
     overrides: {
       Tramite: {
@@ -99,6 +103,8 @@ export const salidasGenerales: DatasetDef = {
   normalize: (r) => ({
     ...r,
     Copia: orNoReporta(r.Copia),
+    // Relleno de la fuente (999, 9.999, 10.000, 99.999…) → sin dato: no infla la suma de folios del KPI
+    Cantidad_de_folios: folios(r.Cantidad_de_folios),
     Anexos: orNoReporta(r.Anexos),
     Estado_guia: orNoReporta(r.Estado_guia),
     Tipo_documento_destinatario: orNoReporta(r.Tipo_documento_destinatario),

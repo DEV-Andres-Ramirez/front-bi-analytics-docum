@@ -9,6 +9,7 @@ import { EmptyState, Skeleton } from "@/components/ui/primitives";
 import { Sheet } from "@/components/ui/sheet";
 import type { DetailResponse } from "@/dashboards/dto";
 import type { ColumnDef, SectionDef } from "@/dashboards/types";
+import { useElementSize } from "@/hooks/use-element-size";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { resolveStatus, statusDisplay, TONE_VARS } from "@/lib/charts/semantic";
@@ -42,18 +43,42 @@ function tidyText(raw: string): string | null {
 /** Filas por carga en móvil ("Ver 10 más"); el servidor admite hasta 200 por página. */
 const MOBILE_STEP = 10;
 const MAX_PAGE = 200;
+/**
+ * Ancho mínimo de la tarjeta (no del viewport) para mostrar la tabla. Por debajo, tarjetas: entre 768 y
+ * ≈ 1100 px de viewport, con el sidebar, la tarjeta mide 680–930 px y la tabla dejaba columnas clave
+ * fuera de vista o bajo la columna fija.
+ */
+const TABLE_MIN_W = 900;
+
+/**
+ * Dónde se pinta la celda: "table" (una línea, con tope de ancho y elipsis), "card" (tarjeta móvil:
+ * identificadores y badges en una línea, sin partirse) y "sheet" (ficha completa: todo el texto).
+ */
+type CellMode = "table" | "card" | "sheet";
+
+/** Texto visible de un badge (código + etiqueta), para decidir su ancho en la tarjeta móvil. */
+function badgeText(col: ColumnDef, value: string): string {
+  const info = col.semantic ? resolveStatus(value, col.semantic) : null;
+  return info ? `${info.code ? `${info.code} ` : ""}${info.display}` : statusDisplay(value);
+}
 
 // ─── Celdas ──────────────────────────────────────────────────────────────────
-function StatusBadge({ col, value, full }: { col: ColumnDef; value: string; full?: boolean }) {
+function StatusBadge({ col, value, mode }: { col: ColumnDef; value: string; mode: CellMode }) {
   const info = col.semantic ? resolveStatus(value, col.semantic) : null;
-  // En la tabla el badge no pasa de 200 px (RADIAN llega a 310): se recorta con el texto completo en title
-  const box = full ? "whitespace-normal" : "max-w-[200px] whitespace-nowrap";
+  // Tabla: una línea al ancho natural. Los estados sin código ("Solicitud de reclasificación") caben
+  // hasta 240 px; los que llevan código de proceso (RADIAN "032 Recibo del bien…", hasta 310 px) se
+  // recortan a 200 px porque el código ya los identifica. Tarjeta: una línea al ancho disponible (la
+  // píldora nunca se parte en dos). Ficha: texto completo.
+  const box =
+    mode === "sheet" ? "whitespace-normal" : mode === "card" ? "max-w-full whitespace-nowrap" : cn("whitespace-nowrap", info?.code ? "max-w-[200px]" : "max-w-[240px]");
+  const clip = mode !== "sheet" && "truncate";
   if (info?.tone) {
     const t = TONE_VARS[info.tone];
     return (
       <span className={cn("inline-flex min-w-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold", box)} style={{ background: t.soft, color: t.ink }} title={value}>
         <StatusIcon tone={info.tone} />
-        <span className={cn("min-w-0", !full && "truncate")}>{info.display}</span>
+        {info.code && <span className="shrink-0 font-mono text-[11px] font-medium opacity-80">{info.code}</span>}
+        <span className={cn("min-w-0", clip)}>{info.display}</span>
       </span>
     );
   }
@@ -62,7 +87,8 @@ function StatusBadge({ col, value, full }: { col: ColumnDef; value: string; full
   return (
     <span className={cn("inline-flex min-w-0 items-center gap-1.5 rounded-full bg-surface-3 px-2 py-0.5 text-xs font-semibold text-text-2", box)} title={value}>
       {info?.color && <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: info.color }} />}
-      <span className={cn("min-w-0", !full && "truncate")}>{label}</span>
+      {info?.code && <span className="shrink-0 font-mono text-[11px] font-medium">{info.code}</span>}
+      <span className={cn("min-w-0", clip)}>{label}</span>
     </span>
   );
 }
@@ -97,8 +123,9 @@ function LongText({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Cell({ col, value, full }: { col: ColumnDef; value: Value; full?: boolean }) {
+function Cell({ col, value, mode = "table" }: { col: ColumnDef; value: Value; mode?: CellMode }) {
   if (isEmpty(value)) return <span className="text-muted">—</span>;
+  const full = mode !== "table";
   switch (col.format) {
     case "date":
       return <span className="tabular whitespace-nowrap">{formatDateTime(Number(value), false)}</span>;
@@ -113,13 +140,18 @@ function Cell({ col, value, full }: { col: ColumnDef; value: Value; full?: boole
     case "cop":
       return <span className="tabular whitespace-nowrap">{formatCOP(Number(value), false)}</span>;
     case "mono":
+      // Un identificador partido no se lee ni se copia: en la tarjeta va en una línea (ocupa las dos
+      // columnas si es largo, ver isWideCardField). Solo la ficha parte los muy largos (CUFE de 96).
       return (
-        <span className={cn("font-mono text-[12px]", full ? "break-all" : "block max-w-[180px] truncate")} title={String(value)}>
+        <span
+          className={cn("font-mono text-[12px]", mode === "sheet" ? "break-all" : mode === "card" ? "block truncate whitespace-nowrap" : "block max-w-[180px] truncate")}
+          title={String(value)}
+        >
           {String(value)}
         </span>
       );
     case "badge":
-      return <StatusBadge col={col} value={String(value)} full={full} />;
+      return <StatusBadge col={col} value={String(value)} mode={mode} />;
     case "long":
       return full ? <span className="whitespace-pre-line break-words">{String(value)}</span> : <LongText label={col.label} value={String(value)} />;
     default: {
@@ -138,13 +170,23 @@ function Cell({ col, value, full }: { col: ColumnDef; value: Value; full?: boole
           </span>
         );
       }
+      // Tarjetas angostas (< 1000 px): tope de 200 px para que la tabla quepa sin esconder columnas clave
       return (
-        <span className="block max-w-[240px] truncate" title={tip !== d.short ? tip : raw.length > 32 ? raw : undefined}>
+        <span className="block max-w-[200px] truncate @min-[1000px]:max-w-[240px]" title={tip !== d.short ? tip : raw.length > 32 ? raw : undefined}>
           {d.short}
         </span>
       );
     }
   }
+}
+
+/** Tarjeta móvil: identificadores largos (≥ 18 caracteres) y estados de más de 20 ocupan las dos columnas. */
+function isWideCardField(col: ColumnDef, value: Value): boolean {
+  if (isEmpty(value)) return false;
+  const raw = String(value).trim();
+  if (col.format === "mono") return raw.length >= 18;
+  if (col.format === "badge") return badgeText(col, raw).length > 20;
+  return false;
 }
 
 const RIGHT_ALIGNED = new Set(["int", "decimal", "days", "cop"]);
@@ -228,8 +270,10 @@ function useTableOverflow() {
  * derecho mientras haya columnas fuera de vista, y la primera columna de valor (COP) fija a la
  * derecha (si es la última) para que la cifra principal siempre se vea. Badges por familia semántica, displayLabel en
  * celdas, formato long como ícono con popover y columnas sin datos en la página ocultas (quedan en
- * "Columnas" con la marca "sin datos"). Móvil: tarjetas con la cifra principal arriba a la derecha y
- * "Ver 10 más" en lugar de la paginación. Paginación, orden y búsqueda en el servidor; CSV con ";" y BOM.
+ * "Columnas" con la marca "sin datos"). Bajo 1000 px de tarjeta, celdas con menos aire y tope de texto de
+ * 200 px. Tarjeta de menos de 900 px (teléfono, tablet o escritorio con sidebar abierto): tarjetas con la
+ * cifra principal arriba a la derecha y "Ver 10 más" en lugar de la paginación; los códigos y estados
+ * largos ocupan las dos columnas para no partirse. Paginación, orden y búsqueda en el servidor; CSV con ";" y BOM.
  */
 export function DetailTable() {
   const { spec, meta, qs, data: dash } = useDashboard();
@@ -244,7 +288,11 @@ export function DetailTable() {
   const [hidden, setHidden] = useLocalStorage<string[]>(`docum:cols:${spec.slug}`, defaultHidden);
   const colsAnchor = useRef<HTMLButtonElement>(null);
   const [colsOpen, setColsOpen] = useState(false);
-  const mobile = useMediaQuery("(max-width: 767px)");
+  // Tarjetas o tabla según el ancho de la TARJETA (el sidebar cambia cuánto le queda). Antes de medir,
+  // el viewport da la primera estimación (sin parpadeo en el teléfono)
+  const narrowViewport = useMediaQuery("(max-width: 767px)");
+  const { ref: cardRef, width: cardWidth, measured: cardMeasured } = useElementSize();
+  const mobile = cardMeasured ? cardWidth < TABLE_MIN_W : narrowViewport;
   const { ref: scrollRef, onScroll: onScrollX, scrollRight, left: scrolledLeft, right: moreRight, hiddenCols } = useTableOverflow();
 
   useEffect(() => {
@@ -324,7 +372,7 @@ export function DetailTable() {
     <section id="detalle" aria-labelledby="s-detalle" className="dash-section">
       <SectionHeader section={header} index={spec.sections.length} />
 
-      <div className="card @container overflow-hidden">
+      <div ref={cardRef} className="card @container overflow-hidden">
         {/* Toolbar: conteo + búsqueda + acciones. Bajo 1100 px de tarjeta la búsqueda y las acciones pasan a su propia fila */}
         <div className="flex flex-col gap-3 border-b border-border p-4 sm:px-5 @min-[1100px]:flex-row @min-[1100px]:items-center @min-[1100px]:gap-4">
           <p className="min-w-0 text-sm text-muted @min-[1100px]:flex-1">
@@ -341,7 +389,7 @@ export function DetailTable() {
                 · {hiddenEmpty} {hiddenEmpty === 1 ? "columna sin datos oculta" : "columnas sin datos ocultas"}
               </span>
             )}
-            <span className="hidden md:inline"> · clic en una fila para ver la ficha completa</span>
+            {!mobile && <span> · clic en una fila para ver la ficha completa</span>}
             {/* Aviso de columnas fuera de vista (el botón desplaza la tabla) */}
             {!mobile && moreRight && hiddenCols > 0 && (
               <button
@@ -390,14 +438,17 @@ export function DetailTable() {
                   {visible.length}/{def.columns.length}
                 </span>
               </button>
-              <button
-                type="button"
-                onClick={() => setDense(!dense)}
-                aria-pressed={dense}
-                className="hidden h-10 items-center gap-2 whitespace-nowrap rounded-full border border-border bg-surface px-3.5 text-sm font-semibold text-text-2 transition-colors hover:border-border-strong hover:text-text md:flex"
-              >
-                <Rows3 className="size-4" aria-hidden /> {dense ? "Vista cómoda" : "Vista compacta"}
-              </button>
+              {/* La densidad solo aplica a la tabla */}
+              {!mobile && (
+                <button
+                  type="button"
+                  onClick={() => setDense(!dense)}
+                  aria-pressed={dense}
+                  className="flex h-10 items-center gap-2 whitespace-nowrap rounded-full border border-border bg-surface px-3.5 text-sm font-semibold text-text-2 transition-colors hover:border-border-strong hover:text-text"
+                >
+                  <Rows3 className="size-4" aria-hidden /> {dense ? "Vista cómoda" : "Vista compacta"}
+                </button>
+              )}
               <a href={csvHref} className="btn-primary flex h-10 items-center gap-2 whitespace-nowrap px-4 text-sm" download aria-label="Descargar CSV">
                 <Download className="size-4" aria-hidden />
                 <span>
@@ -463,7 +514,7 @@ export function DetailTable() {
                             data-pin={pin ? "right" : undefined}
                             aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
                             className={cn(
-                              "whitespace-nowrap border-b border-border bg-surface-2 px-4 py-2.5 text-left align-bottom",
+                              "whitespace-nowrap border-b border-border bg-surface-2 px-3 py-2.5 text-left align-bottom @min-[1000px]:px-4",
                               RIGHT_ALIGNED.has(c.format ?? "") && "text-right",
                               empty && "w-px",
                               i === 0 && cn("sticky left-0 z-10", stickyFade, scrolledLeft && "after:opacity-100"),
@@ -503,7 +554,7 @@ export function DetailTable() {
                           <td
                             key={c.field}
                             className={cn(
-                              "border-b border-border px-4 text-text-2 transition-colors group-hover:bg-primary-soft group-focus-visible:bg-primary-soft",
+                              "border-b border-border px-3 text-text-2 transition-colors group-hover:bg-primary-soft group-focus-visible:bg-primary-soft @min-[1000px]:px-4",
                               dense ? "py-1.5" : "py-2.5",
                               RIGHT_ALIGNED.has(c.format ?? "") && "text-right",
                               emptyCols.has(c.field) && "w-px",
@@ -544,7 +595,7 @@ export function DetailTable() {
                     <button type="button" onClick={() => setRow(r)} className="block w-full px-4 py-3 text-left transition-colors hover:bg-surface-2">
                       <span className="flex items-start justify-between gap-3">
                         <span className="min-w-0 text-sm font-semibold text-text">
-                          <Cell col={first} value={r[first.field]} full />
+                          <Cell col={first} value={r[first.field]} mode="card" />
                         </span>
                         {money && !isEmpty(r[money.field]) && (
                           <span className="shrink-0 text-right">
@@ -557,16 +608,16 @@ export function DetailTable() {
                       </span>
                       {mobileBadge && !isEmpty(r[mobileBadge.field]) && (
                         <span className="mt-1.5 flex">
-                          <Cell col={mobileBadge} value={r[mobileBadge.field]} full />
+                          <Cell col={mobileBadge} value={r[mobileBadge.field]} mode="card" />
                         </span>
                       )}
                       {fields.length > 0 && (
-                        <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                        <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs @min-[600px]:grid-cols-4">
                           {fields.map((c) => (
-                            <div key={c.field} className="min-w-0">
+                            <div key={c.field} className={cn("min-w-0", isWideCardField(c, r[c.field]) && "col-span-2")}>
                               <dt className="text-muted">{c.label}</dt>
                               <dd className="min-w-0 break-words text-text-2">
-                                <Cell col={c} value={r[c.field]} full />
+                                <Cell col={c} value={r[c.field]} mode="card" />
                               </dd>
                             </div>
                           ))}
@@ -651,7 +702,7 @@ export function DetailTable() {
               <div key={c.field} className="grid grid-cols-[minmax(120px,40%)_1fr] gap-3 px-4 py-2.5 text-sm">
                 <dt className="font-semibold text-muted">{c.label}</dt>
                 <dd className="min-w-0 break-words text-text">
-                  <Cell col={c} value={row[c.field]} full />
+                  <Cell col={c} value={row[c.field]} mode="sheet" />
                 </dd>
               </div>
             ))}

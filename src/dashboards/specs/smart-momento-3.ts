@@ -163,7 +163,7 @@ export const smartMomento3: DashboardSpec = {
     },
     {
       id: "pendiente",
-      nav: "Trabajo pendiente",
+      nav: "Pendiente",
       question: "¿Dónde se acumula la gestión?",
       legend: [
         { label: "Gestión", tone: "info" },
@@ -199,18 +199,22 @@ export const smartMomento3: DashboardSpec = {
           semantic: "momento",
           maxItems: 7,
         },
+        // Cada estado cae en un solo momento (Cerrada → cierre; Abierta y Recibida → gestión): la matriz 3 × 2
+        // dejaba la mitad de sus celdas vacías. StatusStrip vertical de la familia estado-queja (Cerrada good,
+        // Abierta info, Recibida neutral); el cruce con el momento sigue en "Ver datos" y el CSV (stackBy).
         {
           id: "queja-momento",
           type: "bar",
           orientation: "vertical",
           title: "Estado de la queja",
           subtitle: "Estado en SMART",
+          note: "El cruce de cada estado con el momento (gestión o cierre) está en Ver datos y en el CSV.",
           dimension: "nombre_estado_queja_reclamo",
           stackBy: "momento",
           stackOrder: MOMENTO,
           size: "sm",
-          viz: "heatmap",
-          semantic: "momento",
+          viz: "status-strip",
+          semantic: "estado-queja",
           maxItems: 3,
         },
       ],
@@ -259,18 +263,20 @@ export const smartMomento3: DashboardSpec = {
     },
     {
       id: "categoria-sla",
-      nav: "Categoría SLA",
+      nav: "SLA",
       question: "¿En qué estados, oficinas y tipos de solicitud se concentra el riesgo?",
       widgets: [
-        slaPivot("pivot-estado", "Estado (sin aprobados)", "Quejas sin aprobar por estado y categoría SLA", "pqrd_estado", "Estado", true),
-        { ...slaPivot("pivot-oficina", "Oficina responsable", "Quejas por oficina y categoría SLA", "pqrd_oficina_responsable", "Oficina"), labelKind: "oficina" },
+        // Títulos cortos: son las pestañas del Segmented (3 a 358 px en móvil, sin partir en 2 líneas). La tarjeta
+        // con pestañas muestra el subtítulo de la celda: ahí va la exclusión de aprobadas de la pestaña Estado.
+        slaPivot("pivot-estado", "Estado", "Quejas sin aprobar por estado y categoría SLA", "pqrd_estado", "Estado", true),
+        { ...slaPivot("pivot-oficina", "Oficina", "Quejas por oficina responsable y categoría SLA", "pqrd_oficina_responsable", "Oficina"), labelKind: "oficina" },
         slaPivot("pivot-tipo", "Tipo de solicitud", "Quejas por tipo de solicitud y categoría SLA", "pqrd_nombre_tipo_solicitud", "Tipo de solicitud"),
       ],
       rows: [
         {
           template: "12",
           tier: "auto",
-          cells: [{ tabs: ["pivot-estado", "pivot-oficina", "pivot-tipo"], id: "pivots-sla", title: "Categoría SLA", subtitle: "Quejas por categoría SLA" }],
+          cells: [{ tabs: ["pivot-estado", "pivot-oficina", "pivot-tipo"], id: "pivots-sla", title: "Categoría SLA", subtitle: "Por categoría SLA · Estado sin aprobadas" }],
         },
       ],
     },
@@ -280,15 +286,15 @@ export const smartMomento3: DashboardSpec = {
     columns: [
       { field: "fecha_registro_m3", label: "Registro M3", format: "datetime" },
       { field: "radicado", label: "Radicado", format: "mono" },
+      { field: "pqrd_estado", label: "Estado", format: "badge", semantic: "flujo" },
+      { field: "pqrd_semaforo_riesgo", label: "Semáforo", format: "badge", semantic: "semaforo" },
       { field: "codigo_queja_reclamo", label: "Código", format: "mono", visible: false },
       { field: "observaciones", label: "Observaciones", format: "long", visible: false },
       { field: "pqrd_nombre_tipo_solicitud", label: "Tipo de solicitud" },
       { field: "pqrd_canal_radicacion", label: "Canal" },
       { field: "pqrd_oficina_responsable", label: "Oficina", labelKind: "oficina" },
-      { field: "pqrd_estado", label: "Estado", format: "badge", semantic: "flujo" },
       { field: "fecha_aprobacion", label: "Aprobación", format: "date" },
       { field: "pqrd_tiempo_por_vencer", label: "Tiempo por vencer" },
-      { field: "pqrd_semaforo_riesgo", label: "Semáforo", format: "badge", semantic: "semaforo" },
       { field: "pqrd_rango_ciclo", label: "Rango ciclo", visible: false },
       { field: "Alerta3", label: "Alerta", format: "badge", semantic: "alerta" },
     ],

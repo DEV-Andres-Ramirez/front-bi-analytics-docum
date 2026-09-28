@@ -24,7 +24,8 @@ const BRAND_BG = "linear-gradient(150deg, #bd5d00 0%, #a24a00 58%, #6b3000 100%)
  * LoginScreen v2.
  * - Escritorio (≥ 1024 px): grid 1.1fr / 1fr. Panel naranja con la silueta de Colombia en puntos (blanco al 12 %)
  *   y mosaico 2×3 de módulos (círculo blanco con el ícono en el color del módulo, nombre y "n tableros").
- * - Móvil: banda de 168 px y la tarjeta superpuesta (−mt-10).
+ * - Móvil y tablet: banda de 168 px con el titular alineado a la tarjeta, que va superpuesta (−mt-10). En tablet
+ *   (768–1023 px) el mosaico de módulos baja, compacto, bajo la tarjeta (conserva el contexto del escritorio).
  * - Tarjeta: lockup "Docum BI" (el logo aparece una sola vez), token con mostrar/ocultar, aviso de Bloq Mayús,
  *   error con role=alert (con sacudida) y ayuda para obtener el token.
  */
@@ -123,9 +124,12 @@ export function LoginScreen({ next }: { next: string }) {
         {/* Banda móvil de 168 px */}
         <div aria-hidden className="relative h-[168px] overflow-hidden lg:hidden" style={{ background: BRAND_BG }}>
           <ColombiaDots dot={1.1} className="absolute -right-6 -top-10 h-[260px] text-white/15" />
-          <p className="absolute bottom-14 left-4 right-24 text-balance text-lg font-bold leading-snug text-white sm:left-8">
-            Seguimiento de flujos documentales, claro y a tiempo.
-          </p>
+          {/* Mismo ancho y margen que la tarjeta: el titular arranca en su borde izquierdo. */}
+          <div className="absolute inset-x-0 bottom-14">
+            <p className="mx-auto max-w-md text-balance px-4 pr-20 text-lg font-bold leading-snug text-white sm:px-6 sm:pr-24">
+              Seguimiento de flujos documentales, claro y a tiempo.
+            </p>
+          </div>
         </div>
 
         <div className="absolute right-4 top-4 z-10 sm:right-6 sm:top-6">
@@ -146,7 +150,7 @@ export function LoginScreen({ next }: { next: string }) {
               <span className="text-sm font-bold tracking-tight text-text">Docum BI</span>
             </div>
 
-            <h1 className="mt-7 text-2xl font-bold tracking-tight text-text">Bienvenido</h1>
+            <h1 className="mt-7 text-2xl font-bold tracking-tight text-text">Te damos la bienvenida</h1>
             <p className="mt-1.5 text-sm leading-relaxed text-muted">Ingresa el token de acceso para consultar los tableros de seguimiento.</p>
 
             <form action={action} className="mt-7 space-y-5" noValidate>
@@ -174,8 +178,8 @@ export function LoginScreen({ next }: { next: string }) {
                     onKeyUp={(e) => setCaps(e.getModifierState?.("CapsLock") ?? false)}
                     onKeyDown={(e) => setCaps(e.getModifierState?.("CapsLock") ?? false)}
                     onBlur={() => setCaps(false)}
-                    placeholder="••••••••••••••••"
-                    className="h-12 w-full rounded-2xl border border-border bg-surface-2 pl-11 pr-12 font-mono text-[15px] tracking-wide text-text outline-none transition placeholder:text-faint focus:border-primary focus:bg-surface focus:ring-4 focus:ring-[var(--ring)] aria-[invalid=true]:border-critical"
+                    placeholder="Pega aquí tu token"
+                    className="h-12 w-full rounded-2xl border border-border bg-surface-2 pl-11 pr-12 font-mono text-[15px] tracking-wide text-text outline-none transition placeholder:font-sans placeholder:tracking-normal placeholder:text-muted focus:border-primary focus:bg-surface focus:ring-4 focus:ring-[var(--ring)] aria-[invalid=true]:border-critical"
                   />
                   <button
                     type="button"
@@ -233,6 +237,26 @@ export function LoginScreen({ next }: { next: string }) {
               </div>
             </details>
           </motion.div>
+
+          {/* Tablet (768–1023 px): mosaico compacto de módulos bajo la tarjeta, sobre la superficie (sin cifras inventadas). */}
+          <ul aria-label="Módulos" className="mt-6 hidden grid-cols-2 gap-2 md:grid lg:hidden">
+            {MODULE_TILES.map((m) => {
+              const Icon = m.icon;
+              return (
+                <li key={m.id} data-module={m.id} className="flex items-center gap-2.5 rounded-xl border border-border bg-surface px-3 py-2">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-full bg-mod-soft text-mod-ink">
+                    <Icon className="size-4" aria-hidden />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] font-semibold leading-4 text-text">{m.short}</span>
+                    <span className="block text-xs leading-4 text-muted">
+                      {m.count} {m.count === 1 ? "tablero" : "tableros"}
+                    </span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
 
           {/* Único pie legal (el panel de marca ya no lo repite). */}
           <p className="mt-6 text-balance text-center text-xs text-muted">

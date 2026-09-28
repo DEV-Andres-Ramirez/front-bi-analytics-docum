@@ -14,7 +14,8 @@ import { dayLabel, daysInMonthOf, isWeekend } from "./home-data";
  * - el último día con dato en --mod al 100 %; si es HOY (parcial) va solo con contorno para no leerse como caída;
  * - un último día en 0 se marca con un punto del módulo en la base (una barra de 1 px no se ve);
  * - null es un hueco (nunca 0); los días que faltan del mes se marcan con un anillo en la base.
- * Variante ancha (112 px): ticks por semana, promedio punteado y máximo anotado (texto en HTML).
+ * Variante ancha (112 px): ticks por semana, línea de referencia punteada y máximo anotado (texto en HTML).
+ * La etiqueta de la referencia va en un canal propio a la derecha del área de trazado: nunca tapa barras.
  */
 interface Props {
   values: (number | null)[];
@@ -25,6 +26,11 @@ interface Props {
   label: string;
   /** El último día de la serie es hoy (dato parcial). */
   partialLast?: boolean;
+  /**
+   * Variante ancha: valor del mes para la línea de referencia (KPIs de promedio o porcentaje, donde la media
+   * simple de los días no coincide con la cifra del mes). Sin él, la línea es el promedio diario.
+   */
+  reference?: number | null;
   variant?: "compact" | "wide";
   className?: string;
 }
@@ -89,6 +95,12 @@ function barProps(kind: BarKind): { className?: string; fill?: string; stroke?: 
   return { className: DAY_FILL };
 }
 
+/** Lectura de las marcas especiales de la variante compacta (no tiene leyenda visible). */
+function marksHint(values: (number | null)[], s: Series): string {
+  const parts = [s.partial ? "Barra hueca: hoy (dato parcial)" : null, s.slots > values.length ? "○: días por venir" : null, s.daily ? "gris: fin de semana" : null];
+  return parts.filter(Boolean).join(" · ");
+}
+
 function summary(label: string, values: (number | null)[], s: Series, from: string, format: ValueFormat): string {
   if (s.maxIdx < 0) return `${label}: sin datos en el periodo`;
   const fmt = (v: number) => formatValue(v, format, { compact: true });
@@ -104,9 +116,10 @@ function Dot({ x, y, size, color }: { x: number; y: number; size: number; color:
   return <path d={`M${x} ${y}h0`} stroke={color} strokeWidth={size} strokeLinecap="round" vectorEffect="non-scaling-stroke" />;
 }
 
-export function MicroColumns({ values, from, format, label, partialLast = false, variant = "compact", className }: Props) {
+export function MicroColumns({ values, from, format, label, partialLast = false, reference = null, variant = "compact", className }: Props) {
   const s = describeSeries(values, from, partialLast);
-  if (variant === "wide") return <WideColumns values={values} from={from} format={format} label={label} series={s} className={className} />;
+  if (variant === "wide")
+    return <WideColumns values={values} from={from} format={format} label={label} series={s} reference={reference} className={className} />;
 
   const W = 132;
   const H = 40;
@@ -114,14 +127,18 @@ export function MicroColumns({ values, from, format, label, partialLast = false,
   const bw = Math.max(1.4, slot * 0.64);
   const max = s.max || 1;
   const lastValue = s.lastIdx >= 0 ? values[s.lastIdx] : null;
+  const text = summary(label, values, s, from, format);
+  const hint = marksHint(values, s);
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
       preserveAspectRatio="none"
       role="img"
-      aria-label={summary(label, values, s, from, format)}
-      className={cn("block h-10 w-full overflow-visible", className)}
+      aria-label={hint ? `${text}. ${hint}` : text}
+      className={cn("block h-8 w-full overflow-visible", className)}
     >
+      {/* Tooltip nativo: explica la barra hueca (hoy) y los anillos (días por venir), que no tienen leyenda aquí. */}
+      <title>{hint ? `${text}\n${hint}` : text}</title>
       <line x1={0} x2={W} y1={H - 0.5} y2={H - 0.5} stroke="var(--hairline)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
       <g className="micro-grow">
         {values.map((v, i) => {
@@ -160,6 +177,10 @@ export function MicroColumns({ values, from, format, label, partialLast = false,
 
 const WIDE_H = 112;
 const TOP_PAD = 22;
+/** Canal derecho para la etiqueta de la línea de referencia (fuera del área de trazado). */
+const GUTTER = 58;
+/** Media anchura estimada de la anotación del máximo ("Máx. 3,6 días · 25 sept"). */
+const MAX_HALF = 58;
 
 function WideColumns({
   values,
@@ -167,6 +188,7 @@ function WideColumns({
   format,
   label,
   series: s,
+  reference,
   className,
 }: {
   values: (number | null)[];
@@ -174,52 +196,69 @@ function WideColumns({
   format: ValueFormat;
   label: string;
   series: Series;
+  reference: number | null;
   className?: string;
 }) {
   const { ref, width } = useElementSize<HTMLDivElement>();
-  const slot = width / s.slots;
+  // Línea de referencia: el valor del mes (si llega) o el promedio de los días completos.
+  const isMonth = reference !== null && Number.isFinite(reference);
+  const lineValue = isMonth ? reference : s.avg;
+  const gutter = lineValue !== null ? GUTTER : 0;
+  const plotW = Math.max(0, width - gutter);
+  const slot = plotW / s.slots;
   const bw = Math.max(2, Math.min(18, slot * 0.62));
-  const max = s.max || 1;
+  const max = Math.max(s.max, lineValue ?? 0) || 1;
   const y = (v: number) => WIDE_H - Math.max(1, (v / max) * (WIDE_H - TOP_PAD));
   const cx = (i: number) => i * slot + slot / 2;
   const fmt = (v: number) => formatValue(v, format, { compact: true });
   // Solo se rotulan días con dato (nunca una fecha futura).
   const ticks = (s.daily ? [0, 7, 14, 21, 28] : [0, s.slots - 1]).filter((i) => i < s.slots && i <= Math.max(0, s.lastIdx));
-  const maxLeft = s.maxIdx >= 0 ? Math.min(Math.max(cx(s.maxIdx), 56), Math.max(56, width - 56)) : 0;
-  const avgOnLeft = s.maxIdx > s.slots * 0.7;
+  const maxLeft = s.maxIdx >= 0 ? Math.min(Math.max(cx(s.maxIdx), MAX_HALF), Math.max(MAX_HALF, plotW - MAX_HALF)) : 0;
   const pending = Math.max(0, s.slots - values.length);
   const lastValue = s.lastIdx >= 0 ? values[s.lastIdx] : null;
+  // "Fin de semana" solo se rotula si hay alguna barra gris (sin marca no hay leyenda).
+  const hasWeekend = s.daily && values.some((v, i) => v !== null && Number.isFinite(v) && i !== s.lastIdx && isWeekend(from, i));
+  const hasWeekday = values.some((v, i) => v !== null && Number.isFinite(v) && i !== s.lastIdx && !(s.daily && isWeekend(from, i)));
+  const lineLabel = isMonth ? "Mes" : "Promedio";
 
   return (
     <div className={cn("min-w-0", className)}>
       <div aria-hidden className="mb-2 flex min-h-8 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
-        <span className="inline-flex items-center gap-1.5">
-          <span className={cn("size-2.5 rounded-[3px]", DAY_SWATCH)} />
-          Día hábil
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="size-2.5 rounded-[3px] bg-neutral-mark" />
-          Fin de semana
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className={cn("size-2.5 rounded-[3px]", s.partial ? TODAY_SWATCH : "bg-mod")} />
-          {s.partial ? "Hoy (parcial)" : "Último día"}
-        </span>
+        {hasWeekday && (
+          <span className="inline-flex items-center gap-1.5">
+            <span className={cn("size-2.5 rounded-[3px]", DAY_SWATCH)} />
+            Día hábil
+          </span>
+        )}
+        {hasWeekend && (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2.5 rounded-[3px] bg-neutral-mark" />
+            Fin de semana
+          </span>
+        )}
+        {s.lastIdx >= 0 && (
+          <span className="inline-flex items-center gap-1.5">
+            <span className={cn("size-2.5 rounded-[3px]", s.partial ? TODAY_SWATCH : "bg-mod")} />
+            {s.partial ? "Hoy (parcial)" : "Último día"}
+          </span>
+        )}
         {pending > 0 && (
           <span className="inline-flex items-center gap-1.5">
             <span className="size-2 rounded-full border border-border-strong" />
             Días por venir
           </span>
         )}
-        <span className="inline-flex items-center gap-1.5">
-          <span className="w-3 border-t border-dashed border-text-2" />
-          Promedio diario
-        </span>
+        {lineValue !== null && (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-3 border-t border-dashed border-text-2" />
+            {isMonth ? "Valor del mes" : "Promedio diario"}
+          </span>
+        )}
       </div>
       <div ref={ref} className="relative" style={{ height: WIDE_H }} role="img" aria-label={summary(label, values, s, from, format)}>
         {width > 0 && (
           <svg width={width} height={WIDE_H} className="absolute inset-0 overflow-visible" aria-hidden>
-            <line x1={0} x2={width} y1={WIDE_H - 0.5} y2={WIDE_H - 0.5} stroke="var(--border)" strokeWidth={1} />
+            <line x1={0} x2={plotW} y1={WIDE_H - 0.5} y2={WIDE_H - 0.5} stroke="var(--border)" strokeWidth={1} />
             <g className="micro-grow">
               {values.map((v, i) => {
                 if (v === null || !Number.isFinite(v)) return null;
@@ -245,18 +284,20 @@ function WideColumns({
             {Array.from({ length: pending }, (_, k) => (
               <circle key={`f${k}`} cx={cx(values.length + k)} cy={WIDE_H - 3} r={2.25} fill="none" stroke="var(--border-strong)" strokeWidth={1.25} />
             ))}
-            {s.avg !== null && (
-              <line x1={0} x2={width} y1={y(s.avg)} y2={y(s.avg)} stroke="var(--text-2)" strokeOpacity={0.7} strokeWidth={1} strokeDasharray="3 3" />
+            {lineValue !== null && (
+              <line x1={0} x2={plotW + 2} y1={y(lineValue)} y2={y(lineValue)} stroke="var(--text-2)" strokeOpacity={0.7} strokeWidth={1} strokeDasharray="3 3" />
             )}
           </svg>
         )}
-        {width > 0 && s.avg !== null && (
+        {/* Etiqueta de la referencia en el canal derecho (sin fondo: no tapa ninguna barra). */}
+        {width > 0 && lineValue !== null && (
           <span
             aria-hidden
-            className={cn("tabular absolute -translate-y-full rounded bg-surface/90 px-1 text-[10px] font-semibold leading-4 text-text-2", avgOnLeft ? "left-0" : "right-0")}
-            style={{ top: y(s.avg) - 2 }}
+            className="tabular absolute flex -translate-y-1/2 flex-col whitespace-nowrap text-[10px] leading-3"
+            style={{ left: plotW + 6, top: Math.min(Math.max(y(lineValue), 12), WIDE_H - 12) }}
           >
-            Promedio {fmt(s.avg)}
+            <span className="text-muted">{lineLabel}</span>
+            <span className="font-semibold text-text-2">{fmt(lineValue)}</span>
           </span>
         )}
         {width > 0 && s.maxIdx >= 0 && (

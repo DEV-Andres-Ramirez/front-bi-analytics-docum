@@ -29,10 +29,11 @@ export const medicinaLaboralEntradas: DashboardSpec = {
   kpis: [
     { id: "radicados", label: "Radicados", short: "Radicados", measure: count(), format: "int", polarity: "neutral", hero: true, hint: "Radicados de entrada de medicina laboral en el periodo." },
     { id: "aprobados", label: "Aprobados en el periodo", short: "Aprobados", measure: count(), dateField: "fecha_aprobacion", format: "int", polarity: "up-good", provisional: true, hint: "Radicados cuya fecha de aprobación cae dentro del periodo, sin importar cuándo se radicaron. Por eso puede superar a los radicados." },
-    { id: "vencidos", label: "% Vencidos / fuera de término", short: "% Vencidos", measure: share(is("tiempo_por_vencer", "Vencido", "Fuera de Término")), format: "pct", polarity: "up-bad", hint: "Radicados vencidos o respondidos fuera de término sobre el total." },
+    // La etiqueta nombra las DOS categorías que suma: con "% Vencidos" contradecía el tile "Vencido" del StatusStrip
+    { id: "vencidos", label: "% Vencido o fuera de término", short: "% Fuera de plazo", measure: share(is("tiempo_por_vencer", "Vencido", "Fuera de Término")), format: "pct", polarity: "up-bad", hint: "Radicados vencidos o respondidos fuera de término sobre el total. Suma Vencido + Fuera de término del widget Tiempo por vencer." },
     { id: "tiempo-gestion", label: "Tiempo en gestión (promedio)", short: "Días en gestión", measure: avg("tiempo_en_gestion"), format: "days", polarity: "up-bad", hint: "Promedio de días en gestión (solo registros con dato)." },
   ],
-  // kpiRedesign §6: héroe + Aprobados (provisional) · % Vencidos · Días en gestión (3 × 112 + divisores ≤ 671)
+  // kpiRedesign §6: héroe + Aprobados (provisional) · % Fuera de plazo · Días en gestión (3 × 112 + divisores ≤ 671)
   kpiLayout: [
     {
       template: "4-8",

@@ -60,14 +60,19 @@ export function useScrollEdges<T extends HTMLElement = HTMLDivElement>() {
  * la celda, así que celdas contiguas forman una banda continua. Una box-shadow con spread negativo
  * por celda deja "píldoras" separadas y huecos por donde asoma la fila de abajo.
  * Requisitos: la celda debe estar posicionada (sticky o relative) y no usar el mismo pseudo para
- * otra cosa. Cabecera y pie usan ::before; primera columna y totales usan ::after.
+ * otra cosa. Cabecera y pie usan ::before; primera columna y totales usan ::after. El contenedor con
+ * scroll lleva `isolate`: los z-index de las celdas fijas no compiten con la barra de filtros (z-30).
  */
 /** Borde inferior de la cabecera fija (hay filas ocultas arriba). */
 export const EDGE_T =
   "before:pointer-events-none before:absolute before:inset-x-0 before:top-full before:h-2 before:bg-linear-to-b before:from-black/12 before:to-transparent before:opacity-0 dark:before:from-black/45 group-data-[t=1]/sc:before:opacity-100";
-/** Borde superior del pie fijo (hay filas ocultas abajo): banda más alta para que se note. */
+/**
+ * Borde superior del pie fijo (hay filas ocultas abajo): la fila que queda a medias se DESVANECE
+ * hacia la superficie (28 px, como el final de una lista) en lugar de verse cortada en seco detrás
+ * del Total; el borde del pie hace de línea. Cubre todo el ancho (celdas contiguas, spacing 0).
+ */
 export const EDGE_B =
-  "before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-3 before:bg-linear-to-t before:from-black/15 before:to-transparent before:opacity-0 dark:before:from-black/50 group-data-[b=1]/sc:before:opacity-100";
+  "before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-7 before:bg-linear-to-t before:from-surface before:via-surface/80 before:to-transparent before:opacity-0 group-data-[b=1]/sc:before:opacity-100";
 /** Borde derecho de la primera columna fija (hay columnas ocultas a la izquierda). */
 export const EDGE_L =
   "after:pointer-events-none after:absolute after:inset-y-0 after:left-full after:w-2.5 after:bg-linear-to-r after:from-black/12 after:to-transparent after:opacity-0 dark:after:from-black/45 group-data-[l=1]/sc:after:opacity-100";

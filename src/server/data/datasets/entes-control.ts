@@ -1,6 +1,6 @@
 import "server-only";
 
-import { entesAuxCategoria, franjaHoraria, orNoReporta, tipoHorario } from "../normalizers";
+import { entesAuxCategoria, franjaHoraria, orNoReporta, tiempoPorVencer, tipoHorario } from "../normalizers";
 import type { Profile } from "../mock/generator";
 import { radicado } from "../mock/generator";
 import profile from "../mock/profiles/entes_control.json";
@@ -58,7 +58,7 @@ export const entesControl: DatasetDef = {
       Estado: orNoReporta(r.Estado),
       Tipo_de_Requerimiento: orNoReporta(r.Tipo_de_Requerimiento),
       Aux_Categoria: entesAuxCategoria(r.Aux_Categoria),
-      Tiempo_por_Vencer: orNoReporta(r.Tiempo_por_Vencer),
+      Tiempo_por_Vencer: tiempoPorVencer(r.Tiempo_por_Vencer),
       Oficina_responsable_de_respuesta: orNoReporta(r.Oficina_responsable_de_respuesta),
       Asignador_de_responsable: orNoReporta(r.Asignador_de_responsable),
       Gestionador_Responsable: orNoReporta(r.Gestionador_Responsable),

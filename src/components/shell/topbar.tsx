@@ -130,7 +130,8 @@ function MockBadge({ variant }: { variant: "full" | "short" | "icon" }) {
 /**
  * Topbar v2 (64 px, sticky, con blur).
  * Escritorio: contexto a la izquierda, SectionNav (priority+) cuando el H1 sale de pantalla y, a la
- * derecha, barra de comandos, "Actualizado hace N min", badge "Datos de prueba", modo presentación y
+ * derecha, barra de comandos (solo ícono en el Home, que tiene su propio buscador, y con SectionNav),
+ * "Actualizado hace N min", badge "Datos de prueba", modo presentación y
  * ThemeSwitch. Qué cabe se decide con container queries sobre el ancho real del topbar (@container/topbar),
  * que depende del sidebar (284 px o riel de 76 px), no solo del viewport.
  * Móvil: menú + isotipo + "Docum BI" + buscar + "Prueba" + tema.
@@ -155,6 +156,9 @@ export function Topbar({ onOpenMenu, onOpenPalette, presenting, onTogglePresent 
   const source = onDashboard ? dashSource : (catalog.data?.source ?? null);
   const compact = onDashboard && headerHidden;
   const navVisible = compact && sections.length > 1;
+  // Barra de comandos ancha solo en tableros: en el Home el hero ya tiene su buscador (dos campos casi
+  // iguales en el mismo pliegue confunden) y en tableros con SectionNav las pestañas necesitan el sitio
+  const wideSearch = !navVisible && pathname !== "/";
 
   return (
     // Fondo casi opaco y desaturado: el color de las gráficas no se filtra como manchas bajo la barra
@@ -181,7 +185,7 @@ export function Topbar({ onOpenMenu, onOpenPalette, presenting, onTogglePresent 
 
         {/* Derecha: lo que se muestra depende del ancho real del topbar (container query), no del viewport */}
         <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
-          {!navVisible && (
+          {wideSearch && (
             <button
               type="button"
               onClick={onOpenPalette}
@@ -194,7 +198,7 @@ export function Topbar({ onOpenMenu, onOpenPalette, presenting, onTogglePresent 
               <kbd className="shrink-0 rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-sans text-[11px] font-semibold text-muted">{shortcut}</kbd>
             </button>
           )}
-          <span className={cn("inline-flex", !navVisible && "@min-[1100px]/topbar:hidden")}>
+          <span className={cn("inline-flex", wideSearch && "@min-[1100px]/topbar:hidden")}>
             <Tooltip content={`Buscar tablero o acción (${shortcut})`} side="bottom">
               <button
                 type="button"

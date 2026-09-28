@@ -62,6 +62,10 @@
   --neutral-mark: #b4b8bf;
   --neutral-ink: #4d5257;
   --neutral-soft: #f1f2f4;
+  /* Escalones de un tono repetido en un grupo (semantic.ts › toneStep): mezcla con la superficie */
+  --tone-step-base: var(--surface);
+  --tone-step-1: 72%;
+  --tone-step-2: 48%;
 
   /* Gráficas — paleta categórica validada (orden fijo, CVD ΔE 9.1) */
   --chart-1: #df7702;
@@ -168,6 +172,10 @@
   --neutral-mark: #5b6370;
   --neutral-ink: #c3c7ce;
   --neutral-soft: #242a34;
+  /* En oscuro se aclara con blanco (18 / 32 %): la opacidad apagaría el tono hacia el fondo (< 3:1) */
+  --tone-step-base: #ffffff;
+  --tone-step-1: 82%;
+  --tone-step-2: 68%;
 
   --chart-1: #c96a00;
   --chart-2: #3987e5;
@@ -520,6 +528,8 @@
   .dash-card[data-viz="column-bars"] .dash-body,
   .dash-card[data-viz="histogram"] .dash-body { height: 240px; flex: none; }
   .dash-card[data-viz="treemap"] .dash-body { height: 300px; flex: none; }
+  /* Treemap en vista Lista: HTML por contenido (sin scroll anidado en móvil) */
+  .dash-card[data-viz="treemap"]:has([data-treemap-list]) .dash-body { height: auto; }
   .dash-card[data-viz="sankey"] .dash-body { height: 380px; flex: none; }
 }
 
@@ -561,12 +571,39 @@
 /* Tablet: el mapa apilado (lienzo + panel) crece con su contenido en lugar de hacer scroll interno */
 @container page (min-width: 600px) and (max-width: 839.98px) {
   .dash-row[data-tier="XL"] > .dash-cell:has(> .dash-card[data-viz="hero-map"]) { height: auto; }
+
+  /* Celdas que a 6 columnas quedan SOLAS en su línea (data-md-solo: asimétricas 8-4/4-8/7-5/5-7 apiladas,
+     3.ª del 4-4-4, 1.ª del 6-3-3). Ya no comparten alto con una vecina, así que el tier solo deja aire:
+     - componentes HTML que miden bien por contenido (como en móvil) → alto por contenido;
+     - canvas secundarios (no P1) de una fila L o XL → bajan un tier (L 460 → 360, XL 540 → 460).
+     La P1 (card-hero), el sankey (mínimo 320), las pilas y los componentes que se reparten el alto
+     medido (category-tiles, heatmap, drilldown) conservan el tier de la fila. */
+  .dash-row:not([data-tier="auto"]):not([data-tier="kpi"]) > .dash-cell[data-md-solo]:has(
+      > .dash-card:not(.card-hero):is(
+          [data-viz="status-strip"], [data-viz="status-board"], [data-viz="pipeline"], [data-viz="composition"],
+          [data-viz="family-split"], [data-viz="entity-tiles"], [data-viz="quality-notice"], [data-viz="split-rows"],
+          [data-viz="ranking"], [data-viz="people"]
+        )
+    ) {
+    height: auto;
+  }
+  .dash-row[data-tier="L"] > .dash-cell[data-md-solo]:has(
+      > .dash-card:not(.card-hero):is([data-viz="area"], [data-viz="column-bars"], [data-viz="histogram"], [data-viz="monthly-delta"], [data-viz="treemap"])
+    ) {
+    height: 360px;
+  }
+  .dash-row[data-tier="XL"] > .dash-cell[data-md-solo]:has(
+      > .dash-card:not(.card-hero):is([data-viz="area"], [data-viz="column-bars"], [data-viz="histogram"], [data-viz="monthly-delta"], [data-viz="treemap"])
+    ) {
+    height: 460px;
+  }
 }
 
-/* Tier auto: alto por contenido con máximo y scroll interno (tablas, pivotes) */
+/* Tier auto: alto por contenido. Cada vista de contenido (pivot, role-pivot, efficiency-matrix,
+   resolution-table) pone su propio tope de 640 px con scroll interno SOLO en modo tabla; en tarjetas
+   o vista por filas mide por contenido (sin scroll anidado dentro de la página). */
 .dash-row[data-tier="auto"] .dash-body {
-  max-height: 640px;
-  overflow: auto;
+  overflow: visible;
 }
 
 /* Anatomía de la tarjeta de widget */
@@ -598,9 +635,10 @@
 .dash-card-controls:not(:has(> :not(:empty))) {
   display: none;
 }
-/* Pestañas (Segmented de widgets alternativos): en tarjetas angostas bajan a su propia línea
-   bajo el título y reparten el ancho, sin recortar la última opción */
-@container card (max-width: 600px) {
+/* Pestañas (Segmented de widgets alternativos): hasta 760 px de tarjeta bajan a su propia línea bajo
+   el título (las pestañas + sus controles miden ≈ 480 px y dejarían ≈ 190 px al título y al subtítulo,
+   que se recortarían); por debajo de 600 px, además, reparten el ancho sin recortar la última opción */
+@container card (max-width: 760px) {
   .dash-card-header > .dash-card-controls:has(> .dash-tabs) {
     order: 3;
     flex-basis: 100%;
@@ -608,6 +646,8 @@
     justify-content: flex-start;
     row-gap: 8px;
   }
+}
+@container card (max-width: 600px) {
   .dash-tabs {
     display: grid;
     grid-auto-flow: column;
@@ -653,7 +693,8 @@
   }
 }
 @container page (min-width: 600px) and (max-width: 839.98px) {
-  .dash-row[data-md-stack="1"] .dash-card .dash-legend:has(> :first-child:empty):has(> :last-child:empty) {
+  .dash-row[data-md-stack="1"] .dash-card .dash-legend:has(> :first-child:empty):has(> :last-child:empty),
+  .dash-cell[data-md-solo] .dash-card .dash-legend:has(> :first-child:empty):has(> :last-child:empty) {
     display: none;
   }
 }

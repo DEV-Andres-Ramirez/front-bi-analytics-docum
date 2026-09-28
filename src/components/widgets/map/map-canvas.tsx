@@ -5,10 +5,10 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import type { Feature, FeatureCollection, Point } from "geojson";
 import type { ExpressionSpecification, FilterSpecification, GeoJSONSource, Map as MapboxMap, MapMouseEvent } from "mapbox-gl";
 import { Minus, Plus, RotateCcw } from "lucide-react";
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ChartTooltip, useChartTooltip, type TooltipContent } from "@/components/widgets/kit/chart-tooltip";
 import { cn } from "@/lib/cn";
-import { MAINLAND, MAX_BOUNDS, type BBox } from "@/lib/geo/bounds";
+import { CO_SILHOUETTE, MAINLAND, MAX_BOUNDS, type BBox } from "@/lib/geo/bounds";
 import type { BaseGeo, MpioFC } from "./geo-data";
 
 /**
@@ -31,7 +31,7 @@ const PADDING = { top: 20, right: 16, bottom: 12, left: 16 };
 const MAX_ZOOM = 10.5;
 const LABEL_FONT = ["DIN Pro Bold", "Arial Unicode MS Bold"];
 
-const OWN_LAYERS = ["mask-fill", "co-glow", "dptos-fill", "mpios-fill", "mpios-line", "dptos-line", "co-outline", "dptos-hl", "mpios-hl", "value-labels"];
+const OWN_LAYERS = ["mask-fill", "co-glow", "dptos-fill", "dptos-nodata", "mpios-fill", "mpios-nodata", "mpios-line", "dptos-line", "co-outline", "dptos-hl", "mpios-hl", "value-labels"];
 const OWN = new Set(OWN_LAYERS);
 
 export interface MapPalette {
@@ -80,6 +80,8 @@ export interface MapCanvasProps {
   palette: MapPalette;
   allowDrill: boolean;
   ariaLabel: string;
+  /** Cómo se usa el lienzo (aria-describedby): reemplaza la pista visible "Clic… · doble clic…" (legendSystem L12). */
+  ariaDescription?: string;
   tooltipFor: (code: string, level: "dpto" | "mpio") => TooltipContent | null;
   onHover: (code: string | null) => void;
   onSelect: (code: string | null) => void;
@@ -104,26 +106,108 @@ function inFilter(codes: string[]): FilterSpecification {
   return ["in", ["get", "code"], ["literal", codes]];
 }
 
+/**
+ * Rayado de "Sin registros" en oscuro: ahí la primera clase (seq-2) y surface-3 solo se separan
+ * ≈ 15 L* y por el matiz; la textura agrega un segundo canal (también para daltonismo).
+ */
+const HATCH = "docum-nodata-hatch";
+const HATCH_PX = 12; // imagen de 12 px a pixelRatio 2 = rayas a 45° cada 6 px CSS
+
+function hatchImage(color: string): { width: number; height: number; data: Uint8Array } {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim())?.[1];
+  const full = hex ? (hex.length === 3 ? [...hex].map((c) => c + c).join("") : hex) : "9aa1ab";
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
+  const data = new Uint8Array(HATCH_PX * HATCH_PX * 4);
+  for (let y = 0; y < HATCH_PX; y++)
+    for (let x = 0; x < HATCH_PX; x++) {
+      if ((x + y) % HATCH_PX >= 2) continue;
+      const i = (y * HATCH_PX + x) * 4;
+      [data[i], data[i + 1], data[i + 2], data[i + 3]] = [r, g, b, 72];
+    }
+  return { width: HATCH_PX, height: HATCH_PX, data };
+}
+
+/** Agrega el rayado si falta (cada setStyle lo borra); con `refresh`, lo repinta con la paleta actual. */
+function ensureHatch(map: MapboxMap, palette: MapPalette, refresh = false) {
+  if (!map.hasImage(HATCH)) map.addImage(HATCH, hatchImage(palette.text2), { pixelRatio: 2 });
+  else if (refresh) map.updateImage(HATCH, hatchImage(palette.text2));
+}
+
+/** Códigos sin registros (sin color de clase): los que no están en `fills`. */
+function noDataFilter(fills: Record<string, string>): FilterSpecification {
+  return ["!", ["in", ["get", "code"], ["literal", Object.keys(fills)]]];
+}
+
 function firstSymbolId(map: MapboxMap): string | undefined {
   return map.getStyle()?.layers?.find((l) => l.type === "symbol" && !OWN.has(l.id))?.id;
 }
 
-/** Etiquetas del mapa base: solo lugares y país de Colombia; sin POI, vías ni rótulos naturales. */
-function tameBaseLabels(map: MapboxMap) {
+/** Capa de ciudades del estilo base que se conserva, con su filtro y zoom originales. */
+interface CityLayer {
+  id: string;
+  filter?: FilterSpecification;
+  minzoom: number;
+  maxzoom: number;
+}
+
+/** Solo las ciudades principales (place_label · settlement-major) sobreviven del mapa base. */
+const CITY_LAYER = /^settlement-major-label$|^settlement-label$/;
+/** En la vista de departamentos las ciudades solo aparecen al acercarse (la coropleta y sus rótulos mandan). */
+const CITY_MINZOOM_DPTO = 6.5;
+/** DANE (2 dígitos) → ISO 3166-2 (campo iso_3166_2 de place_label en Mapbox Streets v8). */
+const DPTO_ISO: Record<string, string> = {
+  "05": "CO-ANT", "08": "CO-ATL", "11": "CO-DC", "13": "CO-BOL", "15": "CO-BOY", "17": "CO-CAL", "18": "CO-CAQ", "19": "CO-CAU",
+  "20": "CO-CES", "23": "CO-COR", "25": "CO-CUN", "27": "CO-CHO", "41": "CO-HUI", "44": "CO-LAG", "47": "CO-MAG", "50": "CO-MET",
+  "52": "CO-NAR", "54": "CO-NSA", "63": "CO-QUI", "66": "CO-RIS", "68": "CO-SAN", "70": "CO-SUC", "73": "CO-TOL", "76": "CO-VAC",
+  "81": "CO-ARA", "85": "CO-CAS", "86": "CO-PUT", "88": "CO-SAP", "91": "CO-AMA", "94": "CO-GUA", "95": "CO-GUV", "97": "CO-VAU", "99": "CO-VID",
+};
+
+/**
+ * Etiquetas del mapa base (se llama en cada "style.load"): fuera POI, vías, rótulos naturales,
+ * país ("Colombia" sobre el Meta competía con los datos), departamentos y ciudades menores.
+ * Devuelve las capas de ciudades principales, que `applyCityLabels` ajusta según el nivel.
+ */
+function tameBaseLabels(map: MapboxMap): CityLayer[] {
+  const cities: CityLayer[] = [];
   for (const layer of map.getStyle()?.layers ?? []) {
     if (layer.type !== "symbol" || OWN.has(layer.id)) continue;
     try {
       const sourceLayer = (layer as { "source-layer"?: string })["source-layer"];
-      const keep = sourceLayer === "place_label" && /country|settlement-(major|minor)|settlement-label/.test(layer.id);
-      if (!keep) {
+      if (sourceLayer === "place_label" && CITY_LAYER.test(layer.id)) {
+        const l = layer as { filter?: FilterSpecification; minzoom?: number; maxzoom?: number };
+        cities.push({ id: layer.id, filter: l.filter, minzoom: l.minzoom ?? 0, maxzoom: l.maxzoom ?? 24 });
+      } else {
         map.setLayoutProperty(layer.id, "visibility", "none");
-        continue;
       }
-      const prev = (layer as { filter?: FilterSpecification }).filter;
-      const co: FilterSpecification = ["==", ["get", "iso_3166_1"], "CO"];
-      map.setFilter(layer.id, prev ? (["all", prev, co] as FilterSpecification) : co);
     } catch {
-      /* capa sin iso_3166_1 o filtro heredado: se deja como está */
+      /* capa que no admite el cambio: se deja como está */
+    }
+  }
+  return cities;
+}
+
+/**
+ * Ciudades del mapa base según el nivel: en departamentos, solo de Colombia y desde el zoom 6,5
+ * (la vista nacional queda limpia); en municipios, las del departamento abierto con su zoom original.
+ */
+function applyCityLabels(map: MapboxMap, cities: CityLayer[], level: "dpto" | "mpio", drill: string | null) {
+  const iso = level === "mpio" && drill ? DPTO_ISO[drill] : undefined;
+  for (const c of cities) {
+    if (!map.getLayer(c.id)) continue;
+    try {
+      const parts: FilterSpecification[] = [["==", ["get", "iso_3166_1"], "CO"]];
+      if (c.filter) parts.unshift(c.filter);
+      // Sin iso_3166_2 en la tesela: se conserva (mejor un rótulo vecino que ninguno)
+      if (iso) parts.push(["any", ["!", ["has", "iso_3166_2"]], ["==", ["get", "iso_3166_2"], iso]] as FilterSpecification);
+      map.setFilter(c.id, ["all", ...parts] as FilterSpecification);
+      map.setLayerZoomRange(c.id, level === "mpio" ? c.minzoom : Math.max(c.minzoom, CITY_MINZOOM_DPTO), c.maxzoom);
+      map.setLayoutProperty(c.id, "visibility", "visible");
+    } catch {
+      try {
+        map.setLayoutProperty(c.id, "visibility", "none");
+      } catch {
+        /* capa retirada por un setStyle en curso */
+      }
     }
   }
 }
@@ -140,12 +224,14 @@ function ensureLayers(map: MapboxMap, p: Live): boolean {
   src("outline", base.outline);
   src("dptos", base.dptos);
   if (!map.getSource("labels")) map.addSource("labels", { type: "geojson", data: p.labels });
+  ensureHatch(map, palette);
   const add = (spec: Parameters<MapboxMap["addLayer"]>[0], beforeId?: string) => {
     if (!map.getLayer(spec.id)) map.addLayer(spec, beforeId && map.getLayer(beforeId) ? beforeId : undefined);
   };
   add({ id: "mask-fill", type: "fill", source: "mask", paint: { "fill-color": palette.surface, "fill-opacity": palette.mode === "dark" ? 0.86 : 0.82 } }, before);
   add({ id: "co-glow", type: "line", source: "outline", paint: { "line-color": palette.primary, "line-opacity": 0.22, "line-width": 8, "line-blur": 6 } }, before);
   add({ id: "dptos-fill", type: "fill", source: "dptos", paint: { "fill-color": palette.surface3, "fill-opacity": 0.92 } }, before);
+  add({ id: "dptos-nodata", type: "fill", source: "dptos", layout: { visibility: "none" }, filter: noDataFilter(p.fills), paint: { "fill-pattern": HATCH } }, before);
   add(
     {
       id: "dptos-line",
@@ -170,7 +256,9 @@ function ensureLayers(map: MapboxMap, p: Live): boolean {
       "text-size": 12,
       "text-line-height": 1.15,
       "text-max-width": 9,
-      "text-variable-anchor": ["center", "top", "bottom", "left", "right"],
+      // Diagonales al final: en el centro del país (Bogotá, Cundinamarca, Antioquia, Boyacá) los
+      // rótulos de dos líneas no caben en las cinco posiciones básicas
+      "text-variable-anchor": ["center", "top", "bottom", "left", "right", "bottom-left", "bottom-right", "top-left", "top-right"],
       "text-radial-offset": 0.5,
       "text-justify": "auto",
       "symbol-sort-key": ["get", "sk"],
@@ -189,6 +277,8 @@ function ensureMpioLayers(map: MapboxMap, p: Live) {
   if (!source) map.addSource("mpios", { type: "geojson", data: p.mpios, promoteId: "code" });
   const beforeLine = map.getLayer("dptos-line") ? "dptos-line" : firstSymbolId(map);
   if (!map.getLayer("mpios-fill")) map.addLayer({ id: "mpios-fill", type: "fill", source: "mpios", paint: { "fill-color": palette.surface3, "fill-opacity": 0.95 } }, beforeLine);
+  if (!map.getLayer("mpios-nodata"))
+    map.addLayer({ id: "mpios-nodata", type: "fill", source: "mpios", layout: { visibility: "none" }, filter: noDataFilter(p.mpioFills), paint: { "fill-pattern": HATCH } }, beforeLine);
   if (!map.getLayer("mpios-line"))
     map.addLayer(
       {
@@ -219,9 +309,18 @@ function applyState(map: MapboxMap, p: Live) {
   );
   const hl = level === "dpto" ? [...new Set([...(p.selected ? [p.selected] : []), ...p.filtered])] : [];
   map.setFilter("dptos-hl", inFilter(hl));
+  const dark = palette.mode === "dark";
+  if (map.getLayer("dptos-nodata")) {
+    map.setFilter("dptos-nodata", noDataFilter(p.fills));
+    map.setLayoutProperty("dptos-nodata", "visibility", dark && !mpio ? "visible" : "none");
+  }
   if (map.getLayer("mpios-fill")) {
     const vis = mpio ? "visible" : "none";
     for (const id of ["mpios-fill", "mpios-line", "mpios-hl"]) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
+    if (map.getLayer("mpios-nodata")) {
+      map.setFilter("mpios-nodata", noDataFilter(p.mpioFills));
+      map.setLayoutProperty("mpios-nodata", "visibility", dark && mpio ? "visible" : "none");
+    }
     map.setPaintProperty("mpios-fill", "fill-color", matchColor(p.mpioFills, palette.surface3));
     const dimM = mpio && p.filtered.length > 0;
     map.setPaintProperty("mpios-fill", "fill-opacity", dimM ? ["case", ["in", ["get", "code"], ["literal", p.filtered]], 0.95, 0.4] : 0.95);
@@ -233,6 +332,7 @@ function applyState(map: MapboxMap, p: Live) {
 /** Colores dependientes del tema en capas ya creadas (el setStyle las recrea, pero el tema puede cambiar sin estilo nuevo). */
 function applyPalette(map: MapboxMap, palette: MapPalette) {
   if (!map.getLayer("mask-fill")) return;
+  ensureHatch(map, palette, true);
   map.setPaintProperty("mask-fill", "fill-color", palette.surface);
   map.setPaintProperty("mask-fill", "fill-opacity", palette.mode === "dark" ? 0.86 : 0.82);
   map.setPaintProperty("co-glow", "line-color", palette.primary);
@@ -257,7 +357,8 @@ interface DevWindow {
 }
 
 export function MapCanvas(props: MapCanvasProps) {
-  const { palette, ariaLabel, children, className, style } = props;
+  const { palette, ariaLabel, ariaDescription, children, className, style } = props;
+  const descId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapboxMap | null>(null);
   const live = useRef<Live>(props);
@@ -266,8 +367,14 @@ export function MapCanvas(props: MapCanvasProps) {
   const appliedStyle = useRef<string | null>(null);
   const appliedData = useRef<{ labels: LabelFC | null; mpios: MpioFC | null }>({ labels: null, mpios: null });
   const hoverApplied = useRef<{ source: string; id: string } | null>(null);
+  const cityLayers = useRef<CityLayer[]>([]);
+  /** Nivel ya aplicado a las ciudades del mapa base ("tick|nivel|departamento"). */
+  const cityApplied = useRef("");
   const [styleTick, setStyleTick] = useState(0);
+  /** Estilo base listo (cámara y tema pueden operar). */
   const [loaded, setLoaded] = useState(false);
+  /** Coropleta dibujada: la silueta del skeleton se retira solo entonces (no con el estilo vacío). */
+  const [painted, setPainted] = useState(false);
   const { state: tip, show, hide } = useChartTooltip();
   const tipFns = useRef({ show, hide });
 
@@ -341,14 +448,15 @@ export function MapCanvas(props: MapCanvasProps) {
         appliedData.current = { labels: live.current.labels, mpios: live.current.mpios };
         hoverApplied.current = null;
         try {
-          tameBaseLabels(m);
+          cityLayers.current = tameBaseLabels(m);
+          applyCityLabels(m, cityLayers.current, live.current.level, live.current.drill);
+          cityApplied.current = "";
           if (ensureLayers(m, live.current)) applyState(m, live.current);
         } catch (err) {
           console.error("[HeroMap] capas", err);
         }
         if (first && !disposed) {
-          // Primer estilo listo: encuadre y fin del skeleton (no se espera a "load", que
-          // depende de que terminen todas las teselas)
+          // Primer estilo listo: encuadre (no se espera a "load", que depende de todas las teselas)
           first = false;
           frameTo(m, live.current.frame, false);
           setLoaded(true);
@@ -356,6 +464,22 @@ export function MapCanvas(props: MapCanvasProps) {
         setStyleTick((t) => t + 1);
       };
       m.on("style.load", setup);
+
+      // Fin del skeleton: cuando la fuente de departamentos está cargada y su capa existe
+      // (la geografía llega aparte del estilo; antes solo se vería el fondo beige del mapa base)
+      let isPainted = false;
+      const markPainted = () => {
+        if (isPainted || disposed || !m.getLayer("dptos-fill") || !m.getSource("dptos") || !m.isSourceLoaded("dptos")) return;
+        isPainted = true;
+        m.once("render", () => {
+          if (!disposed) setPainted(true);
+        });
+        m.triggerRepaint();
+      };
+      m.on("sourcedata", (e) => {
+        if ((e as { sourceId?: string }).sourceId === "dptos") markPainted();
+      });
+      m.on("idle", markPainted);
       m.on("error", (e) => {
         if (styleReady.current || disposed) return;
         const url = (e.error as { url?: string } | undefined)?.url ?? "";
@@ -471,7 +595,10 @@ export function MapCanvas(props: MapCanvasProps) {
     if (!map || !loaded) return;
     const next = styleFor(palette.mode);
     if (appliedStyle.current === next) {
-      if (styleReady.current) applyPalette(map, palette);
+      if (styleReady.current) {
+        applyPalette(map, palette);
+        applyState(map, live.current);
+      }
       return;
     }
     appliedStyle.current = next;
@@ -497,6 +624,11 @@ export function MapCanvas(props: MapCanvasProps) {
         appliedData.current.mpios = mpios;
       }
       applyState(map, live.current);
+      const cityKey = `${styleTick}|${level}|${drill ?? ""}`;
+      if (cityApplied.current !== cityKey) {
+        applyCityLabels(map, cityLayers.current, level, drill);
+        cityApplied.current = cityKey;
+      }
     } catch (err) {
       console.error("[HeroMap] estado", err);
     }
@@ -556,8 +688,13 @@ export function MapCanvas(props: MapCanvasProps) {
   return (
     <div className={cn("relative isolate overflow-hidden rounded-2xl border border-border bg-surface-2", className)} style={style} data-map-canvas>
       {/* h-full (no absolute): mapbox fuerza position:relative en su contenedor */}
-      <div ref={containerRef} className="h-full w-full" role="region" aria-label={ariaLabel} />
-      {!loaded && <CanvasSkeleton />}
+      <div ref={containerRef} className="h-full w-full" role="region" aria-label={ariaLabel} aria-describedby={ariaDescription ? descId : undefined} />
+      {ariaDescription && (
+        <p id={descId} className="sr-only">
+          {ariaDescription}
+        </p>
+      )}
+      <CanvasSkeleton hidden={painted} />
       {/* Controles: zoom + Restablecer arriba a la derecha */}
       <div className="absolute right-3 top-3 z-10 flex flex-col gap-2">
         <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-card">
@@ -579,15 +716,22 @@ export function MapCanvas(props: MapCanvasProps) {
   );
 }
 
-/** Silueta de Colombia mientras carga el lienzo. */
-export function CanvasSkeleton() {
+/**
+ * Silueta de Colombia mientras carga el lienzo (mapRedesign 12). Tapa también los controles y el
+ * recuadro de San Andrés (z 15 < error z 20) y se retira con un fundido de 200 ms.
+ */
+export function CanvasSkeleton({ hidden = false }: { hidden?: boolean }) {
   return (
-    <div className="skeleton absolute inset-0 z-[5] rounded-none" aria-hidden>
-      <svg viewBox="0 0 100 130" className="absolute inset-0 m-auto h-3/4 w-3/4 opacity-50">
-        <path
-          d="M38,4 L52,2 L60,10 L70,14 L74,26 L86,30 L92,44 L84,58 L88,72 L80,90 L66,96 L60,112 L50,126 L42,110 L30,104 L22,88 L12,80 L8,62 L16,48 L12,34 L22,24 L30,12 Z"
-          fill="var(--surface)"
-        />
+    <div
+      className={cn(
+        "skeleton absolute inset-0 z-[15] rounded-none transition-opacity duration-200 motion-reduce:transition-none",
+        hidden && "pointer-events-none opacity-0",
+      )}
+      aria-hidden
+    >
+      {/* Mismo encuadre que tendrá el mapa (padding de fitBounds): la silueta se convierte en la coropleta */}
+      <svg viewBox={`0 0 ${CO_SILHOUETTE.width} ${CO_SILHOUETTE.height}`} className="absolute inset-x-4 bottom-3 top-5 h-[calc(100%-32px)] w-[calc(100%-32px)] opacity-70">
+        <path d={CO_SILHOUETTE.d} fill="var(--surface)" stroke="var(--border)" strokeWidth={0.4} strokeLinejoin="round" />
       </svg>
     </div>
   );

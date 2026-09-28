@@ -9,7 +9,7 @@ import type { DrilldownWidget } from "@/dashboards/types";
 import { innerWidth } from "@/dashboards/layout";
 import { cn } from "@/lib/cn";
 import { isNeutral } from "@/lib/charts/semantic";
-import { useChartTheme } from "@/lib/charts/theme";
+import { inkOn, useChartTheme } from "@/lib/charts/theme";
 import { formatInt, formatPct } from "@/lib/format";
 import { displayLabel, type LabelKind } from "@/lib/labels";
 import { useWidgetFrame } from "./frame-context";
@@ -82,6 +82,8 @@ export function DrilldownBars({ widget, result, span, expanded }: VizProps<Drill
   const levelDef = levels[level];
 
   const meta = useMemo(() => stackKeyMeta(result.stackKeys, widget.semantic, vo.overrides, theme.resolve), [result.stackKeys, widget.semantic, vo.overrides, theme]);
+  // Tinta del segmento único sobre --chart-1 (inkOn): el naranja medio lleva tinta oscura, no blanco
+  const totalInk = inkOn(theme.resolve("var(--chart-1)"));
   const rows: Row[] = useMemo(
     () =>
       nodes.map((n) => {
@@ -90,12 +92,12 @@ export function DrilldownBars({ widget, result, span, expanded }: VizProps<Drill
           raw: n.label,
           label: others ? `Resto (fuera del top ${widget.topN ?? 10})` : displayLabel(n.label, kindAt(level, widget.labelKind)).full,
           value: n.value,
-          segments: meta.length ? meta.map((m) => ({ ...m, value: n.stacks?.[m.key] ?? 0 })) : [{ key: "total", label: "Total", value: n.value, color: "var(--chart-1)", ink: "#ffffff", neutral: false }],
+          segments: meta.length ? meta.map((m) => ({ ...m, value: n.stacks?.[m.key] ?? 0 })) : [{ key: "total", label: "Total", value: n.value, color: "var(--chart-1)", ink: totalInk, neutral: false }],
           neutral: others || isNeutral(n.label),
           drillable: Boolean(n.children?.length) && level < levels.length - 1,
         };
       }),
-    [nodes, meta, level, levels.length, widget.topN, widget.labelKind],
+    [nodes, meta, level, levels.length, widget.topN, widget.labelKind, totalInk],
   );
   const real = useMemo(() => rows.filter((r) => !r.neutral), [rows]);
   const neutrals = useMemo(() => rows.filter((r) => r.neutral), [rows]);

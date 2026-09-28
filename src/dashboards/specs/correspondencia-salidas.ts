@@ -77,7 +77,8 @@ export const correspondenciaSalidas: DashboardSpec = {
           size: "full",
           viz: "hero-map",
           hero: true,
-          vizOptions: { mapContext: "La cifra de municipios cubiertos está en el grupo Cobertura de los indicadores." },
+          // El panel encabeza su contexto con la cifra del KPI "Municipios cubiertos" (grupo Cobertura)
+          vizOptions: { mapContextKpi: "municipios" },
         },
       ],
       rows: [{ template: "12", tier: "XL", cells: ["mapa"] }],
@@ -110,6 +111,9 @@ export const correspondenciaSalidas: DashboardSpec = {
           maxItems: 7,
         },
       ],
+      // 7-5: los CategoryTiles 2×2 necesitan span 5; a span 4 miden ≈ 116 px a 1024 (< 136 mínimo) y recortan
+      // "Otros trámites". La P2 y la serie SealMail (5-7 abajo) comparten span 7: misma granularidad y la
+      // secundaria ya no es más ancha que la principal.
       rows: [{ template: "7-5", tier: "M", cells: ["serie", "tramite"] }],
     },
     {
@@ -144,7 +148,9 @@ export const correspondenciaSalidas: DashboardSpec = {
           vizOptions: { mode: "auto", colorSlot: 2 },
         },
       ],
-      rows: [{ template: "4-8", tier: "M", cells: ["canal", "sealmail"] }],
+      // 5-7: SealMail (P3) mide lo mismo que la P2 "Salidas en el tiempo" (7-5 arriba), nunca más; canal split
+      // a span 5 va en filas (3 × 32 + 24 = 120 ≤ 284).
+      rows: [{ template: "5-7", tier: "M", cells: ["canal", "sealmail"] }],
     },
     {
       id: "gestion",
@@ -182,7 +188,8 @@ export const correspondenciaSalidas: DashboardSpec = {
           type: "bar",
           orientation: "horizontal",
           title: "Aprobadores",
-          subtitle: "Salidas aprobadas",
+          // La base son todas las salidas (no solo las aprobadas): el % de cada fila es sobre el total
+          subtitle: "Salidas por aprobador",
           dimension: "Aprobador",
           topN: 10,
           size: "full",
@@ -211,6 +218,9 @@ export const correspondenciaSalidas: DashboardSpec = {
       { field: "Destinatario", label: "Destinatario" },
       { field: "Departamento_destinatario", label: "Departamento" },
       { field: "Municipio_destinatario", label: "Municipio" },
+      // Después del destino: la tarjeta móvil toma las 4 primeras columnas tras el radicado (Asunto · Radicado el ·
+      // Trámite · Aprobador) y Copia casi siempre dice "Ninguna"; en escritorio sigue visible.
+      { field: "Copia", label: "Copia" },
       { field: "ID_envio_sealmail", label: "ID SealMail", format: "mono", visible: false },
       { field: "Cantidad_de_folios", label: "Folios", format: "int", visible: false },
       { field: "Anexos", label: "Anexos", visible: false, semantic: "binario" },

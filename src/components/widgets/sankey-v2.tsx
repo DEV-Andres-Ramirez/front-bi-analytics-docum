@@ -30,6 +30,9 @@ registerCharts();
  * - nodePadding = clamp(10, 28 − n, 18), nodeWidth 10.
  * - Etiquetas externas en HTML (tinta, con el valor): orígenes a la izquierda, destinos a la derecha.
  *   El valor va pegado a la última palabra del nombre (nunca queda solo en una línea).
+ * - Canales de etiquetas medidos con el texto real (no proporciones fijas): cada lado toma lo que
+ *   necesita su etiqueta más larga, con tope (28 % izquierda, 24 % derecha) para que las cintas
+ *   conserven ≥ 45 % del ancho; lo que no cabe envuelve dentro del canal.
  * - Destino con la familia semántica (momento); enlaces al 35 % (70 % en hover).
  */
 
@@ -41,6 +44,21 @@ const MIN_NODE_PX = 14;
 const FOLD_MAX = 0.06;
 const FOLD_KEY = "__otras";
 const LINE_H = 16;
+/** Fuentes de las etiquetas (nombre text-xs/400 y valor text-xs/600). */
+const FONT_NAME = "400 12px Montserrat, ui-sans-serif, system-ui, sans-serif";
+const FONT_VALUE = "600 12px Montserrat, ui-sans-serif, system-ui, sans-serif";
+/**
+ * Holgura horizontal de una etiqueta: px-1 (8) + separación del nodo (8) + margen de medición (4).
+ * A la derecha se suma el ancho del nodo: la última columna se dibuja desde el borde del área del gráfico.
+ */
+const LABEL_PAD = 20;
+const LABEL_PAD_R = LABEL_PAD + NODE_W;
+/** Ícono de estado de los destinos (12 px + mr-1). */
+const ICON_W = 16;
+/** Canal mínimo y topes del canal por lado (fracción del ancho). */
+const CHANNEL_MIN = 72;
+const LEFT_MAX = 0.28;
+const RIGHT_MAX = 0.24;
 /** Separación mínima entre rótulos vecinos (px). */
 const LABEL_GAP = 4;
 
@@ -283,6 +301,35 @@ function spread(items: { id: string; center: number; h: number }[], top: number,
   return new Map(s.map((it, i) => [it.id, tops[i]]));
 }
 
+/**
+ * Ancho de cada canal de etiquetas. Ideal: la etiqueta más larga en una línea. Mínimo: el trozo que
+ * no se parte (última palabra + valor en los orígenes; "valor %" y la palabra más larga en los destinos).
+ * Tope: 28 % (izquierda) y 24 % (derecha) del ancho, para que las cintas conserven ≥ 45 %.
+ */
+function channels(model: Model, w: number): { leftW: number; rightW: number } {
+  const space = textWidth(" ", FONT_NAME);
+  const words = (label: string) => label.split(/\s+/).filter(Boolean);
+  let leftIdeal = 0;
+  let leftMin = 0;
+  for (const n of model.from) {
+    const [head, last] = splitLast(n.label);
+    const val = textWidth(formatInt(n.total), FONT_VALUE);
+    const tail = textWidth(last, FONT_NAME) + space + val;
+    leftIdeal = Math.max(leftIdeal, (head ? textWidth(head, FONT_NAME) + space : 0) + tail);
+    leftMin = Math.max(leftMin, tail, ...words(head).map((x) => textWidth(x, FONT_NAME)));
+  }
+  let rightIdeal = 0;
+  let rightMin = 0;
+  for (const n of model.to) {
+    const icon = n.tone ? ICON_W : 0;
+    const pct = textWidth(formatInt(n.total), FONT_VALUE) + space + textWidth(formatPct(model.total ? n.total / model.total : 0), FONT_NAME);
+    rightIdeal = Math.max(rightIdeal, icon + textWidth(n.label, FONT_NAME) + space + pct);
+    rightMin = Math.max(rightMin, pct, icon + Math.max(0, ...words(n.label).map((x) => textWidth(x, FONT_NAME))));
+  }
+  const side = (ideal: number, min: number, pad: number, cap: number) => Math.round(Math.max(CHANNEL_MIN, min + pad, Math.min(ideal + pad, cap)));
+  return { leftW: side(leftIdeal, leftMin, LABEL_PAD, w * LEFT_MAX), rightW: side(rightIdeal, rightMin, LABEL_PAD_R, w * RIGHT_MAX) };
+}
+
 type SankeyChart = ChartJS<"sankey", SankeyDataPoint[], unknown>;
 
 export function SankeyV2({ widget, result }: VizProps<SankeyWidget, SankeyResult>) {
@@ -310,10 +357,9 @@ export function SankeyV2({ widget, result }: VizProps<SankeyWidget, SankeyResult
   const toSel = selectionOf(filters.eq, toField);
   const selKey = `${(filters.eq[fromField] ?? []).join("\u0001")}\u0002${(filters.eq[toField] ?? []).join("\u0001")}`;
 
-  // Canal de etiquetas a cada lado (las etiquetas envuelven dentro de su canal)
+  // Canal de etiquetas a cada lado, medido con el texto real (las etiquetas envuelven dentro de su canal)
   const w = width || 400;
-  const leftW = Math.round(Math.max(96, Math.min(w * (w < 480 ? 0.4 : 0.36), 210)));
-  const rightW = Math.round(Math.max(96, Math.min(w * 0.3, 170)));
+  const { leftW, rightW } = useMemo(() => channels(model, w), [model, w]);
   const plugin = useMemo(() => nodesPlugin(setRects), []);
   const plugins = useMemo(() => [plugin, RESIZE_RECOVERY as unknown as Plugin<"sankey">], [plugin]);
 
@@ -427,7 +473,6 @@ export function SankeyV2({ widget, result }: VizProps<SankeyWidget, SankeyResult
   // ─── Etiquetas HTML ──────────────────────────────────────────────────────
   const labels = useMemo(() => {
     const rectOf = new Map(rects.map((r) => [r.id, r]));
-    const font = "600 12px Montserrat, ui-sans-serif, system-ui, sans-serif";
     const place = (nodes: SNode[], maxW: number) => {
       const items = nodes
         .map((n) => {
@@ -437,14 +482,15 @@ export function SankeyV2({ widget, result }: VizProps<SankeyWidget, SankeyResult
           const [head, last] = splitLast(n.label);
           const words =
             n.side === "from" ? [...head.split(/\s+/).filter(Boolean), `${last} ${formatInt(n.total)}`] : [...n.label.split(/\s+/), formatInt(n.total), "100,0 %"];
-          const lines = Math.min(3, lineCount(words, maxW - 22, font));
+          // Texto disponible: caja menos px-1 (8) y margen de medición (4); los destinos, menos el ícono
+          const lines = Math.min(3, lineCount(words, maxW - 12 - (n.side === "to" && n.tone ? ICON_W : 0), FONT_VALUE));
           return { id: n.id, center: r.y + r.h / 2, h: lines * LINE_H + 2, x: r.x };
         })
         .filter((x): x is NonNullable<typeof x> => x !== null);
       const tops = spread(items, 0, height || 360);
       return items.map((it) => ({ id: it.id, top: tops.get(it.id) ?? 0, x: it.x }));
     };
-    return { from: place(model.from, leftW - 8), to: place(model.to, rightW - 8) };
+    return { from: place(model.from, leftW - 8), to: place(model.to, rightW - NODE_W - 8) };
   }, [rects, model, leftW, rightW, height]);
 
   const nodeTip = (el: Element, n: SNode) => {
@@ -476,7 +522,7 @@ export function SankeyV2({ widget, result }: VizProps<SankeyWidget, SankeyResult
     const style: CSSProperties =
       n.side === "from"
         ? { top: pos.top, right: `calc(100% - ${pos.x - 8}px)`, maxWidth: leftW - 8, textAlign: "right" }
-        : { top: pos.top, left: pos.x + NODE_W + 8, maxWidth: rightW - 8 };
+        : { top: pos.top, left: pos.x + NODE_W + 8, maxWidth: rightW - NODE_W - 8 };
     const nameCls = cn("text-xs", n.neutral ? "text-muted" : "text-text-2");
     const value = <span className="tabular text-xs font-semibold text-text">{formatInt(n.total)}</span>;
     const [head, last] = splitLast(n.label);

@@ -188,8 +188,15 @@ const center = (b) => [Math.round(((b[0] + b[2]) / 2) * 1e4) / 1e4, Math.round((
 
 /** Bogotá D.C. se rotula en el casco urbano (su polígono llega hasta Sumapaz). */
 const BOGOTA_ANCHOR = [-74.08, 4.65];
+/**
+ * Puntos de etiqueta corregidos a mano (siempre dentro del polígono): el punto interior de
+ * Cundinamarca (-74.37, 5.02) quedaba pegado al ancla de Bogotá y su rótulo de valor colisionaba
+ * (el n.º 2 del top se quedaba sin rótulo). Al noroeste de Bogotá (zona de Pacho) cabe encima.
+ */
+const LABEL_OVERRIDES = { "25": [-74.35, 5.25] };
 const dptoLabels = await innerPoints(dptosOut);
 dptoLabels.set("11", BOGOTA_ANCHOR);
+for (const [code, at] of Object.entries(LABEL_OVERRIDES)) dptoLabels.set(code, at);
 
 const catalog = { dptos: {}, mpios: {} };
 for (const f of dptosOut.features) {
@@ -232,6 +239,47 @@ const mask = {
 };
 writeFileSync(join(OUT, "mask.json"), JSON.stringify(mask));
 
+// Silueta del skeleton del mapa: Colombia continental en Mercator (como la pinta Mapbox), en un
+// viewBox de 100 de ancho y simplificada con Douglas–Peucker (≈ 100 vértices, ~1 KB)
+const mercY = (lat) => (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+const mainRing = outlinePolys.map((p) => p[0]).reduce((a, b) => (Math.abs(ringArea(b)) > Math.abs(ringArea(a)) ? b : a));
+const projected = mainRing.map(([x, y]) => [x, mercY(y)]);
+const [px0, px1] = [Math.min(...projected.map((p) => p[0])), Math.max(...projected.map((p) => p[0]))];
+const [py0, py1] = [Math.min(...projected.map((p) => p[1])), Math.max(...projected.map((p) => p[1]))];
+const sk = 100 / (px1 - px0);
+function douglasPeucker(points, tol) {
+  const keep = new Uint8Array(points.length);
+  keep[0] = keep[points.length - 1] = 1;
+  const stack = [[0, points.length - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop();
+    const [ax, ay] = points[a];
+    const [bx, by] = points[b];
+    const len = Math.hypot(bx - ax, by - ay);
+    let far = -1;
+    let dMax = tol;
+    for (let i = a + 1; i < b; i++) {
+      const [x, y] = points[i];
+      const d = len ? Math.abs((bx - ax) * (ay - y) - (ax - x) * (by - ay)) / len : Math.hypot(x - ax, y - ay);
+      if (d > dMax) [far, dMax] = [i, d];
+    }
+    if (far >= 0) {
+      keep[far] = 1;
+      stack.push([a, far], [far, b]);
+    }
+  }
+  return points.filter((_, i) => keep[i]);
+}
+const silhouettePts = douglasPeucker(
+  projected.map(([x, y]) => [(x - px0) * sk, (py1 - y) * sk]),
+  0.9,
+);
+const silhouette = {
+  width: 100,
+  height: Math.round((py1 - py0) * sk * 10) / 10,
+  d: `M${silhouettePts.slice(0, -1).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join("L")}Z`,
+};
+
 // bounds.ts: constantes de cámara y geografía liviana para el cliente (sin importar divipola.json)
 const fmt = (a) => JSON.stringify(a).replace(/,/g, ", ");
 const codes = Object.keys(catalog.dptos).sort();
@@ -258,13 +306,16 @@ export const DPTO_BBOX: Record<string, BBox> = {
 ${codes.map((c) => `  "${c}": ${fmt(catalog.dptos[c].b)},`).join("\n")}
 };
 
-/** Punto de etiqueta interior por departamento (mapshaper -points inner; Bogotá anclada). */
+/** Punto de etiqueta interior por departamento (mapshaper -points inner; Bogotá y Cundinamarca ajustadas). */
 export const DPTO_LABEL: Record<string, LngLat> = {
 ${codes.map((c) => `  "${c}": ${fmt(catalog.dptos[c].l)},`).join("\n")}
 };
 
 /** Isla de San Andrés (parte mayor del departamento 88, simplificada) para el recuadro. */
 export const SAN_ANDRES_RING: LngLat[] = ${fmt(sanAndresRing)};
+
+/** Silueta de Colombia continental (Mercator, viewBox 0 0 width height) para el skeleton del mapa. */
+export const CO_SILHOUETTE = { width: ${silhouette.width}, height: ${silhouette.height}, d: "${silhouette.d}" } as const;
 `;
 writeFileSync(join(ROOT, "src", "lib", "geo", "bounds.ts"), bounds);
 
@@ -272,5 +323,5 @@ const size = (p) => (readFileSync(p).length / 1024).toFixed(0) + " KB";
 console.log(`✔ departamentos.json ${size(join(OUT, "departamentos.json"))} (${dptosOut.features.length} features)`);
 console.log(`✔ municipios/*.json ${Object.keys(byDpto).length} archivos, ${mpiosOut.features.length} features`);
 console.log(`✔ colombia-outline.json ${size(join(OUT, "colombia-outline.json"))} · mask.json ${size(join(OUT, "mask.json"))} (${outlinePolys.length} partes)`);
-console.log(`✔ bounds.ts ${codes.length} departamentos · isla de San Andrés con ${sanAndresRing.length} vértices`);
+console.log(`✔ bounds.ts ${codes.length} departamentos · isla de San Andrés con ${sanAndresRing.length} vértices · silueta con ${silhouettePts.length - 1} vértices`);
 console.log(`✔ divipola.json ${size(CATALOG)} · ${Object.keys(catalog.dptos).length} dptos · ${Object.keys(catalog.mpios).length} municipios · ${Object.keys(observed).length} nombres oficiales observados`);

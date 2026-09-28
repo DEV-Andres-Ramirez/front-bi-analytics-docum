@@ -24,33 +24,179 @@ function xStep(chart: Chart): number {
   return Math.abs(x.getPixelForValue(1) - x.getPixelForValue(0));
 }
 
+// ─── Escala Y "justa" ────────────────────────────────────────────────────────
+/** Mantisas de paso permitidas (× 10^k): más finas que el 1-2-5 de Chart.js para no desperdiciar alto. */
+const NICE_MANTISSAS = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8];
+
+/**
+ * Máximo y paso del eje Y para `dataMax` con como mucho `ticks` intervalos y ~5 % de aire.
+ * Reemplaza grace + maxTicksLimit (el niceNum de Chart.js salta a pasos 50/100 y deja vacío el
+ * 30–40 % del alto: 57 → 100, 105 → 150). Ejemplos: 57 → 0–60 (paso 15) · 105 → 0–120 (paso 30).
+ * `quantum`: el paso debe ser múltiplo de este valor (1 en conteos, 0,01 en proporciones) para
+ * que las etiquetas del eje nunca redondeen a cifras repetidas.
+ */
+export function niceScale(dataMax: number, ticks = 4, quantum = 0): { max: number; stepSize: number } {
+  const target = Math.max(0, dataMax) * 1.05;
+  const minStep = quantum > 0 ? quantum : 0;
+  if (!(target > 0)) {
+    const step = minStep || 0.25;
+    return { max: step * ticks, stepSize: step };
+  }
+  const isMultiple = (s: number) => !quantum || Math.abs(s / quantum - Math.round(s / quantum)) < 1e-6;
+  const niceAtLeast = (raw: number) => {
+    let exp = Math.floor(Math.log10(raw));
+    for (let guard = 0; guard < 4; guard++, exp++) {
+      const pow = 10 ** exp;
+      for (const m of NICE_MANTISSAS) {
+        const s = m * pow;
+        if (s >= raw - 1e-9 && s >= minStep && isMultiple(s)) return s;
+      }
+    }
+    return raw;
+  };
+  let best: { max: number; stepSize: number } | null = null;
+  for (let count = Math.max(2, ticks); count >= Math.max(2, ticks - 1); count--) {
+    const stepSize = niceAtLeast(target / count);
+    const max = Math.ceil(target / stepSize - 1e-9) * stepSize;
+    if (!best || max < best.max - 1e-9 || (Math.abs(max - best.max) < 1e-9 && stepSize < best.stepSize)) best = { max, stepSize };
+  }
+  return best as { max: number; stepSize: number };
+}
+
+/** Múltiplo mínimo del paso del eje según el formato (el eje se rotula con enteros o % enteros). */
+export function axisQuantum(format: string): number {
+  if (format === "pct") return 0.01;
+  if (format === "decimal") return 0;
+  return 1;
+}
+
+// ─── Color ───────────────────────────────────────────────────────────────────
+function parseColor(c: string): [number, number, number] | null {
+  const s = c.trim();
+  const hex = s.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    const h = hex[1].length === 3 ? hex[1].replace(/./g, (x) => x + x) : hex[1];
+    const n = parseInt(h, 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  const rgb = s.match(/^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
+  return rgb ? [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])] : null;
+}
+
+/**
+ * Color OPACO equivalente a `fg` con opacidad `a` sobre `bg` (hex). Las bandas se pintan opacas para
+ * que el halo de las cifras que caen sobre ellas pueda usar exactamente el mismo tono.
+ */
+export function blend(fg: string, bg: string, a: number): string {
+  const f = parseColor(fg);
+  const b = parseColor(bg);
+  if (!f || !b) return fg;
+  const mix = f.map((v, i) => Math.round(v * a + b[i] * (1 - a)));
+  return `#${mix.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
 // ─── Bandas de fondo (fines de semana, selección) ────────────────────────────
 export interface BandSpec {
   /** Índices de categoría (inclusive). */
   from: number;
   to: number;
+  /** Color opaco (también es el halo de las cifras que caen dentro de la banda). */
   color: string;
+  /**
+   * Franja de `strip` px bajo la línea base (fuera del área de trazado) en lugar de una banda a
+   * alto completo. Se usa con columnas: una banda alta se leería como otra columna.
+   */
+  strip?: number;
+}
+
+interface BandsOpts {
+  bands?: BandSpec[];
+}
+
+/** Límites en px [izquierda, derecha] de una banda. */
+function bandBounds(chart: Chart, b: BandSpec): [number, number] | null {
+  const x = chart.scales.x;
+  if (!x) return null;
+  const step = xStep(chart);
+  return [x.getPixelForValue(b.from) - step / 2, x.getPixelForValue(b.to) + step / 2];
 }
 
 /** Bandas verticales detrás de la grilla y de las marcas (fin de semana, categoría seleccionada). */
 export const bandsPlugin: Plugin = {
   id: "docBands",
   beforeDraw(chart, _args, opts) {
-    const bands = (opts as { bands?: BandSpec[] }).bands;
+    const bands = (opts as BandsOpts).bands;
     const area = chart.chartArea;
-    const x = chart.scales.x;
-    if (!bands?.length || !area || !x) return;
-    const step = xStep(chart);
+    if (!bands?.length || !area || !chart.scales.x) return;
     const ctx = chart.ctx;
     ctx.save();
     ctx.beginPath();
-    ctx.rect(area.left, area.top, area.right - area.left, area.bottom - area.top);
+    // Las franjas van bajo el eje: el recorte es solo horizontal para ellas
+    ctx.rect(area.left, area.top, area.right - area.left, chart.height - area.top);
     ctx.clip();
     for (const b of bands) {
-      const left = x.getPixelForValue(b.from) - step / 2;
-      const right = x.getPixelForValue(b.to) + step / 2;
+      const lr = bandBounds(chart, b);
+      if (!lr) continue;
       ctx.fillStyle = b.color;
-      ctx.fillRect(left, area.top, right - left, area.bottom - area.top);
+      if (b.strip) ctx.fillRect(lr[0] + 1, area.bottom + 2, lr[1] - lr[0] - 2, b.strip);
+      else ctx.fillRect(lr[0], area.top, lr[1] - lr[0], area.bottom - area.top);
+    }
+    ctx.restore();
+  },
+};
+
+/** Color de la banda a alto completo que contiene la coordenada x (para el halo de las cifras). */
+function bandAt(chart: Chart, px: number): string | null {
+  const bands = ((chart.options.plugins as Record<string, unknown> | undefined)?.docBands as BandsOpts | undefined)?.bands;
+  if (!bands?.length) return null;
+  let hit: string | null = null;
+  for (const b of bands) {
+    if (b.strip) continue;
+    const lr = bandBounds(chart, b);
+    if (lr && px >= lr[0] && px <= lr[1]) hit = b.color;
+  }
+  return hit;
+}
+
+// ─── Barras parciales (contorno punteado) ────────────────────────────────────
+export interface PartialBar {
+  datasetIndex: number;
+  index: number;
+  color: string;
+}
+
+/**
+ * "Punteado = parcial" también en columnas: contorno punteado de 1,5 px en el color pleno sobre la
+ * columna del tramo en curso (relleno tenue). Chart.js no punteá bordes de barra, por eso el plugin.
+ */
+export const partialBarsPlugin: Plugin = {
+  id: "docPartial",
+  afterDatasetsDraw(chart, _args, raw) {
+    const items = (raw as { items?: PartialBar[] }).items;
+    if (!items?.length) return;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 2]);
+    for (const it of items) {
+      if (!chart.isDatasetVisible(it.datasetIndex)) continue;
+      const el = chart.getDatasetMeta(it.datasetIndex).data[it.index] as unknown as { x: number; y: number; base: number; width: number } | undefined;
+      if (!el || ![el.x, el.y, el.base, el.width].every(Number.isFinite)) continue;
+      const h = el.base - el.y;
+      if (h < 1) continue;
+      const l = el.x - el.width / 2 + 0.75;
+      const r = el.x + el.width / 2 - 0.75;
+      const t = el.y + 0.75;
+      const rad = Math.min(3.25, (r - l) / 2, h / 2);
+      ctx.beginPath();
+      ctx.moveTo(l, el.base);
+      ctx.lineTo(l, t + rad);
+      ctx.arcTo(l, t, l + rad, t, rad);
+      ctx.lineTo(r - rad, t);
+      ctx.arcTo(r, t, r, t + rad, rad);
+      ctx.lineTo(r, el.base);
+      ctx.strokeStyle = it.color;
+      ctx.stroke();
     }
     ctx.restore();
   },
@@ -116,6 +262,18 @@ interface Box {
   b: number;
 }
 
+/**
+ * Centro x de una cifra de ancho `w` que no toque una línea vertical en `px` (≥ 4 px de aire).
+ * Se corre al lado más cercano y, si no cabe sin salirse de su columna, al otro; si tampoco cabe,
+ * queda centrada (el halo de superficie la mantiene legible).
+ */
+function clearOfLine(cx: number, w: number, px: number, barX: number, barW: number): number {
+  const half = w / 2 + 4;
+  if (Math.abs(px - cx) >= half) return cx;
+  const sides = px >= cx ? [px - half, px + half] : [px + half, px - half];
+  return sides.find((c) => Math.abs(c - barX) <= barW / 2) ?? cx;
+}
+
 /** Etiquetas sin colisión: marcador + cifra (y "parcial") sobre el punto o la columna. */
 export const labelsPlugin: Plugin = {
   id: "docLabels",
@@ -128,6 +286,8 @@ export const labelsPlugin: Plugin = {
     const kind = o.kind ?? "point";
     const minGap = o.minGap ?? 16;
     const placed: Box[] = [];
+    // Referencia vertical del histograma (docRefLine), si la hay: las cifras se apartan de la línea
+    const refX = kind === "bar" ? refLineX(chart, ((chart.options.plugins as Record<string, unknown> | undefined)?.docRefLine ?? {}) as RefLineOpts) : null;
     const sorted = [...items].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
     ctx.save();
     for (const it of sorted) {
@@ -151,17 +311,19 @@ export const labelsPlugin: Plugin = {
         const w = Math.max(wMain, wSub);
         const h = it.sub ? 26 : 13;
         let cx = el.x;
+        if (refX !== null) cx = clearOfLine(cx, w, refX, el.x, (el as { width?: number }).width ?? 0);
         cx = Math.max(area.left + w / 2, Math.min(chart.width - w / 2 - 1, cx));
         const bottom = topY - 4;
         const box = { l: cx - w / 2 - 2, r: cx + w / 2 + 2, t: bottom - h, b: bottom };
         if (placed.some((p) => p.l < box.r && box.l < p.r && p.t < box.b && box.t < p.b)) continue;
         placed.push(box);
-        // Halo de superficie: la cifra se lee aunque la cruce una referencia o una columna fantasma
+        // Halo del fondo real (superficie o banda de fin de semana): la cifra se lee aunque la cruce una
+        // referencia o un marcador, sin "calcomanía" blanca sobre la banda
         ctx.textAlign = "center";
         ctx.textBaseline = "alphabetic";
         ctx.lineJoin = "round";
         ctx.lineWidth = 3;
-        ctx.strokeStyle = o.surface ?? "#fff";
+        ctx.strokeStyle = bandAt(chart, cx) ?? o.surface ?? "#fff";
         ctx.font = canvasFont(11, weight);
         ctx.strokeText(it.text, cx, bottom - 1);
         ctx.fillStyle = o.text ?? "#222";
@@ -197,12 +359,12 @@ export const labelsPlugin: Plugin = {
         ctx.strokeStyle = o.surface ?? "#fff";
         ctx.stroke();
       }
-      // halo de superficie para legibilidad sobre la serie
+      // halo del fondo (superficie o banda) para legibilidad sobre la serie
       ctx.textAlign = "left";
       ctx.textBaseline = "top";
       ctx.lineJoin = "round";
       ctx.lineWidth = 3;
-      ctx.strokeStyle = o.surface ?? "#fff";
+      ctx.strokeStyle = bandAt(chart, left + w / 2) ?? o.surface ?? "#fff";
       ctx.font = canvasFont(11, weight);
       ctx.strokeText(it.text, left, top + 1);
       ctx.fillStyle = o.text ?? "#222";
@@ -239,7 +401,8 @@ function refLineX(chart: Chart, o: RefLineOpts): number | null {
 /**
  * Referencia punteada en tinta con su rótulo en la franja superior del área de trazado.
  * La línea se dibuja tras las columnas y ANTES de las cifras (el plugin va antes de labelsPlugin
- * en la lista): las cifras, con halo de superficie, quedan encima y la línea nunca las tacha.
+ * en la lista). labelsPlugin lee esta misma configuración y corre a un lado de la línea la cifra
+ * que cruza (dentro de su columna); si no cabe, el halo de superficie evita que la línea la tache.
  * El rótulo se dibuja al final (afterDraw), sobre todo lo demás.
  */
 export const refLinePlugin: Plugin = {
@@ -411,7 +574,9 @@ export function useChartKeyboard<T extends ChartType>(
       }
       const els: ActiveDataPoint[] = [];
       chart.data.datasets.forEach((_d, datasetIndex) => {
-        if (chart.isDatasetVisible(datasetIndex) && chart.getDatasetMeta(datasetIndex).data[i]) els.push({ datasetIndex, index: i });
+        // Sin puntos nulos (tramo parcial separado de la línea): su y es NaN y descolocaría el tooltip
+        const el = chart.getDatasetMeta(datasetIndex).data[i] as unknown as { x: number; y: number; skip?: boolean } | undefined;
+        if (chart.isDatasetVisible(datasetIndex) && el && !el.skip && Number.isFinite(el.x) && Number.isFinite(el.y)) els.push({ datasetIndex, index: i });
       });
       chart.setActiveElements(els);
       const first = els[0] ? (chart.getDatasetMeta(els[0].datasetIndex).data[i] as unknown as { x: number; y: number }) : null;

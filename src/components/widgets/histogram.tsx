@@ -10,7 +10,7 @@ import { useElementSize } from "@/hooks/use-element-size";
 import { registerCharts } from "@/lib/charts/register";
 import { useChartTheme } from "@/lib/charts/theme";
 import { formatAxis, formatInt, formatPct } from "@/lib/format";
-import { chartToPng, labelsPlugin, refLinePlugin, shortNumber, useChartAnimation, useChartKeyboard, useChartResizeGuard, type CanvasLabel } from "./canvas-helpers";
+import { chartToPng, labelsPlugin, niceScale, refLinePlugin, shortNumber, useChartAnimation, useChartKeyboard, useChartResizeGuard, type CanvasLabel } from "./canvas-helpers";
 import { useExporter } from "./frame-context";
 import { ChartTooltip, chartJsExternal, useChartTooltip, type TooltipContent } from "./kit/chart-tooltip";
 import { LegendSlot } from "./kit/legend-slot";
@@ -29,6 +29,29 @@ registerCharts();
  */
 
 const UNIT_ABBR: Record<string, string> = { días: "d", dias: "d", día: "d", horas: "h", hora: "h", minutos: "min" };
+
+/** Ancho aproximado (em) de un rótulo de intervalo en Montserrat: cifras ≈ 0,62, "1" ≈ 0,4, espacio ≈ 0,28. */
+const labelEm = (t: string) => [...t].reduce((w, ch) => w + (ch === " " ? 0.28 : ch === "1" ? 0.4 : 0.62), 0);
+
+/**
+ * Rótulos del eje X: todos visibles siempre que quepan (con intervalos de distinto ancho el rótulo es
+ * imprescindible). 11 px en una línea → 10 px en una línea → 10 px partiendo en el guion SOLO los que no
+ * caben ("11–" / "15"; "4–5" sigue en una línea) → y solo entonces autoSkip.
+ */
+function tickPlan(labels: string[], colW: number): { size: number; lines: string[][] | null; autoSkip: boolean } {
+  const fits = (t: string, size: number, pad: number) => labelEm(t) * size + pad <= colW;
+  if (labels.every((l) => fits(l, 11, 6))) return { size: 11, lines: null, autoSkip: false };
+  if (labels.every((l) => fits(l, 10, 3))) return { size: 10, lines: null, autoSkip: false };
+  const lines = labels.map((l) => (fits(l, 10, 3) ? [l] : splitRange(l)));
+  if (lines.every((ls) => ls.every((part) => fits(part, 10, 3)))) return { size: 10, lines, autoSkip: false };
+  return { size: 10, lines: null, autoSkip: true };
+}
+
+/** "11–15" → ["11–", "15"]; sin guion, una línea. */
+function splitRange(label: string): string[] {
+  const i = label.indexOf("–");
+  return i > 0 && i < label.length - 1 ? [label.slice(0, i + 1), label.slice(i + 1)] : [label];
+}
 
 interface Interval {
   /** Límites en unidades del dato (cada entero ocupa [k − 0,5, k + 0,5]). */
@@ -111,6 +134,12 @@ export function Histogram({ widget, result, span }: VizProps<HistogramWidget, Hi
 
   const colW = n ? width / n : width;
   const showValues = n <= 12 && colW >= 22;
+  // Con eje Y visible, el área de trazado pierde ~34 px a la izquierda
+  const plan = useMemo(() => tickPlan(result.labels, n ? (showValues ? width : width - 34) / n : width), [result.labels, n, showValues, width]);
+  // Eje Y justo. Oculto (cifras sobre las columnas): la más alta casi toca el techo; con referencia se
+  // deja aire para que su cifra no choque con el rótulo "Promedio …" de la franja superior.
+  const maxVal = Math.max(0, ...result.values);
+  const yNice = niceScale(maxVal, 4, 1);
   // Conteo = chart-1 pleno (colorSystem E). Sin filtro cruzado: no hay estado atenuado.
   const fill = theme.series[0];
   const empty = result.empty;
@@ -177,15 +206,25 @@ export function Histogram({ widget, result, span }: VizProps<HistogramWidget, Hi
           x: {
             grid: { display: false },
             border: { color: theme.axis },
-            ticks: { color: theme.tick, font: { size: 11 }, maxRotation: 0, minRotation: 0, autoSkip: true, autoSkipPadding: 6, padding: 6 },
+            ticks: {
+              color: theme.tick,
+              font: { size: plan.size },
+              maxRotation: 0,
+              minRotation: 0,
+              autoSkip: plan.autoSkip,
+              autoSkipPadding: 2,
+              padding: 6,
+              callback: (_v: string | number, i: number) => (plan.lines ? plan.lines[i] : result.labels[i]),
+            },
           },
           y: {
             display: !showValues,
             beginAtZero: true,
-            grace: "12%",
+            min: 0,
+            max: showValues ? (maxVal > 0 ? maxVal * (reference ? 1.14 : 1.04) : 1) : yNice.max,
             grid: { color: theme.grid, drawTicks: false },
             border: { display: false },
-            ticks: { color: theme.tick, font: { size: 11 }, padding: 8, maxTicksLimit: 4, precision: 0, callback: (v: string | number) => formatAxis(Number(v), "int") },
+            ticks: { color: theme.tick, font: { size: 11 }, padding: 8, stepSize: yNice.stepSize, maxTicksLimit: 6, callback: (v: string | number) => formatAxis(Number(v), "int") },
           },
         },
         plugins: {
@@ -195,7 +234,7 @@ export function Histogram({ widget, result, span }: VizProps<HistogramWidget, Hi
           docRefLine: refPos && reference ? { index: refPos.index, fraction: refPos.fraction, label: reference.label, color: theme.text, bg: theme.surface } : {},
         },
       }) as unknown as ChartOptions<"bar">,
-    [motion, reference, theme, showValues, external, valueLabels, refPos],
+    [motion, reference, theme, showValues, external, valueLabels, refPos, plan, result.labels, maxVal, yNice.max, yNice.stepSize],
   );
 
   return (

@@ -52,17 +52,20 @@ export function ModuleSection({ module, items, total, catalog, range, loading, f
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "0px 0px -24px 0px" }}
         transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-        className="flex min-h-11 items-center gap-3 rounded-2xl bg-mod-soft px-2 py-1.5 sm:pl-2 sm:pr-3"
+        className="flex min-h-10 items-center gap-3 rounded-2xl bg-mod-soft px-2 py-1 sm:pl-2 sm:pr-3"
       >
         <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-surface text-mod-ink shadow-[0_1px_2px_rgb(0_0_0/0.06)] ring-1 ring-mod/15">
           <Icon className="size-4" aria-hidden />
         </span>
-        <div className="min-w-0 flex-1 @min-[640px]/mods:flex @min-[640px]/mods:items-baseline @min-[640px]/mods:gap-3">
-          <h2 id={titleId} className="truncate text-[15px] font-bold leading-5 tracking-tight text-mod-ink @min-[640px]/mods:shrink-0">
+        {/*
+          ≥ 900 px: nombre y resumen en línea. 560–899 px: el resumen baja bajo el nombre (en línea se cortaba a media
+          palabra). < 560 px: solo el nombre (una línea de 40 px). El resumen nunca se trunca: a lo sumo 2 líneas.
+        */}
+        <div className="min-w-0 flex-1 py-0.5 @min-[900px]/mods:flex @min-[900px]/mods:items-baseline @min-[900px]/mods:gap-3">
+          <h2 id={titleId} className="truncate text-[15px] font-bold leading-5 tracking-tight text-mod-ink @min-[900px]/mods:shrink-0">
             {module.label}
           </h2>
-          {/* En móvil el resumen se oculta: la cabecera queda en una línea de 44 px. */}
-          <p className="min-w-0 truncate text-[13px] leading-[18px] text-text-2 @max-[560px]/mods:hidden">{module.summary}</p>
+          <p className="line-clamp-2 min-w-0 text-pretty text-[13px] leading-[18px] text-text-2 @max-[560px]/mods:hidden">{module.summary}</p>
         </div>
         <span className="tabular shrink-0 rounded-full bg-surface/70 px-2 py-0.5 text-xs font-semibold text-mod-ink">
           {filtered ? `${items.length} de ${total}` : total}
@@ -70,7 +73,7 @@ export function ModuleSection({ module, items, total, catalog, range, loading, f
         </span>
       </motion.header>
 
-      <ul role="list" className="mt-3 grid grid-cols-1 gap-3 @min-[560px]/mods:grid-cols-2 @min-[560px]/mods:gap-4 @min-[1000px]/mods:grid-cols-12">
+      <ul role="list" className="mt-2.5 grid grid-cols-1 gap-3 @min-[560px]/mods:grid-cols-2 @min-[560px]/mods:gap-4 @min-[1000px]/mods:grid-cols-12">
         {items.map((d, i) => (
           <DashboardCard
             key={d.slug}

@@ -42,7 +42,7 @@ export const facturasEmitidas: DashboardSpec = {
   sections: [
     {
       id: "ritmo",
-      nav: "Ritmo de emisión",
+      nav: "Ritmo",
       question: "¿Cuándo emite la operación?",
       widgets: [
         {
@@ -106,14 +106,14 @@ export const facturasEmitidas: DashboardSpec = {
       nav: "Año en curso",
       question: "¿Cómo va el año en cantidad y valor?",
       widgets: [
-        { id: "mensual-cantidad", type: "monthly", title: "Facturas por mes", subtitle: "Enero a hoy · variación mensual", size: "md", scope: "ytd", colorSlot: 1, viz: "monthly-delta", vizOptions: { colorSlot: 1 } },
-        { id: "mensual-valor", type: "monthly", title: "Valor neto por mes", subtitle: "Pesos · enero a hoy · variación mensual", size: "md", scope: "ytd", measure: sum("valor_neto"), valueFormat: "cop", colorSlot: 2, viz: "monthly-delta", vizOptions: { colorSlot: 2 } },
+        { id: "mensual-cantidad", type: "monthly", title: "Facturas por mes", subtitle: "Año en curso · variación mensual", size: "md", scope: "ytd", colorSlot: 1, viz: "monthly-delta", vizOptions: { colorSlot: 1 } },
+        { id: "mensual-valor", type: "monthly", title: "Valor neto por mes", subtitle: "Pesos · año en curso · variación mensual", size: "md", scope: "ytd", measure: sum("valor_neto"), valueFormat: "cop", colorSlot: 2, viz: "monthly-delta", vizOptions: { colorSlot: 2 } },
       ],
       rows: [{ template: "6-6", tier: "M", cells: ["mensual-cantidad", "mensual-valor"] }],
     },
     {
       id: "calidad",
-      nav: "Calidad y adquirientes",
+      nav: "Calidad",
       question: "¿Qué parte es inconsistente y a quién facturamos?",
       widgets: [
         {
@@ -139,17 +139,20 @@ export const facturasEmitidas: DashboardSpec = {
           topN: 60,
           size: "md",
           viz: "ranking",
-          vizOptions: { pinned: { label: "Adquiriente no encontrado", cta: "Ver inconsistentes", filter: { field: "estado", value: "INCONSISTENTE" } } },
+          // 2 columnas a span 8 (interno 671 ≥ 624, layoutSystem §6), como "Proveedores con más facturas" en
+          // Recibidas: 7 filas por columna (384 − 44 fijada − 28 pie = 312 ≥ 7 × 40), fila fijada a todo el ancho.
+          // visibleRows es el total (pickGrid toma la primera grilla donde caben todas): 14 = 7 | 7; con 7 elegía 1 columna.
+          vizOptions: { columns: 2, pinned: { label: "Adquiriente no encontrado", cta: "Ver inconsistentes", filter: { field: "estado", value: "INCONSISTENTE" } } },
           labelKind: "proveedor",
           maxItems: 60,
-          visibleRows: 7,
+          visibleRows: 14,
         },
       ],
       rows: [{ template: "4-8", tier: "L", cells: ["estado-tipo", "top-adquirientes"] }],
     },
     {
       id: "resoluciones",
-      nav: "Resoluciones DIAN",
+      nav: "Resoluciones",
       question: "¿Con qué resoluciones se factura?",
       widgets: [
         {
@@ -180,19 +183,21 @@ export const facturasEmitidas: DashboardSpec = {
   ],
   table: {
     title: "Detalle de facturas emitidas",
+    // Igual que Recibidas: el NIT va como secundario del nombre (labelKind proveedor) y la cifra en COP
+    // cierra la tabla, fija a la derecha. 7 columnas visibles ≈ 976 px ≤ 1036 útiles a 1440 (sin scroll).
     columns: [
       { field: "id", label: "ID", format: "mono" },
       { field: "nit_oferente", label: "Oferente", format: "mono", visible: false },
-      { field: "nit_adquiriente", label: "NIT adquiriente", format: "mono" },
+      { field: "nit_adquiriente", label: "NIT adquiriente", format: "mono", visible: false },
       { field: "adquiriente_nombre", label: "Adquiriente", labelKind: "proveedor" },
       { field: "AUX_Numero_Factura", label: "Número", format: "mono" },
       { field: "forma_pago", label: "Forma de pago", visible: false },
       { field: "medio_pago", label: "Medio de pago", visible: false },
       { field: "dia_semana", label: "Día", visible: false },
       { field: "fecha_expedicion", label: "Expedición", format: "datetime" },
-      { field: "valor_neto", label: "Valor neto", format: "cop" },
       { field: "estado", label: "Estado", format: "badge", semantic: "factura" },
       { field: "mensaje", label: "Mensaje", format: "long" },
+      { field: "valor_neto", label: "Valor neto", format: "cop" },
     ],
     searchFields: ["AUX_Numero_Factura", "nit_adquiriente", "adquiriente_nombre", "id"],
     defaultSort: { field: "fecha_expedicion", dir: "desc" },

@@ -101,7 +101,7 @@ export const medicinaLaboralSalidas: DashboardSpec = {
     },
     {
       id: "notificacion",
-      nav: "Envío y notificación",
+      nav: "Notificación",
       question: "¿Qué pasó con cada envío?",
       description: "Volumen de salidas, incluidas las que no tienen evento (la banda muestra tasas).",
       widgets: [
@@ -180,7 +180,7 @@ export const medicinaLaboralSalidas: DashboardSpec = {
     {
       id: "oficinas",
       nav: "Oficinas",
-      question: "¿Qué oficinas notifican mejor?",
+      question: "¿Qué oficinas envían más y cuáles notifican mejor?",
       widgets: [
         {
           id: "oficinas",
@@ -202,14 +202,14 @@ export const medicinaLaboralSalidas: DashboardSpec = {
     },
     {
       id: "ritmo",
-      nav: "Ritmo de aprobación",
+      nav: "Ritmo",
       question: "¿Cómo se aprueban las salidas y con qué plazo?",
       widgets: [
         {
           id: "serie",
           type: "timeseries",
           title: "Salidas aprobadas",
-          subtitle: "Se aprueban por lotes",
+          subtitle: "Por fecha de aprobación",
           size: "full",
           compare: true,
           viz: "area",
@@ -218,7 +218,9 @@ export const medicinaLaboralSalidas: DashboardSpec = {
         {
           id: "tiempo-definido",
           type: "histogram",
-          title: "Tiempo definido del trámite",
+          // Título de una línea a span 4 (con 2 líneas bajaba el chip y la base ≈ 20 px frente a la serie vecina);
+          // el subtítulo (una línea con elipsis) se queda en 29 caracteres para caber a 1024 (interno ≈ 244 px).
+          title: "Plazo definido",
           subtitle: "Días definidos para responder",
           field: "TIEMPO_DEFINIDO_DIAS",
           unit: "días",
@@ -227,13 +229,12 @@ export const medicinaLaboralSalidas: DashboardSpec = {
           viz: "histogram",
         },
       ],
-      // P2 en 8 M (doc: "12 M u 8 M"): los lotes semanales no llenan 12 columnas; al lado, el plazo definido
-      // del trámite (referencia del KPI "% Dentro de SLA").
+      // P2 en 8 M (doc: "12 M u 8 M"); al lado, el plazo definido del trámite (referencia del KPI "% Dentro de SLA").
       rows: [{ template: "8-4", tier: "M", cells: ["serie", "tiempo-definido"] }],
     },
     {
       id: "responsables",
-      nav: "Responsables y procesos",
+      nav: "Responsables",
       question: "¿Quién gestiona las salidas y en qué procesos?",
       widgets: [
         {

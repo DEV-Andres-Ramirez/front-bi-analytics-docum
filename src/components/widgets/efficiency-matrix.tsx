@@ -7,7 +7,7 @@ import type { EfficiencyPhase, EfficiencyResult, EfficiencyTone } from "@/dashbo
 import type { EfficiencyWidget, StatusTone } from "@/dashboards/types";
 import { cn } from "@/lib/cn";
 import { TONE_VARS } from "@/lib/charts/semantic";
-import { formatInt, nf1 } from "@/lib/format";
+import { formatInt, formatValue, nf1 } from "@/lib/format";
 import { displayLabel } from "@/lib/labels";
 import { MoreButton } from "./list-kit";
 import { EDGE_T, searchKey, useScrollEdges } from "./table-scroll";
@@ -18,9 +18,11 @@ import type { VizProps } from "./types";
  * Ranking semanal de gerencias (vw_reporte_datastudio_pqrd_eficiencia): por fase, las 3 últimas
  * semanas como mini columnas coloreadas por cuartil (Q1 ágil → Q4 lento; la actual sólida),
  * el valor actual y el mensaje de tendencia en el tooltip. Sin scroll horizontal desde 1036 px:
- * table-layout fixed con fases de ancho fijo y la Gerencia con ≥ 240 px (la tabla aparece desde
- * 848 px con 3 fases y desde 980 px con 4). Por debajo, una tarjeta por gerencia con las fases
- * en 2×2, alto por contenido (sin scroll anidado) y "Ver N gerencias más".
+ * table-layout fixed; las fases crecen con el ancho (clamp sobre 100cqw: la Gerencia se queda en
+ * ~320 px en lugar de llevarse todo el sobrante) y las mini columnas crecen con ellas (10 → 12 → 14 px
+ * de ancho, 28 → 32 px de alto). La tabla aparece desde 848 px con 3 fases y desde 980 px con 4. Por
+ * debajo, una tarjeta por gerencia con las fases en paralelo (3 columnas; 2×2 con 4 fases), alto por
+ * contenido (sin scroll anidado) y "Ver N gerencias más".
  */
 
 type PhaseKey = "asignacion" | "gestion" | "revision" | "aprobacion";
@@ -50,48 +52,68 @@ const Q: Record<Quartile, { soft: string; solid: string; label: string }> = {
   3: { soft: "var(--warning-soft)", solid: "var(--warning)", label: "Q3" },
   4: { soft: "var(--critical-soft)", solid: "var(--critical)", label: "Q4 más lento" },
 };
+/**
+ * Relleno de las semanas anteriores: el tono suave con un 35 % del sólido (con el contorno sólido) para
+ * que el cuartil se lea por color y no solo por el borde; la semana actual va sólida.
+ */
+const pastFill = (q: Quartile) => `color-mix(in oklab, ${Q[q].solid} 35%, ${Q[q].soft})`;
 
 
-/** Tarjetas visibles antes de "Ver N gerencias más" (modo tarjetas, sin búsqueda). */
-const CARD_LIMIT = 5;
+/**
+ * Tarjetas visibles antes de "Ver N gerencias más" (modo tarjetas, sin búsqueda). Múltiplo de 1, 2 y 3
+ * columnas de la rejilla: la última fila nunca queda con un hueco.
+ */
+const CARD_LIMIT = 6;
 
 /**
  * Umbral tabla ↔ tarjetas por número de fases (clases literales para Tailwind).
- * Puesto 64 + Gerencia ≥ 240 + fases: 3 × 180 = 844 → 848 px; 4 × 168 = 976 → 980 px.
+ * Puesto 64 + Gerencia ≥ 240 + fases: 3 × 164 = 796 → 848 px (Gerencia ≥ 292); 4 × 168 = 976 → 980 px.
+ * Por encima, cada fase mide (ancho − 64 − 320) / n entre min y max: a 1440 (1050 px) quedan fases de
+ * ~222 px y la Gerencia en ~320 px, sin el hueco de ~300 px entre el nombre y la primera fase; a 1024
+ * (866 px) las fases bajan a 164 px (ícono 20 + mini columnas 42 + cifra/etiqueta 60 + huecos y relleno)
+ * y la Gerencia llega a ~310 px: "Gerencia Sucursal Coordinadora Antioquia" cabe en una línea.
  */
 const LAYOUT = {
-  3: { phaseW: 180, cards: "@min-[848px]/em:hidden", table: "@min-[848px]/em:table", cap: "@min-[848px]/em:max-h-[640px]", fade: "@min-[848px]/em:block" },
-  4: { phaseW: 168, cards: "@min-[980px]/em:hidden", table: "@min-[980px]/em:table", cap: "@min-[980px]/em:max-h-[640px]", fade: "@min-[980px]/em:block" },
+  3: { min: 164, max: 260, cards: "@min-[848px]/em:hidden", table: "@min-[848px]/em:table", cap: "@min-[848px]/em:max-h-[640px]", fade: "@min-[848px]/em:block", grid: "grid-cols-3" },
+  4: { min: 168, max: 240, cards: "@min-[980px]/em:hidden", table: "@min-[980px]/em:table", cap: "@min-[980px]/em:max-h-[640px]", fade: "@min-[980px]/em:block", grid: "grid-cols-2" },
 } as const;
+const RANK_W = 64;
+/** Ancho objetivo de la Gerencia cuando sobra espacio (las fases se llevan el resto hasta su máximo). */
+const GERENCIA_W = 320;
+/** Ancho de columna de fase relativo al contenedor (cqw del @container/em; resuelve a px en el colgroup). */
+const phaseWidth = (n: number, min: number, max: number) => `clamp(${min}px, calc((100cqw - ${RANK_W + GERENCIA_W}px) / ${n}), ${max}px)`;
 
-const days = (v: number | null) => (v === null ? "sin datos" : `${nf1.format(v)} ${v === 1 ? "día" : "días"}`);
+// Mismo formato que los KPI de días: siempre 1 decimal y "días" en plural ("1,0 días")
+const days = (v: number | null) => (v === null ? "sin datos" : formatValue(v, "days"));
 
 // ─── Piezas ──────────────────────────────────────────────────────────────────
-function QBox({ q, current, height, className }: { q: Quartile; current?: boolean; height?: number; className?: string }) {
+function QBox({ q, current, height, className }: { q: Quartile; current?: boolean; height?: string; className?: string }) {
   const c = Q[q];
-  return <span aria-hidden className={cn("inline-block shrink-0 rounded-t-[2px]", className)} style={{ height, background: current ? c.solid : c.soft, boxShadow: current ? undefined : `inset 0 0 0 1px ${c.solid}` }} />;
+  return <span aria-hidden className={cn("inline-block shrink-0 rounded-t-[2px]", className)} style={{ height, background: current ? c.solid : pastFill(q), boxShadow: current ? undefined : `inset 0 0 0 1px ${c.solid}` }} />;
 }
 
+/**
+ * 3 semanas como mini columnas de alto proporcional al cuartil. Tamaño por variables del contenedor
+ * (--em-bw ancho, --em-bu alto por cuartil): 10 × 28 en tarjetas, 12 × 28 en la tabla y 14 × 32 desde 1036 px.
+ */
 function MiniColumns({ phase }: { phase: EfficiencyPhase }) {
   const last = phase.quartiles.length - 1;
   return (
-    <span className="flex h-7 shrink-0 items-end gap-[3px] border-b border-border-strong" aria-hidden>
+    <span className="flex h-[calc(var(--em-bu)*4)] shrink-0 items-end gap-[3px] border-b border-border-strong" aria-hidden>
       {phase.quartiles.map((q, i) =>
         q === null ? (
-          <span key={i} className="h-[3px] w-2.5 rounded-t-[2px] bg-border" />
+          <span key={i} className="h-[3px] w-(--em-bw) rounded-t-[2px] bg-border" />
         ) : (
-          <QBox key={i} q={q as Quartile} current={i === last} height={(q as Quartile) * 7} className="w-2.5" />
+          <QBox key={i} q={q as Quartile} current={i === last} height={`calc(var(--em-bu) * ${q})`} className="w-(--em-bw)" />
         ),
       )}
     </span>
   );
 }
 
-function PhaseCell({ phase, weeks, label }: { phase: EfficiencyPhase; weeks: string[]; label: string }) {
-  const t = TREND[phase.tone];
-  const Icon = t.icon;
-  const cur = phase.values.at(-1) ?? null;
-  const tip = (
+/** Contenido del tooltip de una fase: mensaje de tendencia y las 3 semanas con su cuartil. */
+function phaseTip(phase: EfficiencyPhase, weeks: string[], label: string) {
+  return (
     <span className="block">
       <span className="block font-semibold text-white">
         {label} · {phase.message}
@@ -104,8 +126,46 @@ function PhaseCell({ phase, weeks, label }: { phase: EfficiencyPhase; weeks: str
       ))}
     </span>
   );
+}
+
+/**
+ * Fase en la tarjeta móvil (3 en paralelo): nombre de 11 px con el ícono de tendencia a la derecha
+ * (se oculta con el contenedor < 300 px, ~360 px de pantalla), mini columnas y valor de 14 px. La
+ * etiqueta de tendencia va en el tooltip y para el lector de pantalla.
+ */
+function PhaseCompact({ phase, weeks, label }: { phase: EfficiencyPhase; weeks: string[]; label: string }) {
+  const t = TREND[phase.tone];
+  const Icon = t.icon;
+  const cur = phase.values.at(-1) ?? null;
   return (
-    <Tooltip content={tip} focusable className="w-full rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary">
+    <Tooltip
+      content={phaseTip(phase, weeks, label)}
+      focusable
+      className="flex w-full min-w-0 flex-col gap-1 rounded-lg bg-surface-2 px-1.5 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    >
+      <span className="flex min-w-0 items-center justify-between gap-1">
+        <span className="min-w-0 text-[11px] font-semibold leading-tight text-muted">{label}</span>
+        <span className="hidden size-4 shrink-0 place-items-center rounded-full @min-[300px]/em:grid" style={{ background: TONE_VARS[t.tone].soft }} aria-hidden>
+          <Icon className="size-2.5" style={{ color: TONE_VARS[t.tone].ink }} strokeWidth={2.75} />
+        </span>
+      </span>
+      <span className="flex min-w-0 items-end gap-1.5">
+        <MiniColumns phase={phase} />
+        <span className={cn("tabular whitespace-nowrap text-[14px] font-semibold leading-none", cur === null ? "text-muted" : "text-text")}>{cur === null ? "—" : `${nf1.format(cur)} d`}</span>
+      </span>
+      <span className="sr-only">
+        {label}: {t.label}. {phase.message}. Semana actual: {days(cur)}.
+      </span>
+    </Tooltip>
+  );
+}
+
+function PhaseCell({ phase, weeks, label }: { phase: EfficiencyPhase; weeks: string[]; label: string }) {
+  const t = TREND[phase.tone];
+  const Icon = t.icon;
+  const cur = phase.values.at(-1) ?? null;
+  return (
+    <Tooltip content={phaseTip(phase, weeks, label)} focusable className="w-full rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary">
       <span className="flex w-full min-w-0 items-center gap-2">
         <span className="grid size-5 shrink-0 place-items-center rounded-full" style={{ background: TONE_VARS[t.tone].soft }} aria-hidden>
           <Icon className="size-3" style={{ color: TONE_VARS[t.tone].ink }} strokeWidth={2.5} />
@@ -211,7 +271,12 @@ export function EfficiencyMatrix({ widget, result, expanded }: VizProps<Efficien
     // El contenedor mide el ancho; el tope de 640 px con scroll interno solo aplica en modo tabla
     // (en tarjetas el alto es por contenido: sin scroll anidado dentro de la página).
     <div className={cn("@container/em min-h-0", expanded && "h-full")}>
-      <div className={cn("flex min-h-0 flex-col", expanded ? "h-full" : layout.cap)}>
+      <div
+        className={cn(
+          "flex min-h-0 flex-col [--em-bu:7px] [--em-bw:10px] @min-[848px]/em:[--em-bw:12px] @min-[1036px]/em:[--em-bu:8px] @min-[1036px]/em:[--em-bw:14px]",
+          expanded ? "h-full" : layout.cap,
+        )}
+      >
         <div className="mb-3 flex flex-col gap-2">
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <QuartileLegend current={currentWeek} />
@@ -238,7 +303,7 @@ export function EfficiencyMatrix({ widget, result, expanded }: VizProps<Efficien
         </div>
 
         <div className="relative flex min-h-0 flex-1 flex-col">
-          <div ref={scrollRef} onScroll={onScroll} {...dataAttrs} className="group/sc relative min-h-0 flex-1 overflow-auto overscroll-contain">
+          <div ref={scrollRef} onScroll={onScroll} {...dataAttrs} className="group/sc relative isolate min-h-0 flex-1 overflow-auto overscroll-contain">
             {rows.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted">Ninguna gerencia coincide con “{q}”.</p>
             ) : (
@@ -246,18 +311,15 @@ export function EfficiencyMatrix({ widget, result, expanded }: VizProps<Efficien
                 <div className={layout.cards}>
                   <ul role="list" aria-label={widget.title} className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,300px),1fr))] gap-3">
                     {cards.map((r) => (
-                      <li key={r.gerencia} className="rounded-xl border border-border p-3">
-                        <div className="mb-2.5 flex items-start gap-2.5">
+                      <li key={r.gerencia} className="rounded-xl border border-border p-2.5">
+                        <div className="mb-2 flex items-start gap-2.5">
                           <RankBadge rank={r.ranking} tied={r.tied} medal={r.medal} />
                           {nameCell(r)}
                         </div>
-                        {/* 2×2; con 3 fases la última ocupa la fila completa (sin hueco huérfano) */}
-                        <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2">
+                        {/* Fases en paralelo: 3 columnas (2×2 con 4 fases), ~120 px por gerencia */}
+                        <div className={cn("grid gap-1.5", layout.grid)}>
                           {phases.map((p) => (
-                            <div key={p.key} className="min-w-0 rounded-lg bg-surface-2 px-2 py-1.5">
-                              <p className="mb-1 text-[11px] font-semibold text-muted">{p.label}</p>
-                              <PhaseCell phase={r.phases[p.key]} weeks={result.weeks} label={p.label} />
-                            </div>
+                            <PhaseCompact key={p.key} phase={r.phases[p.key]} weeks={result.weeks} label={p.label} />
                           ))}
                         </div>
                       </li>
@@ -276,10 +338,10 @@ export function EfficiencyMatrix({ widget, result, expanded }: VizProps<Efficien
                 </div>
                 <table className={cn("hidden w-full table-fixed border-separate border-spacing-0 text-[13px]", layout.table)} aria-label={widget.title}>
                   <colgroup>
-                    <col style={{ width: 64 }} />
+                    <col style={{ width: RANK_W }} />
                     <col />
                     {phases.map((p) => (
-                      <col key={p.key} style={{ width: layout.phaseW }} />
+                      <col key={p.key} style={{ width: phaseWidth(phases.length, layout.min, layout.max) }} />
                     ))}
                   </colgroup>
                   <thead>

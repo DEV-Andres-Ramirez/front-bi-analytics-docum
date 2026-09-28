@@ -41,8 +41,10 @@ export const facturasRecibidas: DashboardSpec = {
         {
           id: "serie",
           type: "timeseries",
-          title: "Facturas recibidas",
-          subtitle: "Frente al periodo anterior",
+          // No repite "Facturas recibidas" (H1, meta y KpiHero); la granularidad la dice el control Día/Semana.
+          // Subtítulo ≤ 45 caracteres: cabe en una línea a 390 px junto al menú.
+          title: "Ritmo de llegada",
+          subtitle: "Facturas frente al periodo anterior",
           size: "full",
           compare: true,
           viz: "area",
@@ -71,8 +73,8 @@ export const facturasRecibidas: DashboardSpec = {
       nav: "Año en curso",
       question: "¿Cómo va el año en cantidad y valor?",
       widgets: [
-        { id: "mensual-cantidad", type: "monthly", title: "Facturas por mes", subtitle: "Enero a hoy · variación mensual", size: "md", scope: "ytd", colorSlot: 1, viz: "monthly-delta", vizOptions: { colorSlot: 1 } },
-        { id: "mensual-valor", type: "monthly", title: "Valor por mes", subtitle: "Pesos · enero a hoy · variación mensual", size: "md", scope: "ytd", measure: sum("valor"), valueFormat: "cop", colorSlot: 2, viz: "monthly-delta", vizOptions: { colorSlot: 2 } },
+        { id: "mensual-cantidad", type: "monthly", title: "Facturas por mes", subtitle: "Año en curso · variación mensual", size: "md", scope: "ytd", colorSlot: 1, viz: "monthly-delta", vizOptions: { colorSlot: 1 } },
+        { id: "mensual-valor", type: "monthly", title: "Valor por mes", subtitle: "Pesos · año en curso · variación mensual", size: "md", scope: "ytd", measure: sum("valor"), valueFormat: "cop", colorSlot: 2, viz: "monthly-delta", vizOptions: { colorSlot: 2 } },
       ],
       rows: [{ template: "6-6", tier: "M", cells: ["mensual-cantidad", "mensual-valor"] }],
     },

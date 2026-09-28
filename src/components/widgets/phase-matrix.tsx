@@ -24,20 +24,27 @@ import type { CompositeProps } from "./types";
  * 4 callouts con la oficina más lenta por fase (1/3). Color secuencial normalizado por columna,
  * rango 1–6 por fase (empates por competición: "=5") y contorno --primary en la fase más lenta
  * de cada fila.
- * - Escritorio y tableta: filas de 32 px (oficina en 1 línea, nombre completo en title y tooltip);
- *   si no caben, scroll con cabecera fija, desvanecido inferior y pie flotante "+N oficinas · desplaza".
- * - Móvil: alto por contenido, sin las fases vacías (ya van en los callouts) y columnas que caben
- *   en 326 px; si aún desborda, desvanecido derecho.
+ * - Las fases sin datos NO ocupan columna (el callout punteado ya lo dice): el ancho va a la oficina.
+ * - Escritorio (side): filas de 32 px que se compactan hasta 28 px para que quepan todas las oficinas
+ *   del alto del tier; oficina en hasta 2 líneas (nombre completo en title y tooltip). Si aun así no
+ *   caben, scroll con cabecera fija, desvanecido inferior y "+N oficinas · desplaza" en la fila de la
+ *   leyenda (nunca encima de los datos).
+ * - Tableta (row): la matriz mide por contenido (hasta 12 filas) y los callouts van debajo.
+ * - Móvil (stack): alto por contenido y columnas que caben en 326 px; si aún desborda, desvanecido derecho.
  */
 
 const TOP = 6;
+/** Paso de fila por defecto (incluye la hairline inferior) y mínimo al compactar. */
 const ROW_H = 32;
-const HEAD_H = 44;
-const EMPTY_W = 88;
+const ROW_MIN = 28;
+/** Cabecera: encabezados de fase en ≤ 2 líneas (+1 px de borde). */
+const HEAD_H = 40;
+/** Tableta (row): filas visibles antes de hacer scroll. */
+const ROW_MAX_VISIBLE = 12;
 /** Escritorio: ancho de referencia de una fase con dato (encabezado en ≤ 2 líneas) y límites de la columna de oficina. */
 const PHASE_W = 92;
 const OFFICE_MIN = 150;
-const OFFICE_MAX = 300;
+const OFFICE_MAX = 360;
 /** Móvil: columna de oficina fija y ancho mínimo por fase. */
 const STACK_OFFICE_W = 116;
 const STACK_PHASE_MIN = 64;
@@ -142,8 +149,11 @@ function buildRows(phases: Phase[], kind: LabelKind): Row[] {
 
 /** Días compactos para la celda ("25,5 d"; en móvil solo "25,5": la unidad va en el subtítulo). */
 const cellDays = (v: number, f: ValueFormat, bare = false) => (f === "days" ? (bare ? nf1.format(v) : `${nf1.format(v)} d`) : formatValue(v, f));
-/** "× 3,4 la mediana" */
-const timesMedian = (v: number, m: number) => (m > 0 ? `× ${nf1.format(v / m)} la mediana` : null);
+/**
+ * "3,4× la mediana": el multiplicador va antes del sustantivo (se lee "3,4 veces la mediana") y cabe
+ * en la columna de la cifra del callout a 1024 px sin robarle una línea al nombre de la oficina.
+ */
+const timesMedian = (v: number, m: number) => (m > 0 ? `${nf1.format(v / m)}× la mediana` : null);
 
 interface Overflow {
   /** Filas ocultas (total o parcialmente) bajo el borde inferior del scroller. */
@@ -202,6 +212,8 @@ export function PhaseMatrix({ cell, widgets, results }: CompositeProps) {
   const { filters, toggleValue } = useDashboard();
   const { state, show, hide } = useChartTooltip();
   const { ref, width, measured } = useElementSize<HTMLDivElement>();
+  // Alto disponible para la tabla (en escritorio lo fija el tier de la fila): decide el paso de fila
+  const { ref: boxRef, height: boxH, measured: boxMeasured } = useElementSize<HTMLDivElement>();
   const { el: scrollEl, ref: scrollRef, onScroll, overflow } = useMatrixOverflow();
   const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
   const first = widgets[0];
@@ -212,31 +224,45 @@ export function PhaseMatrix({ cell, widgets, results }: CompositeProps) {
   const rows = useMemo(() => buildRows(phases, kind), [phases, kind]);
 
   const sel = selectionOf(filters.eq, dimension);
-  // side: matriz 2/3 + callouts 1/3 (≥ 720 px) · row: callouts en una fila de 4 bajo la matriz
-  // (tableta, alto fijo) · stack: móvil, alto por contenido
+  // side: matriz 2/3 + callouts 1/3 (≥ 720 px) · row: tableta, matriz por contenido y callouts en una
+  // fila de 4 debajo · stack: móvil, alto por contenido
   const layout: "side" | "row" | "stack" = !measured || width >= 720 ? "side" : width >= 520 ? "row" : "stack";
   const compact = layout === "stack";
+  const side = layout === "side";
 
   if (!rows.length && phases.every((p) => p.empty)) return <VizEmpty note="Sin tiempos por fase en el periodo" />;
 
-  // Columnas visibles (índice original j): en móvil las fases vacías salen de la tabla (ya van en los callouts)
-  const cols = phases.map((p, j) => ({ p, j })).filter(({ p }) => !compact || !p.empty);
-  const emptyCount = cols.filter(({ p }) => p.empty).length;
-  const dataCount = cols.length - emptyCount;
-  const matrixW = measured ? (layout === "side" ? ((width - SIDE_GAP) * 2) / 3 : width) : 0;
-  // Oficina: todo lo que dejan las fases (92 px c/u), acotado a 150–300 px
-  const officeW = compact ? STACK_OFFICE_W : Math.round(Math.max(OFFICE_MIN, Math.min(OFFICE_MAX, matrixW - emptyCount * EMPTY_W - dataCount * PHASE_W)));
-  const minWidth = compact ? STACK_OFFICE_W + dataCount * STACK_PHASE_MIN : OFFICE_MIN + emptyCount * EMPTY_W + dataCount * 80;
+  // Columnas visibles (índice original j): las fases sin datos salen de la tabla en todos los anchos
+  // (el callout punteado ya dice "Sin datos en el periodo"); su ancho va a la columna de oficina
+  const cols = phases.map((p, j) => ({ p, j })).filter(({ p }) => !p.empty);
+  const dataCount = cols.length;
+  const matrixW = measured ? (side ? ((width - SIDE_GAP) * 2) / 3 : width) : 0;
+  // Oficina: todo lo que dejan las fases (92 px c/u), acotado a 150–360 px
+  const officeW = compact ? STACK_OFFICE_W : Math.round(Math.max(OFFICE_MIN, Math.min(OFFICE_MAX, matrixW - dataCount * PHASE_W)));
+  const minWidth = compact ? STACK_OFFICE_W + dataCount * STACK_PHASE_MIN : OFFICE_MIN + dataCount * 80;
   const anyTie = phases.some((p) => [...p.tied].some((k) => k <= TOP));
+  // Paso de fila: 32 px; en escritorio se compacta hasta 28 px para que quepan todas las oficinas
+  // (11 × 28 + 40 = 348 px caben en el tier L sin scroll)
+  const rowH = side && boxMeasured && HEAD_H + rows.length * ROW_H + 1 > boxH ? Math.max(ROW_MIN, Math.floor((boxH - HEAD_H - 1) / Math.max(1, rows.length))) : ROW_H;
+  // Tableta: la matriz mide por contenido hasta 12 filas (la celda crece con la tarjeta)
+  const rowMaxH = layout === "row" ? HEAD_H + Math.min(rows.length, ROW_MAX_VISIBLE) * ROW_H + 1 : undefined;
+
+  // ¿Hace falta scroll? En escritorio se decide con el alto del contenedor, que no depende del pie
+  // (vive dentro de él): así el pie no se sostiene a sí mismo. En tableta, con la medición del DOM.
+  const needScroll = side ? boxMeasured && HEAD_H + 1 + rows.length * rowH > boxH : overflow.vertical;
+  const showFoot = !compact && needScroll;
 
   const fadeBottom = !compact && overflow.below > 0;
   const fadeRight = overflow.right;
   const masks = [fadeBottom && `linear-gradient(to bottom, #000 calc(100% - ${FADE}px), transparent)`, fadeRight && `linear-gradient(to right, #000 calc(100% - 24px), transparent)`].filter(Boolean) as string[];
-  const maskStyle: CSSProperties | undefined = masks.length
-    ? { maskImage: masks.join(", "), WebkitMaskImage: masks.join(", "), maskComposite: "intersect", WebkitMaskComposite: "source-in" }
-    : undefined;
+  const maskStyle: CSSProperties = {
+    maxHeight: rowMaxH,
+    ...(masks.length ? { maskImage: masks.join(", "), WebkitMaskImage: masks.join(", "), maskComposite: "intersect", WebkitMaskComposite: "source-in" } : {}),
+  };
 
-  const scrollDown = () => scrollEl?.scrollBy({ top: Math.max(ROW_H, scrollEl.clientHeight - HEAD_H - ROW_H), behavior: reduced ? "auto" : "smooth" });
+  const behavior: ScrollBehavior = reduced ? "auto" : "smooth";
+  const scrollDown = () => scrollEl?.scrollBy({ top: Math.max(rowH, scrollEl.clientHeight - HEAD_H - rowH), behavior });
+  const scrollTop = () => scrollEl?.scrollTo({ top: 0, behavior });
 
   const rowTip = (el: Element, r: Row, j: number) => {
     const { x, y } = anchorOf(el);
@@ -249,7 +275,7 @@ export function PhaseMatrix({ cell, widgets, results }: CompositeProps) {
       valueNote: `en ${p.title.toLocaleLowerCase("es-CO")}`,
       rows: phases.map((q, k) => ({
         label: q.title,
-        value: q.empty ? "—" : r.values[k] === null ? "—" : formatValue(r.values[k], q.format),
+        value: q.empty ? "Sin datos" : r.values[k] === null ? "—" : formatValue(r.values[k], q.format),
         share: r.ranks[k] ? `#${rankText(q, r.ranks[k]!)}` : undefined,
         color: q.empty || r.values[k] === null ? "var(--neutral-mark)" : seqColor(theme, q.max ? 0.12 + 0.88 * ((r.values[k] ?? 0) / q.max) : 0),
         active: k === j,
@@ -265,19 +291,20 @@ export function PhaseMatrix({ cell, widgets, results }: CompositeProps) {
     show(x, y, content);
   };
 
+  const pillH = rowH - 7;
   const matrix = (
-    <div className={cn("flex min-h-0 min-w-0 flex-col gap-2", layout === "row" && "flex-1")}>
-      <div className={cn("relative flex min-h-0 flex-col", !compact && "flex-1")}>
-        <div ref={scrollRef} onScroll={onScroll} className={cn("min-h-0 overflow-auto rounded-lg", !compact && "flex-1")} style={maskStyle}>
+    <div className="flex min-h-0 min-w-0 flex-col gap-2">
+      <div ref={boxRef} className={cn("relative flex min-h-0 flex-col", side && "flex-1")}>
+        <div ref={scrollRef} onScroll={onScroll} className={cn("min-h-0 overflow-auto rounded-lg", side && "flex-1")} style={maskStyle}>
           <table className="w-full border-separate border-spacing-0 text-left" style={{ tableLayout: "fixed", minWidth }}>
             <colgroup>
               <col style={{ width: officeW }} />
               {cols.map(({ p }) => (
-                <col key={p.id} style={{ width: p.empty ? EMPTY_W : undefined }} />
+                <col key={p.id} />
               ))}
             </colgroup>
             <thead className="sticky top-0 z-[2] bg-surface">
-              <tr style={{ height: HEAD_H }}>
+              <tr style={{ height: HEAD_H - 1 }}>
                 <th scope="col" className="sticky left-0 z-[3] border-b border-border bg-surface px-2 pb-1.5 align-bottom text-[11px] font-semibold text-muted">
                   Oficina
                 </th>
@@ -285,12 +312,7 @@ export function PhaseMatrix({ cell, widgets, results }: CompositeProps) {
                   <th
                     key={p.id}
                     scope="col"
-                    className={cn(
-                      "border-b border-border pb-1.5 align-bottom font-semibold leading-tight",
-                      compact ? "px-1 text-[11px]" : "px-1 text-xs",
-                      p.empty ? "text-center text-muted" : !compact && "pl-1.5",
-                      !p.empty && "text-text-2",
-                    )}
+                    className={cn("border-b border-border pb-1.5 align-bottom font-semibold leading-tight text-text-2", compact ? "px-1 text-[11px]" : "px-1 pl-1.5 text-xs")}
                   >
                     {p.provisional && (
                       <Tooltip className="mr-1 align-[-2px]" content={p.note ? `Provisional: ${p.note}` : "Fórmula provisional: pendiente de validación con negocio."} focusable>
@@ -312,14 +334,14 @@ export function PhaseMatrix({ cell, widgets, results }: CompositeProps) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => {
+              {rows.map((r) => {
                 const rSel = sel.has(r.raw);
                 return (
                   <tr
                     key={r.raw}
                     onClick={() => toggleValue(dimension, r.raw)}
                     className={cn("group cursor-pointer transition-opacity", sel.active && !rSel && "opacity-45")}
-                    style={{ height: ROW_H }}
+                    style={{ height: rowH }}
                   >
                     <th scope="row" className={cn("sticky left-0 z-[1] border-b border-[var(--hairline)] bg-surface p-0 font-normal", rSel && "bg-primary-soft")}>
                       <button
@@ -331,36 +353,21 @@ export function PhaseMatrix({ cell, widgets, results }: CompositeProps) {
                           toggleValue(dimension, r.raw);
                         }}
                         className={cn(
-                          "flex w-full items-center gap-2 text-left leading-tight text-text transition group-hover:bg-surface-3",
-                          // Escritorio: 1 línea para cumplir las filas de 32 px; móvil: envuelve (alto por contenido)
-                          compact ? "min-h-8 px-1.5 py-1 text-xs" : "h-8 px-2 text-[12.5px]",
+                          "flex w-full items-center gap-2 text-left text-text transition group-hover:bg-surface-3",
+                          // Escritorio y tableta: hasta 2 líneas dentro del paso de fila; móvil: envuelve (alto por contenido)
+                          compact ? "min-h-8 px-1.5 py-1 text-xs leading-tight" : "px-2 text-xs",
                           rSel && "font-semibold text-primary-text shadow-[inset_2px_0_0_var(--primary)] group-hover:bg-primary-soft",
                         )}
+                        style={compact ? undefined : { height: rowH - 1 }}
                       >
-                        <span className={cn("min-w-0", !compact && "truncate")}>{r.short}</span>
+                        <span className={cn("min-w-0", !compact && "line-clamp-2")} style={compact ? undefined : { lineHeight: rowH >= 30 ? "14px" : "13px" }}>
+                          {r.short}
+                        </span>
                       </button>
                     </th>
                     {cols.map(({ p, j }) => {
                       const v = r.values[j];
                       const rank = r.ranks[j];
-                      // Columna vacía: una sola banda para toda la columna (se lee como decisión, no como hueco)
-                      if (p.empty)
-                        return i === 0 ? (
-                          <td
-                            key={p.id}
-                            rowSpan={rows.length}
-                            className="rounded-lg bg-surface-2 px-1.5 text-center align-middle"
-                            style={{
-                              boxShadow: "inset 0 0 0 3px var(--surface)",
-                              backgroundImage: "repeating-linear-gradient(135deg, var(--hairline) 0 1px, transparent 1px 7px)",
-                            }}
-                          >
-                            <span className="block text-xs text-muted" aria-hidden>
-                              —
-                            </span>
-                            <span className="mt-1 block text-[10.5px] leading-tight text-muted">Sin datos en el periodo</span>
-                          </td>
-                        ) : null;
                       if (v === null)
                         return (
                           <td key={p.id} className="border-b border-[var(--hairline)] px-1 text-center text-xs text-muted" aria-label={`${p.title}: sin dato`}>
@@ -381,8 +388,8 @@ export function PhaseMatrix({ cell, widgets, results }: CompositeProps) {
                       return (
                         <td key={p.id} className="border-b border-[var(--hairline)] px-0.5 py-[3px]" onMouseEnter={(e) => rowTip(e.currentTarget, r, j)} onMouseLeave={hide}>
                           <span
-                            className={cn("tabular flex h-[25px] items-center justify-between gap-1 rounded-[5px]", compact ? "pl-0.5 pr-1" : "pl-1 pr-1.5")}
-                            style={{ background: bg, color: ink, boxShadow: slow ? "0 0 0 2px var(--primary)" : undefined }}
+                            className={cn("tabular flex items-center justify-between gap-1 rounded-[5px]", compact ? "pl-0.5 pr-1" : "pl-1 pr-1.5")}
+                            style={{ height: pillH, background: bg, color: ink, boxShadow: slow ? "0 0 0 2px var(--primary)" : undefined }}
                             aria-label={`${p.title}: ${formatValue(v, p.format)}${rank ? `, rango ${rank}${p.tied.has(rank) ? " (empate)" : ""}` : ""}${slow ? ", fase más lenta de la oficina" : ""}`}
                           >
                             {badge ? (
@@ -403,23 +410,35 @@ export function PhaseMatrix({ cell, widgets, results }: CompositeProps) {
             </tbody>
           </table>
         </div>
-        {/* Filas ocultas: pie flotante sobre el desvanecido (no roba alto a la matriz) */}
-        {!compact && overflow.below > 0 && (
-          <button
-            type="button"
-            onClick={scrollDown}
-            className="absolute bottom-1 left-1.5 z-[4] inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-0.5 text-[11px] font-semibold text-text-2 shadow-sm transition hover:bg-surface-3"
-          >
-            +{overflow.below} {overflow.below === 1 ? "oficina" : "oficinas"} · desplaza
-            <ChevronDown className="size-3.5" aria-hidden />
-          </button>
+        {/* Filas ocultas: pie propio bajo la tabla (nunca encima de los datos ni dentro del desvanecido) */}
+        {showFoot && (
+          <div className="flex shrink-0 pt-1.5">
+            <button
+              type="button"
+              onClick={overflow.below > 0 ? scrollDown : scrollTop}
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-0.5 text-[11px] font-semibold text-text-2 transition hover:bg-surface-3"
+            >
+              {overflow.below > 0 ? (
+                <>
+                  +{overflow.below} {overflow.below === 1 ? "oficina" : "oficinas"} · desplaza
+                  <ChevronDown className="size-3.5" aria-hidden />
+                </>
+              ) : (
+                <>
+                  Volver al inicio
+                  <ChevronDown className="size-3.5 rotate-180" aria-hidden />
+                </>
+              )}
+            </button>
+          </div>
         )}
       </div>
-      {/* Leyenda bajo la grilla (legendSystem L2) + aviso de columnas ocultas en móvil */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-2">
+      {/* Leyenda bajo la grilla (legendSystem L2) */}
+      <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px] text-text-2">
         <span className="flex items-center gap-1.5">
-          <span aria-hidden className="h-2 w-14 rounded-full" style={{ background: `linear-gradient(90deg, ${seqColor(theme, 0.12)}, ${seqColor(theme, 0.56)}, ${seqColor(theme, 1)})` }} />
-          Promedio de días (escala por fase)
+          <span aria-hidden className="h-2 w-10 rounded-full" style={{ background: `linear-gradient(90deg, ${seqColor(theme, 0.12)}, ${seqColor(theme, 0.56)}, ${seqColor(theme, 1)})` }} />
+          {/* En oscuro la rampa va de oscuro a claro: se dice explícito (legendSystem L8) */}
+          Escala por fase{theme.mode === "dark" && " · más claro = más"}
         </span>
         <span className="flex items-center gap-1.5">
           <span aria-hidden className="grid size-4 place-items-center rounded-full bg-surface-3 text-[10px] font-bold text-text-2">1</span>
@@ -433,7 +452,7 @@ export function PhaseMatrix({ cell, widgets, results }: CompositeProps) {
         </span>
         <span className="flex items-center gap-1.5">
           <span aria-hidden className="inline-block h-2.5 w-4 rounded-[3px]" style={{ boxShadow: "inset 0 0 0 2px var(--primary)" }} />
-          Fase más lenta de la oficina
+          Fase más lenta
         </span>
         {compact && overflow.right && <span className="ml-auto text-muted">Desliza para ver todas las fases</span>}
       </div>
@@ -441,12 +460,13 @@ export function PhaseMatrix({ cell, widgets, results }: CompositeProps) {
   );
 
   const callouts = (
-    <ul role="list" aria-label="Oficina más lenta por fase" className={cn("grid min-h-0 gap-2", layout === "side" ? "grid-rows-4" : layout === "row" ? "shrink-0 grid-cols-4" : "grid-cols-1")}>
+    <ul role="list" aria-label="Oficina más lenta por fase" className={cn("grid min-h-0 gap-2", side ? "grid-rows-4" : layout === "row" ? "shrink-0 grid-cols-4" : "grid-cols-1")}>
       {phases.map((p) => {
         const top = p.ranked[0];
         const d = top ? displayLabel(top.label, kind) : null;
         const rSel = top ? sel.has(top.label) : false;
         const times = top ? timesMedian(top.value, p.median) : null;
+        const flask = p.provisional && <FlaskConical className="size-3 shrink-0 text-warning-ink" aria-label="Provisional" />;
         return (
           <li key={p.id} className={layout === "row" ? "min-h-[84px]" : "min-h-[90px]"}>
             {top && d ? (
@@ -463,22 +483,30 @@ export function PhaseMatrix({ cell, widgets, results }: CompositeProps) {
               >
                 <span className="flex items-start gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-muted">
                   <span className="min-w-0 leading-tight">{p.title}</span>
-                  {p.provisional && <FlaskConical className="size-3 shrink-0 text-warning-ink" aria-label="Provisional" />}
+                  {flask}
                 </span>
                 <span className={cn("flex justify-between gap-x-3 gap-y-1", layout === "row" ? "flex-col" : "items-end")}>
-                  <span className={cn("min-w-0 font-semibold leading-snug text-text", layout === "row" ? "text-xs" : "text-[13px]")}>{d.short}</span>
+                  <span className={cn("line-clamp-3 min-w-0 font-semibold leading-snug text-text", layout === "row" ? "text-xs" : "text-[13px]")}>{d.short}</span>
                   <span className={cn("flex shrink-0 flex-col", layout === "row" ? "items-start" : "items-end")}>
                     <span className={cn("tabular whitespace-nowrap font-bold leading-none text-text", layout === "row" ? "text-xl" : "text-[28px]")}>
                       {p.format === "days" ? nf1.format(top.value) : formatValue(top.value, p.format)}
                       {p.format === "days" && <span className="ml-1 text-xs font-semibold text-muted">días</span>}
                     </span>
-                    {times && <span className="tabular mt-1 whitespace-nowrap text-[11px] text-muted">{times}</span>}
+                    {times && (
+                      <span className="tabular mt-1 whitespace-nowrap text-[11px] text-muted">
+                        <span aria-hidden>{times}</span>
+                        <span className="sr-only">{times.replace("×", " veces")}</span>
+                      </span>
+                    )}
                   </span>
                 </span>
               </button>
             ) : (
               <div className="flex h-full flex-col justify-between rounded-xl border border-dashed border-border px-3 py-2.5">
-                <span className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-muted">{p.title}</span>
+                <span className="flex items-start gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-muted">
+                  <span className="min-w-0 leading-tight">{p.title}</span>
+                  {flask}
+                </span>
                 <span className="text-xs text-muted">Sin datos en el periodo</span>
               </div>
             )}
@@ -491,7 +519,7 @@ export function PhaseMatrix({ cell, widgets, results }: CompositeProps) {
   return (
     <div
       ref={ref}
-      className={cn("h-full min-h-0", layout === "side" ? "grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-5" : layout === "row" ? "flex flex-col gap-3" : "flex flex-col gap-4")}
+      className={cn("h-full min-h-0", side ? "grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-5" : layout === "row" ? "flex flex-col gap-3" : "flex flex-col gap-4")}
       role="group"
       aria-label={cell.title}
     >

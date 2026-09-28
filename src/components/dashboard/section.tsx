@@ -52,6 +52,7 @@ function Cell({
   row,
   strip,
   sectionNav,
+  soloMd,
 }: {
   cell: CellRef;
   widgets: Map<string, WidgetDef>;
@@ -60,11 +61,18 @@ function Cell({
   row: RowDef;
   strip: boolean;
   sectionNav?: string;
+  /** A 6 columnas la celda queda sola en su línea (globals.css › data-md-solo: sin aire del tier). */
+  soloMd: boolean;
 }) {
   const style = { "--span": span, "--span-md": spanMd } as React.CSSProperties;
+  const solo = soloMd ? "1" : undefined;
   if (typeof cell === "string") {
     const w = widgets.get(cell);
-    return <div className="dash-cell" style={style}>{w ? <WidgetCard widget={w} span={span} tier={row.tier} legendStrip={strip} sectionNav={sectionNav} /> : <MissingCell id={cell} />}</div>;
+    return (
+      <div className="dash-cell" style={style} data-md-solo={solo}>
+        {w ? <WidgetCard widget={w} span={span} tier={row.tier} legendStrip={strip} sectionNav={sectionNav} /> : <MissingCell id={cell} />}
+      </div>
+    );
   }
   if ("stack" in cell) {
     return (
@@ -81,7 +89,7 @@ function Cell({
   if ("composite" in cell) {
     const ws = cell.widgets.map((id) => widgets.get(id)).filter((w): w is WidgetDef => Boolean(w));
     return (
-      <div className="dash-cell" style={style}>
+      <div className="dash-cell" style={style} data-md-solo={solo}>
         <CompositeCard cell={cell} widgets={ws} span={span} tier={row.tier} legendStrip={strip} sectionNav={sectionNav} />
       </div>
     );
@@ -89,7 +97,7 @@ function Cell({
   const ws = cell.tabs.map((id) => widgets.get(id)).filter((w): w is WidgetDef => Boolean(w));
   if (!ws.length) return <MissingCell id={cell.id} />;
   return (
-    <div className="dash-cell" style={style}>
+    <div className="dash-cell" style={style} data-md-solo={solo}>
       <WidgetCard widget={ws[0]} tabs={ws} tabsTitle={cell.title} tabsSubtitle={cell.subtitle} span={span} tier={row.tier} legendStrip={strip} sectionNav={sectionNav} />
     </div>
   );
@@ -106,10 +114,12 @@ export function DashboardRow({ row, widgets, sectionNav }: { row: RowDef; widget
   const invalid = spans.length !== row.cells.length;
   // En tablet (600–839 px) estas celdas se apilan a ancho completo: la franja de leyenda vacía sobra (globals.css)
   const mdStacked = spansMd.every((s) => s >= 6);
+  // Celdas que a 6 columnas van solas en su línea sin serlo a 12 (en "12" el alto del tier es el de diseño)
+  const soloMd = spansMd.map((s) => row.template !== "12" && s >= 6);
   return (
     <div className={cn("dash-row", invalid && "dash-layout-error")} data-t={row.template} data-tier={row.tier} data-md-stack={mdStacked ? "1" : undefined}>
       {row.cells.map((cell, i) => (
-        <Cell key={cellKey(cell, i)} cell={cell} widgets={widgets} span={spans[i] ?? 12} spanMd={spansMd[i] ?? 6} row={row} strip={strip} sectionNav={sectionNav} />
+        <Cell key={cellKey(cell, i)} cell={cell} widgets={widgets} span={spans[i] ?? 12} spanMd={spansMd[i] ?? 6} row={row} strip={strip} sectionNav={sectionNav} soloMd={soloMd[i] ?? false} />
       ))}
     </div>
   );

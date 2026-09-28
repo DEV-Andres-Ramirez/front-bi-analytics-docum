@@ -14,8 +14,16 @@ import { HomeHero } from "./home-hero";
 import { ModuleNav } from "./module-nav";
 import { ModuleSection } from "./module-section";
 
-/** Pie global de convenciones (shellRedesign §6). */
-const FOOTER_NOTES = ["Variación vs. periodo anterior de igual duración", "p.p. = puntos porcentuales", "verde y rojo según si subir es bueno"];
+/**
+ * Pie global de convenciones (shellRedesign §6) + la lectura de las micro-columnas compactas, que no tienen
+ * leyenda propia (la variante ancha sí la tiene).
+ */
+const FOOTER_NOTES = [
+  "Variación vs. periodo anterior de igual duración",
+  "p.p. = puntos porcentuales",
+  "verde y rojo según si subir es bueno",
+  "Columnas diarias: gris = fin de semana, barra hueca = hoy (parcial), ○ = días por venir",
+];
 
 function isEditable(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -94,7 +102,7 @@ export function HomeView({ source }: { source: "mock" | "db" }) {
 
       <ModuleNav counts={counts} searching={searching} />
 
-      <div className="@container/mods mx-auto max-w-[var(--content-max)] px-4 pb-8 pt-6 sm:px-6 lg:px-10">
+      <div className="@container/mods mx-auto max-w-[var(--content-max)] px-4 pb-8 pt-4 sm:px-5 xl:px-8">
         {failed && (
           <div role="alert" className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl bg-critical-soft px-4 py-3 text-sm text-critical-ink">
             <StatusIcon tone="critical" className="size-4" />

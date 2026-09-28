@@ -33,13 +33,14 @@ export function QualityChip({ neutral, total, label = "sin dato", className, for
     <Tooltip content={`${formatInt(neutral)} de ${formatInt(total)} registros sin dato reportado. Se muestran en gris, al final y fuera de escala.`} focusable>
       <span className={cn("tabular inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-warning-soft px-2 py-0.5 text-[11px] font-semibold text-warning-ink", className)}>
         <AlertTriangle className="size-3" aria-hidden />
-        {formatPct(share, 0)} {label}
+        {/* 1 decimal, como la leyenda y la tira de la misma tarjeta ("40,1 % sin dato" junto a "No reporta 40,1 %") */}
+        {formatPct(share)} {label}
       </span>
     </Tooltip>
   );
 }
 
-/** Chip neutro con un conteo ("Sin dato: 230", "No reporta 293 · 29 %"). */
+/** Chip neutro con un conteo ("Sin dato: 230", "No reporta 293 · 29,3 %"). */
 export function CountChip({ children, className }: { children: React.ReactNode; className?: string }) {
   return <span className={cn("tabular inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-semibold text-text-2", className)}>{children}</span>;
 }

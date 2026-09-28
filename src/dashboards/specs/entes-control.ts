@@ -167,7 +167,7 @@ export const entesControl: DashboardSpec = {
           type: "bar",
           orientation: "horizontal",
           title: "Oficinas responsables",
-          subtitle: "Top 12 por radicados · resto agrupado",
+          subtitle: "Top 11 por radicados · resto agrupado",
           dimension: "Oficina_responsable_de_respuesta",
           topN: 12,
           others: true,

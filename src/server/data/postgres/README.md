@@ -197,6 +197,42 @@ CASE
 END AS Tiempo_para_responder
 ```
 
+**Tiempo por vencer** (`tiempoPorVencer`, Entes · `Tiempo_por_Vencer` y SMART M3 ·
+`pqrd_tiempo_por_vencer`): la fuente trae "1 Días", "4 Días", "5 Horas"; se guarda "1 día",
+"4 días", "5 horas". Los estados ("En término", "Vencido") y los plazos "N día(s) hábiles" solo
+pasan por la limpieza de "No reporta" (la UI ya muestra "N días hábiles").
+
+```sql
+CASE
+  WHEN Tiempo_por_Vencer IS NULL
+    OR LOWER(TRIM(Tiempo_por_Vencer)) IN ('', 'null', 'none', 'n/a', 'na', 'no reporta', 'no reporta sin fecha vencimiento', 'sin definir')
+    THEN 'No reporta'
+  WHEN REGEXP_CONTAINS(TRIM(Tiempo_por_Vencer), r'(?i)^\d+\s*d[ií]as?$')
+    THEN CONCAT(REGEXP_EXTRACT(Tiempo_por_Vencer, r'\d+'),
+                IF(CAST(REGEXP_EXTRACT(Tiempo_por_Vencer, r'\d+') AS INT64) = 1, ' día', ' días'))
+  WHEN REGEXP_CONTAINS(TRIM(Tiempo_por_Vencer), r'(?i)^\d+\s*horas?$')
+    THEN CONCAT(REGEXP_EXTRACT(Tiempo_por_Vencer, r'\d+'),
+                IF(CAST(REGEXP_EXTRACT(Tiempo_por_Vencer, r'\d+') AS INT64) = 1, ' hora', ' horas'))
+  ELSE TRIM(Tiempo_por_Vencer)
+END AS Tiempo_por_Vencer
+```
+
+**Cantidad de folios** (`folios`, Correspondencia salidas · `Cantidad_de_folios`): la fuente usa
+centinelas de relleno (999, 9.999, 10.000, 55.555, 99.999). `999` y todo valor `≥ 9999` (el mismo
+umbral del KPI "Cantidad de folios"), negativos o no numéricos quedan en `NULL`: no suman en el KPI
+ni se leen como folios reales en el detalle.
+
+```sql
+CASE
+  WHEN SAFE_CAST(Cantidad_de_folios AS INT64) IS NULL
+    OR SAFE_CAST(Cantidad_de_folios AS INT64) < 0
+    OR SAFE_CAST(Cantidad_de_folios AS INT64) = 999
+    OR SAFE_CAST(Cantidad_de_folios AS INT64) >= 9999
+    THEN NULL
+  ELSE SAFE_CAST(Cantidad_de_folios AS INT64)
+END AS Cantidad_de_folios
+```
+
 ### 7. Catálogo del Home (`GET /api/catalogo`)
 
 Devuelve `CatalogResponse` (`src/dashboards/dto.ts`):
@@ -239,3 +275,16 @@ WHERE fecha_de_radicado BETWEEN @prevFrom AND @to;
 
 Los KPIs con `dateField` alterno (p. ej. "Aprobados en el periodo") filtran el rango por esa
 columna en su propia expresión condicional.
+
+### 8. Puesto de eficiencia PQRD (`engine/efficiency.ts`)
+
+`score` = cuartil promedio (1–4) de las fases con dato en la semana actual; no cambia. El puesto
+ordena por `score ASC, fases_con_dato DESC, radicados_semana_actual DESC, gerencia` y solo declara
+empate cuando coinciden `score` **y** `fases_con_dato`: una gerencia con Q1 solo en Gestión (1 de 3
+fases) ya no empata en el puesto 1 con las que tienen Q1 en las 3 fases. Si la vista
+`vw_reporte_datastudio_pqrd_eficiencia` trae su propio ranking, se recalcula con esta regla:
+
+```sql
+RANK() OVER (ORDER BY score ASC, fases_con_dato DESC) AS ranking
+-- orden de las filas: ORDER BY ranking, radicados_semana_actual DESC, gerencia
+```

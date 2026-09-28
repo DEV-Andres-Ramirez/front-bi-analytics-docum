@@ -99,7 +99,12 @@ export const tutelas: DashboardSpec = {
           order: ETAPAS_ORDER,
           size: "full",
           viz: "pipeline",
-          vizOptions: { criticalStages: ["Desacato"], exits: ["Duplicado"] },
+          // Etiquetas cortas en los chevrons (alias de presentación: el filtro cruzado usa el valor original)
+          vizOptions: {
+            criticalStages: ["Desacato"],
+            exits: ["Duplicado"],
+            overrides: { "Fallo de primera instancia": { label: "Fallo 1.ª instancia" }, "Fallo de segunda instancia": { label: "Fallo 2.ª instancia" } },
+          },
           // Pasos del flujo (Avoco → Desacato); Duplicado va como chip y No reporta como nota.
           maxItems: 5,
         },

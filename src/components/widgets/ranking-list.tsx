@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useDashboard } from "@/components/dashboard/dashboard-context";
 import type { BarTableResult, CategoryResult, KpiResult } from "@/dashboards/dto";
 import type { BarTableWidget, BarWidget, DashboardSpec, SemanticFamily, StatusTone, ValueFormat, VizOptions } from "@/dashboards/types";
@@ -35,6 +35,7 @@ import {
   rowStateClass,
   SearchListDialog,
   stretchRows,
+  textWidth,
   useFitBox,
 } from "./list-kit";
 import type { VizProps } from "./types";
@@ -45,7 +46,15 @@ import type { VizProps } from "./types";
  * - 1/2/3 columnas con numeración continua y escala común: la MENOR cantidad de columnas en la que
  *   caben las filas (tope por ancho); las filas se alinean entre columnas y reparten el alto sobrante.
  * - Neutrales tras una hairline, sin rango y fuera del máximo; "Otros" → "Otras N categorías"
- *   (si la capacidad oculta filas con nombre, se suman a "Otras" hasta expandir).
+ *   (si la capacidad oculta filas con nombre, se suman a "Otras" y su "Ver N más" va EN esa fila:
+ *   el enlace nunca queda después de un agregado que no lo contiene).
+ * - Identificador secundario (NIT) en línea; si en varias columnas partiría filas (alto dispar),
+ *   se omite en la fila y queda en el tooltip, el aria-label y el diálogo. En la anatomía apilada
+ *   (móvil) va en su propio renglón: todas las filas tienen la misma forma (nombre / NIT / barra).
+ * - Varias columnas: oficinas con su forma corta ("Ger. …", nombre completo en el tooltip). Si aun así
+ *   una etiqueta se parte, se prueba la anatomía apilada (filas uniformes, alineadas entre columnas);
+ *   si queda alguna fila más alta, cada columna fluye con sus propios altos (sin huecos por la vecina).
+ *   La compacta solo suma columnas si ninguna etiqueta se parte.
  * - Pie "Top 15 de 42 · 91 % del total"; "Ver N más" (scroll interno o Dialog con búsqueda si > 30).
  * - Cabecera de concentración, fila fijada (tono de la familia del filtro) y bullet secundario (vizOptions).
  */
@@ -64,9 +73,9 @@ const BULLET_GAP = 4;
 const STACK_BELOW = 400;
 /** Ancho mínimo de etiqueta para sumar una columna (con menos, las etiquetas se parten en 3+ líneas). */
 const MIN_LABEL = 160;
-const MIN_LABEL_COMPACT = 100;
-/** Alto extra máximo por fila al repartir el sobrante (40 → 56, compacta 32 → 44). */
-const STRETCH: Record<Mode, number> = { regular: 16, stacked: 12, compact: 12 };
+const MIN_LABEL_COMPACT = 140;
+/** Alto extra máximo por fila al repartir el sobrante (40 → 64, compacta 32 → 44): pocas filas llenan el cuerpo sin banda muerta. */
+const STRETCH: Record<Mode, number> = { regular: 24, stacked: 12, compact: 12 };
 /** Más ítems que esto: "Ver los N" abre un Dialog con búsqueda. */
 const DIALOG_MIN = 30;
 
@@ -78,6 +87,8 @@ interface Item {
   raw: string;
   label: string;
   full: string;
+  /** Forma corta para contextos compactos (varias columnas): "Ger. Sucursal …" en oficinas. */
+  short: string;
   secondary?: string;
   value: number;
   bullet: number | null;
@@ -108,8 +119,19 @@ interface Plan {
   mode: Mode;
   barW: number;
   dropPct: boolean;
+  /** Identificador secundario en línea (false: solo en tooltip, aria-label y diálogo). */
+  secondary: boolean;
+  /** Etiquetas en su forma corta (varias columnas). */
+  short: boolean;
+  /**
+   * "aligned": filas de la grilla compartidas entre columnas (barras a la misma altura; solo con altos
+   * uniformes). "free": cada columna fluye con sus propios altos (sin huecos frente a una fila partida).
+   */
+  flow: "aligned" | "free";
   heights: number[];
   neutralHeights: number[];
+  /** Altos de los neutrales cuando hay filas ocultas ("Otras N" con "Ver N más" en línea). */
+  neutralHeightsHidden: number[];
 }
 
 function detectKind(labels: string[], declared?: LabelKind): LabelKind {
@@ -128,7 +150,7 @@ function buildItems(
   return entries.map(({ key, raw, label, value, bullet }) => {
     if (isOthers(raw)) {
       const text = othersLabel(kind, folded);
-      return { key, raw, label: text, full: text, value, bullet, neutral: true, others: true, filterable: false, color: "var(--neutral-mark)" };
+      return { key, raw, label: text, full: text, short: text, value, bullet, neutral: true, others: true, filterable: false, color: "var(--neutral-mark)" };
     }
     const neutral = isNeutral(raw);
     const ov = overrides?.[raw]?.label;
@@ -140,6 +162,7 @@ function buildItems(
       raw,
       label: ov ?? d.full,
       full: ov ?? d.full,
+      short: ov ?? (neutral ? d.full : d.short),
       secondary: ov ? undefined : d.secondary,
       value,
       bullet,
@@ -150,6 +173,16 @@ function buildItems(
       tone: status?.tone ?? undefined,
     };
   });
+}
+
+/**
+ * Combinaciones fuera del topN de una bartable ("Top 60 de 218"). El motor las informa en
+ * `restCount` (opcional en el contrato): sin el dato, el pie queda como "Top 60 · 56 % del total".
+ */
+function barTableRest(r: BarTableResult): number {
+  if (!("restCount" in r)) return 0;
+  const n = r.restCount;
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /** Familia semántica declarada para un campo (columna de la tabla o widget que lo grafica). */
@@ -199,6 +232,23 @@ interface RowProps {
   dimmed: boolean;
   onToggle?: () => void;
   delay: number;
+  /** Sin el identificador secundario en la fila (queda en tooltip y aria-label). */
+  hideSecondary?: boolean;
+  /** Alineación vertical dentro de la fila de la grilla: "end" alinea las barras entre columnas. */
+  align?: "center" | "end";
+  /** Con align "end": alto extra repartido que va bajo el contenido (la mitad del sobrante, como al centrar). */
+  endInset?: number;
+  /** Acción en línea tras la etiqueta (p. ej. "Ver N más" en "Otras N"). */
+  action?: ReactNode;
+  /** Etiqueta en su forma corta (el nombre completo queda en el tooltip y el aria-label). */
+  useShort?: boolean;
+  /** % del total fuera de la fila (p. ej. con bullet secundario): solo en el tooltip y el aria-label. */
+  shareInTip?: boolean;
+  /**
+   * Flujo libre: alto repartido como relleno arriba y abajo (px por lado) en lugar de un alto mínimo
+   * estimado; la fila mide su contenido real (una estimación al límite no deja aire suelto).
+   */
+  padY?: number;
 }
 
 /**
@@ -223,12 +273,38 @@ function Bullet({ value, spec }: { value: number | null; spec: BulletSpec }) {
   );
 }
 
-function RankRow({ item, rank, mode, height, max, total, format, showPct, valueW, pctW, barW, twoLine, bullet, selected, dimmed, onToggle, delay }: RowProps) {
+function RankRow({
+  item,
+  rank,
+  mode,
+  height,
+  max,
+  total,
+  format,
+  showPct,
+  valueW,
+  pctW,
+  barW,
+  twoLine,
+  bullet,
+  selected,
+  dimmed,
+  onToggle,
+  delay,
+  hideSecondary,
+  align = "center",
+  endInset = 0,
+  action,
+  useShort,
+  shareInTip,
+  padY = 0,
+}: RowProps) {
   const frac = item.neutral || !max ? 0 : Math.max(0, Math.min(1, item.value / max));
   const value = formatValue(item.value, format);
   const pct = total ? formatPct(item.value / total) : "";
+  const text = useShort ? item.short : item.label;
   const Tag = onToggle ? "button" : "div";
-  const aria = `${rank ? `${rank}. ` : ""}${item.full}${item.secondary ? ` (${item.secondary})` : ""}: ${value}${showPct && pct ? `, ${pct} del total` : ""}${
+  const aria = `${rank ? `${rank}. ` : ""}${item.full}${item.secondary ? ` (${item.secondary})` : ""}: ${value}${(showPct || shareInTip) && pct ? `, ${pct} del total` : ""}${
     bullet && !item.neutral ? `; ${bullet.label}: ${formatValue(item.bullet, bullet.format)}${bullet.ref !== null ? ` (global ${formatValue(bullet.ref, bullet.format)})` : ""}` : ""
   }${item.note ? `. ${item.note}` : ""}`;
   const rankCell = item.neutral ? (
@@ -238,14 +314,26 @@ function RankRow({ item, rank, mode, height, max, total, format, showPct, valueW
   ) : (
     <span className="tabular text-right text-[11px] leading-[18px] text-muted">{rank}</span>
   );
+  // Apilada: el NIT en su propio renglón (18 px), así todas las filas tienen la misma anatomía
+  const idBlock = mode === "stacked" && !item.neutral;
   const labelCell = (
     <span className={cn("min-w-0 text-[13px] font-medium leading-[18px] [overflow-wrap:anywhere]", item.neutral ? "text-text-2" : "text-text", twoLine && mode === "regular" && !item.neutral && "self-end")}>
       {item.tone && <StatusIcon tone={item.tone} className="mr-1.5 inline-block align-[-2px]" />}
-      {item.label}
-      {item.secondary && (
+      {text}
+      {item.secondary &&
+        !hideSecondary &&
+        (idBlock ? (
+          <span className="mt-0.5 block whitespace-nowrap font-mono text-[11px] font-normal leading-4 text-muted">{item.secondary}</span>
+        ) : (
+          <>
+            {" "}
+            <span className="whitespace-nowrap font-mono text-[11px] font-normal leading-none text-muted">{item.secondary}</span>
+          </>
+        ))}
+      {action && (
         <>
           {" "}
-          <span className="whitespace-nowrap font-mono text-[11px] font-normal leading-none text-muted">{item.secondary}</span>
+          {action}
         </>
       )}
     </span>
@@ -284,17 +372,31 @@ function RankRow({ item, rank, mode, height, max, total, format, showPct, valueW
     onToggle && "cursor-pointer focus-visible:outline-offset-[-2px]",
     rowStateClass(selected, dimmed),
   );
+  // Tooltip: lo que la fila no muestra (nombre completo, NIT omitido, % del total fuera de la fila)
+  const tip = [text !== item.full ? item.full : null, hideSecondary && item.secondary ? item.secondary : null, shareInTip && pct ? `${pct} del total` : null]
+    .filter(Boolean)
+    .join(" · ");
+  // Al pie de la fila, pero con la mitad del alto repartido debajo: barras alineadas entre columnas
+  // y el sobrante partido arriba y abajo, como en una columna centrada.
+  const pad = item.neutral || mode === "compact" ? 7 : 5;
+  const inset =
+    align === "end" && endInset > 0
+      ? { paddingBottom: pad + endInset }
+      : padY > 0
+        ? { paddingTop: pad + Math.floor(padY), paddingBottom: pad + Math.ceil(padY) }
+        : null;
   const common = {
-    style: height ? { minHeight: height } : undefined,
+    style: height || inset ? { ...(height ? { minHeight: height } : null), ...inset } : undefined,
     ...(onToggle
-      ? { type: "button" as const, onClick: onToggle, "aria-pressed": selected, "aria-label": `${aria}. Clic para filtrar`, title: "Clic para filtrar" }
-      : { "aria-label": aria, role: "group", title: item.note }),
+      ? { type: "button" as const, onClick: onToggle, "aria-pressed": selected, "aria-label": `${aria}. Clic para filtrar`, title: tip ? `${tip} · Clic para filtrar` : "Clic para filtrar" }
+      : { "aria-label": aria, role: "group", title: item.note ?? (tip || undefined) }),
   };
+  const vAlign = align === "end" ? "content-end" : "content-center";
 
   if (item.neutral) {
     return (
       <li>
-        <Tag {...common} className={cn(base, "grid grid-cols-[20px_minmax(0,1fr)_auto] content-center items-start gap-x-2 py-[7px]")}>
+        <Tag {...common} className={cn(base, "grid grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-x-2 py-[7px]", vAlign)}>
           {rankCell}
           {labelCell}
           {numbers}
@@ -305,7 +407,7 @@ function RankRow({ item, rank, mode, height, max, total, format, showPct, valueW
   if (mode === "stacked") {
     return (
       <li>
-        <Tag {...common} className={cn(base, "grid grid-cols-[20px_minmax(0,1fr)] content-center gap-x-2 py-[5px]")}>
+        <Tag {...common} className={cn(base, "grid grid-cols-[20px_minmax(0,1fr)] gap-x-2 py-[5px]", vAlign)}>
           {rankCell}
           {labelCell}
           <span className="col-start-2 mt-1 flex items-center gap-2">
@@ -319,7 +421,7 @@ function RankRow({ item, rank, mode, height, max, total, format, showPct, valueW
   if (mode === "compact") {
     return (
       <li>
-        <Tag {...common} className={cn(base, "grid items-center gap-x-2 py-[7px]")} style={{ ...common.style, gridTemplateColumns: `20px minmax(0,1fr) ${barW}px auto` }}>
+        <Tag {...common} className={cn(base, "grid items-center gap-x-2 py-[7px]", align === "end" && "content-end")} style={{ ...common.style, gridTemplateColumns: `20px minmax(0,1fr) ${barW}px auto` }}>
           {rankCell}
           {labelCell}
           {track}
@@ -332,7 +434,7 @@ function RankRow({ item, rank, mode, height, max, total, format, showPct, valueW
     <li>
       <Tag
         {...common}
-        className={cn(base, "grid grid-cols-[20px_minmax(0,1fr)_auto] content-center items-start gap-x-2 py-[5px]", twoLine && "grid-rows-[minmax(36px,auto)_auto]")}
+        className={cn(base, "grid grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-x-2 py-[5px]", vAlign, twoLine && "grid-rows-[minmax(36px,auto)_auto]")}
       >
         {twoLine ? <span className="self-end">{rankCell}</span> : rankCell}
         {labelCell}
@@ -345,13 +447,28 @@ function RankRow({ item, rank, mode, height, max, total, format, showPct, valueW
 
 // ─── Encabezados ─────────────────────────────────────────────────────────────
 
-function Concentration({ items, total, kind }: { items: Item[]; total: number; kind: LabelKind }) {
+/**
+ * Segundo tramo de la barra de concentración: el primario aclarado hacia blanco en ambos temas. En claro
+ * coincide con la mezcla con la superficie; en oscuro, mezclar con la superficie daba 1,7:1 frente a la
+ * pista (#704210 sobre #242A34) y la marca desaparecía.
+ */
+const CONCENTRATION_2ND = "color-mix(in srgb, var(--chart-1) 50%, white)";
+
+function Concentration({ items, total, kind, narrow }: { items: Item[]; total: number; kind: LabelKind; narrow: boolean }) {
   const [a, b] = items;
   if (!a || !total) return null;
   const s1 = a.value / total;
   const s2 = b ? b.value / total : 0;
   const n = b ? 2 : 1;
   const rest = Math.max(0, 1 - s1 - s2);
+  const restLabel = <span className="tabular shrink-0 whitespace-nowrap text-xs leading-[18px] text-muted">Resto {formatPct(rest)}</span>;
+  const bar = (
+    <div className={cn("flex h-2 gap-[2px] overflow-hidden rounded-full", narrow && "min-w-0 flex-1")} role="img" aria-label={`${a.full} ${formatPct(s1)}${b ? ` · ${b.full} ${formatPct(s2)}` : ""} · resto ${formatPct(rest)}`}>
+      <span title={`${a.full}: ${formatPct(s1)}`} className="h-full" style={{ flex: `${s1} 1 0px`, background: "var(--chart-1)" }} />
+      {b && <span title={`${b.full}: ${formatPct(s2)}`} className="h-full" style={{ flex: `${s2} 1 0px`, background: CONCENTRATION_2ND }} />}
+      {rest > 0 && <span title={`Resto: ${formatPct(rest)}`} className="h-full bg-surface-3" style={{ flex: `${rest} 1 0px` }} />}
+    </div>
+  );
   return (
     <div className="mb-2 shrink-0" style={{ minHeight: CONCENTRATION_H - 8 }}>
       <p className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs leading-[18px] text-text-2">
@@ -361,13 +478,17 @@ function Concentration({ items, total, kind }: { items: Item[]; total: number; k
           </strong>{" "}
           el <strong className="tabular font-semibold text-text">{formatPct(s1 + s2)}</strong> del total
         </span>
-        <span className="tabular text-muted">Resto {formatPct(rest)}</span>
+        {!narrow && restLabel}
       </p>
-      <div className="mt-1.5 flex h-2 gap-[2px] overflow-hidden rounded-full" role="img" aria-label={`${a.full} ${formatPct(s1)}${b ? ` · ${b.full} ${formatPct(s2)}` : ""} · resto ${formatPct(rest)}`}>
-        <span title={`${a.full}: ${formatPct(s1)}`} className="h-full" style={{ flex: `${s1} 1 0px`, background: "var(--chart-1)" }} />
-        {b && <span title={`${b.full}: ${formatPct(s2)}`} className="h-full" style={{ flex: `${s2} 1 0px`, background: "color-mix(in srgb, var(--chart-1) 50%, var(--surface))" }} />}
-        {rest > 0 && <span title={`Resto: ${formatPct(rest)}`} className="h-full bg-surface-3" style={{ flex: `${rest} 1 0px` }} />}
-      </div>
+      {narrow ? (
+        // Angosto: "Resto X %" al final de la barra (junto a su tramo gris), en la misma línea
+        <div className="mt-1 flex items-center gap-2">
+          {bar}
+          {restLabel}
+        </div>
+      ) : (
+        <div className="mt-1.5">{bar}</div>
+      )}
     </div>
   );
 }
@@ -465,7 +586,15 @@ export function RankingList({ widget, result, height, span, expanded }: VizProps
     if (result.kind === "bartable") {
       const entries = result.rows.map((r) => ({ key: r.cells.join("\u0001"), raw: r.cells[0] ?? "", label: r.cells.join(" · "), value: r.value, bullet: null }));
       const k = detectKind(entries.map((e) => e.raw), widget.labelKind);
-      return { items: buildItems(entries, k, 0, widget.semantic, vo.overrides, crossFilter), kind: k, total: result.total, folded: 0, othersFolded: 0, restCount: 0, secondaryFmt: null };
+      return {
+        items: buildItems(entries, k, 0, widget.semantic, vo.overrides, crossFilter),
+        kind: k,
+        total: result.total,
+        folded: 0,
+        othersFolded: 0,
+        restCount: barTableRest(result),
+        secondaryFmt: null,
+      };
     }
     const entries = result.labels.map((raw, i) => ({ key: raw, raw, value: result.values[i] ?? 0, bullet: result.secondary?.[i] ?? null }));
     const k = detectKind(result.labels, widget.labelKind);
@@ -492,7 +621,7 @@ export function RankingList({ widget, result, height, span, expanded }: VizProps
   // Tono de la fila fijada: explícito, o el del valor que filtra su CTA en la familia de su campo
   // (factura/INCONSISTENTE → critical, como el tile de la banda y el panel vecino); si no, warning.
   const pinnedTone = useMemo<StatusTone>(() => {
-    const explicit = (vo.pinned as { tone?: StatusTone } | undefined)?.tone;
+    const explicit = vo.pinned?.tone;
     if (explicit) return explicit;
     const f = vo.pinned?.filter;
     const family = f ? familyOf(spec, f.field) : undefined;
@@ -534,83 +663,139 @@ export function RankingList({ widget, result, height, span, expanded }: VizProps
   const chip = additive && neutralSum > 0 ? <QualityChip neutral={neutralSum} total={total} /> : null;
   const chipInFooter = Boolean(chip) && !frame?.chipsEl && !expanded;
 
-  // Alcance del pie
+  // Con bullet secundario, cada fila ya lleva un % (el del bullet): el % del total pasa al tooltip y al
+  // aria-label para no poner dos porcentajes de distinto significado juntos y sin rótulo.
+  const showPctRow = showPct && !bullet;
+
+  // Alcance del pie: "Top 15 de 42 · 91 % del total" (categorías y bartable)
   const cats = items.filter((i) => !i.neutral).length;
   const shareShown = total ? items.filter((i) => !i.neutral).reduce((a, i) => a + i.value, 0) / total : 0;
+  const outside = folded || restCount;
   const scope =
-    result.kind === "bartable"
-      ? shareShown < 0.999 && additive
+    outside > 0
+      ? `Top ${formatInt(cats)} de ${formatInt(cats + outside)}${additive ? ` · ${formatPct(shareShown)} del total` : ""}`
+      : result.kind === "bartable" && additive && shareShown < 0.999
         ? `Top ${formatInt(cats)} · ${formatPct(shareShown)} del total`
-        : null
-      : folded > 0 || restCount > 0
-        ? `Top ${formatInt(cats)} de ${formatInt(cats + (folded || restCount))}${additive ? ` · ${formatPct(shareShown)} del total` : ""}`
         : null;
 
   // ── Layout: un plan por cantidad de columnas (altos estimados con su ancho de columna) ─────
   const W = mw || innerWidth(span);
   const compact = Boolean(vo.compact);
   const twoLine = Boolean(vo.twoLine);
+  const useDialog = items.length > DIALOG_MIN;
+  /** Con fila "Otras N", su "Ver N más" va en línea en esa fila (no en el pie). */
+  const inlineMore = neutrals.some((i) => i.others);
   const layout = useMemo(() => {
     const valueW = Math.max(0, ...items.map((i) => numWidth(formatValue(i.value, format), 600, 13)));
-    const pctW = showPct ? Math.max(numWidth("0,0 %", 400, 12), ...items.map((i) => numWidth(formatPct(i.value / total), 400, 12))) : 0;
+    const pctW = showPctRow ? Math.max(numWidth("0,0 %", 400, 12), ...items.map((i) => numWidth(formatPct(i.value / total), 400, 12))) : 0;
     const narrow = !compact && W < STACK_BELOW;
     const maxCols = narrow ? 1 : listColumns(W, compact, vo.columns);
-    const plans: Plan[] = [];
-    for (let c = 1; c <= maxCols; c++) {
+    // "Otras N" con filas ocultas: etiqueta con la mayor N posible y el enlace en línea (cota)
+    const hiddenOthers = othersLabel(kind, othersFolded + real.length);
+    const moreW = inlineMore ? Math.max(textWidth(`Ver ${formatInt(real.length)} más`, 600, 12), textWidth(`Ver los ${formatInt(items.length)}`, 600, 12)) + 8 : 0;
+    /** Planes para `c` columnas, en orden de preferencia ([] si la columna extra no deja espacio a la etiqueta). */
+    const build = (c: number, secondary: boolean): Plan[] => {
       const rowW = columnRowWidth(W, c);
-      const mode: Mode = compact ? "compact" : narrow ? "stacked" : "regular";
-      const dropPct = mode === "compact" && rowW < 300;
-      const numbersW = valueW + (showPct && !dropPct ? GAP + pctW : 0) + (bullet ? GAP + bullet.width : 0);
+      // Varias columnas: forma corta de las oficinas ("Ger. …"), como en el pivote y la tabla
+      const short = c > 1;
+      const text = (i: Item) => (short ? i.short : i.label);
+      const base: Mode = compact ? "compact" : narrow ? "stacked" : "regular";
+      const dropPct = base === "compact" && rowW < 300;
+      const numbersW = valueW + (showPctRow && !dropPct ? GAP + pctW : 0) + (bullet ? GAP + bullet.width : 0);
       const barW = Math.round(Math.max(40, Math.min(120, rowW * 0.2)));
-      const labelW =
+      const labelWOf = (mode: Mode) =>
         mode === "stacked" ? rowW - RANK_W - GAP : mode === "compact" ? rowW - RANK_W - 3 * GAP - barW - numbersW : rowW - RANK_W - 2 * GAP - numbersW;
       // Una columna más solo si la etiqueta conserva espacio (si no, se parte en 3+ líneas)
-      if (c > 1 && labelW < (compact ? MIN_LABEL_COMPACT : MIN_LABEL)) break;
+      if (c > 1 && labelWOf(base) < (compact ? MIN_LABEL_COMPACT : MIN_LABEL)) return [];
       const neutralW = rowW - RANK_W - 2 * GAP - numbersW;
-      const lines = (i: Item, w: number) => lineCount(i.label, w - (i.tone ? 20 : 0), 500, 13, i.secondary ? monoWidth(i.secondary) : 0);
-      const rowH = (i: Item) => {
-        const l = lines(i, labelW);
-        if (mode === "stacked") return 32 + 18 * l;
-        if (mode === "compact") return 14 + 18 * l;
-        return 21 + 18 * (twoLine ? Math.max(2, l) : l);
+      // Apilada: el NIT va en su propio renglón (+1 línea); en las demás, en línea tras el nombre
+      const lines = (i: Item, w: number, mode: Mode) => {
+        const idBlock = mode === "stacked" && secondary && Boolean(i.secondary);
+        return lineCount(text(i), w - (i.tone ? 20 : 0), 500, 13, secondary && i.secondary && !idBlock ? monoWidth(i.secondary) : 0) + (idBlock ? 1 : 0);
       };
-      plans.push({ cols: c, mode, barW, dropPct, heights: real.map(rowH), neutralHeights: neutrals.map((i) => 14 + 18 * lines(i, neutralW)) });
+      const neutralHeights = neutrals.map((i) => 14 + 18 * lines(i, neutralW, "regular"));
+      const neutralHeightsHidden = neutrals.map((i, k) => (i.others ? 14 + 18 * lineCount(hiddenOthers, neutralW, 500, 13, moreW) : neutralHeights[k]));
+      const make = (mode: Mode): Plan => {
+        const labelW = labelWOf(mode);
+        const heights = real.map((i) => {
+          const l = lines(i, labelW, mode);
+          if (mode === "stacked") return 32 + 18 * l;
+          if (mode === "compact") return 14 + 18 * l;
+          return 21 + 18 * (twoLine ? Math.max(2, l) : l);
+        });
+        // Filas compartidas entre columnas solo con altos uniformes: una fila partida abriría huecos en la vecina
+        const uniform = heights.every((h) => h === heights[0]);
+        return { cols: c, mode, barW, dropPct, secondary, short, flow: c > 1 && !uniform ? "free" : "aligned", heights, neutralHeights, neutralHeightsHidden };
+      };
+      const first = make(base);
+      if (c === 1) return [first];
+      // Compacta (32 px, barra en línea): una columna más solo si ninguna etiqueta se parte
+      if (base === "compact") return first.heights.some((h) => h > 32) ? [] : [first];
+      // Regular con etiquetas partidas: primero la anatomía apilada (nombre en su renglón con todo el ancho
+      // de la columna; barra y cifras debajo), luego la regular en flujo libre (si la apilada muestra menos filas)
+      if (base === "regular" && !twoLine && first.heights.some((h) => h > 39)) return [make("stacked"), first];
+      return [first];
+    };
+    // Con el identificador en línea, de menos a más columnas; después, sin él en las cantidades de
+    // columnas donde partiría filas (a 1024/768 px: 5 | 5 filas de una línea en lugar de 5 | 4 disparejas)
+    const plans: Plan[] = [];
+    const alt: Plan[] = [];
+    const withId = real.some((i) => i.secondary);
+    for (let c = 1; c <= maxCols; c++) {
+      const ps = build(c, true);
+      const qs = withId ? build(c, false) : [];
+      if (!ps.length && !qs.length) break;
+      plans.push(...ps);
+      for (const q of qs) if (ps.every((p) => p.mode !== q.mode || q.heights.some((h, k) => h !== p.heights[k]))) alt.push(q);
     }
-    return { valueW, pctW, plans };
-  }, [W, compact, twoLine, vo.columns, real, neutrals, items, format, showPct, total, bullet]);
+    return { valueW, pctW, plans, alt };
+  }, [W, compact, twoLine, vo.columns, real, neutrals, items, format, showPctRow, total, bullet, kind, othersFolded, inlineMore]);
 
   const fixedH = measured ? mh : height > 0 ? height : null;
   const all = expanded || showAll;
   const bulletInline = Boolean(bullet) && !frame?.legendEl;
   const chrome = (vo.concentration && real.length > 1 ? CONCENTRATION_H : 0) + (pinned ? PINNED_H : 0) + (bulletInline ? BULLET_HEAD_H : 0);
   const cap = widget.visibleRows ?? Infinity;
-  const fit = useMemo((): { plan: Plan; grid: ListGrid; rowH: number[]; footer: boolean } => {
-    const { plans } = layout;
+  const fit = useMemo((): { plan: Plan; grid: ListGrid; cellH: number[]; extra: number; footer: boolean } => {
+    const { plans, alt } = layout;
+    const base = Boolean(scope || chipInFooter);
+    /** Alto de cada celda (filas reales visibles y luego neutrales): el de su fila de la grilla o, en flujo libre, el propio. */
+    const cells = (plan: Plan, grid: ListGrid, extra: number) => {
+      const tailH = grid.shown < real.length ? plan.neutralHeightsHidden : plan.neutralHeights;
+      return [...plan.heights.slice(0, grid.shown), ...tailH].map(
+        (h, i) => (plan.flow === "free" ? h + (i === grid.sepAt ? HAIRLINE_BLOCK : 0) : (grid.heights[i % Math.max(1, grid.rows)] ?? h)) + extra,
+      );
+    };
     if (all || fixedH === null) {
       // Alto por contenido (móvil, "Ampliar" o "Ver todo"): al menos 3 filas por columna (6 en "Ampliar")
       const count = real.length + neutrals.length;
-      const plan = plans[Math.max(0, Math.min(plans.length, Math.ceil(count / (expanded ? 6 : 3))) - 1)];
+      const cols = Math.max(1, Math.min(Math.ceil(count / (expanded ? 6 : 3)), plans[plans.length - 1].cols));
+      const plan = plans.find((p) => p.cols === cols) ?? plans[0];
       const shown = all ? real.length : Math.min(cap, real.length <= 12 ? real.length : 10);
-      const grid = gridLayout(plan.heights, plan.neutralHeights, plan.cols, shown, HAIRLINE_BLOCK);
-      const footer = Boolean(scope || chipInFooter) || (all ? !expanded && showAll : grid.shown < real.length);
-      return { plan, grid, rowH: grid.heights, footer };
+      const grid = gridLayout(plan.heights, shown < real.length ? plan.neutralHeightsHidden : plan.neutralHeights, plan.cols, shown, HAIRLINE_BLOCK, plan.flow === "free");
+      const footer = base || (all ? !expanded && showAll : grid.shown < real.length && !inlineMore);
+      return { plan, grid, cellH: cells(plan, grid, 0), extra: 0, footer };
     }
-    const cands = plans.map((p) => ({ cols: p.cols, heights: p.heights, tail: p.neutralHeights }));
-    const base = Boolean(scope || chipInFooter);
+    const options = [...plans, ...alt];
+    const cands = options.map((p) => ({ cols: p.cols, heights: p.heights, tail: p.neutralHeights, tailHidden: p.neutralHeightsHidden, free: p.flow === "free" }));
     let avail = fixedH - chrome - (base ? FOOTER_H : 0);
     let pick = pickGrid(cands, avail, cap, HAIRLINE_BLOCK);
     let footer = base;
-    if (!base && pick.grid.shown < real.length) {
+    if (!base && !inlineMore && pick.grid.shown < real.length) {
       avail = fixedH - chrome - FOOTER_H;
       pick = pickGrid(cands, avail, cap, HAIRLINE_BLOCK);
       footer = true;
     }
-    const plan = plans[pick.index];
-    return { plan, grid: pick.grid, rowH: stretchRows(pick.grid, avail, STRETCH[plan.mode]), footer };
-  }, [layout, all, fixedH, chrome, scope, chipInFooter, cap, expanded, showAll, real.length, neutrals.length]);
+    const plan = options[pick.index];
+    const stretched = stretchRows(pick.grid, avail, STRETCH[plan.mode]);
+    const extra = pick.grid.rows ? Math.max(0, stretched[0] - pick.grid.heights[0]) : 0;
+    return { plan, grid: pick.grid, cellH: cells(plan, pick.grid, extra), extra, footer };
+  }, [layout, all, fixedH, chrome, scope, chipInFooter, cap, expanded, showAll, real.length, neutrals.length, inlineMore]);
 
   const { plan, grid } = fit;
   const hidden = real.length - grid.shown;
+  /** Flujo libre: las filas miden su contenido (sin alto mínimo estimado). */
+  const free = plan.flow === "free";
 
   // Si la capacidad oculta filas con nombre, "Otras N" las incluye (el orden y la suma no engañan)
   const tail = useMemo(() => {
@@ -624,36 +809,57 @@ export function RankingList({ widget, result, height, span, expanded }: VizProps
       const note = `Incluye ${formatInt(rest.length)} ${kindNoun(kind, rest.length)} del top fuera de la vista (${names}${rest.length > 4 ? "…" : ""})${
         othersFolded ? ` y ${formatInt(othersFolded)} fuera del top` : ""
       }`;
-      return { ...it, label: text, full: text, value: it.value + restSum, note };
+      return { ...it, label: text, full: text, short: text, value: it.value + restSum, note };
     });
   }, [hidden, all, neutrals, real, grid.shown, kind, othersFolded]);
 
-  const useDialog = items.length > DIALOG_MIN;
   const anySel = selected.length > 0;
   const toggle = (raw: string) => () => toggleValue(dimension, raw);
   const rowProps = {
     max,
     total,
     format,
-    showPct: showPct && !plan.dropPct,
+    showPct: showPctRow && !plan.dropPct,
+    shareInTip: showPct && !showPctRow,
     valueW: layout.valueW,
     pctW: layout.pctW,
     barW: plan.barW,
     twoLine,
     bullet,
+    hideSecondary: !plan.secondary,
+    useShort: plan.short,
+    // Varias columnas alineadas: filas cortas al pie de su fila de la grilla (barras a la misma altura);
+    // en flujo libre cada fila se centra en su propio alto
+    align: grid.cols > 1 && plan.flow === "aligned" ? ("end" as const) : ("center" as const),
+    endInset: Math.floor(fit.extra / 2),
+    padY: free ? fit.extra / 2 : 0,
   };
 
-  // Columnas de la grilla: numeración continua; filas alineadas entre columnas
+  // Columnas de la grilla: numeración continua; filas alineadas entre columnas (o flujo libre por columna)
   const columns = gridColumns(grid, grid.shown + tail.length);
 
+  const openMore = () => (useDialog ? setDialog(window.innerWidth >= 640 ? "regular" : "stacked") : setShowAll(true));
+  const moreText = useDialog ? `Ver los ${formatInt(items.length)}` : `Ver ${formatInt(hidden)} más`;
+  // "Ver N más" en línea en "Otras N" (que ya suma las filas ocultas); si no hay "Otras", en el pie
+  const inlineAction =
+    !expanded && !all && hidden > 0 && inlineMore ? (
+      <button
+        type="button"
+        onClick={openMore}
+        aria-expanded={false}
+        className="whitespace-nowrap rounded-md px-1 text-xs font-semibold leading-[18px] text-primary-text transition hover:bg-primary-soft focus-visible:outline-offset-0"
+      >
+        {moreText}
+      </button>
+    ) : null;
   const more =
-    !expanded && (hidden > 0 || showAll) ? (
-      useDialog ? (
-        <MoreButton onClick={() => setDialog(window.innerWidth >= 640 ? "regular" : "stacked")}>Ver los {formatInt(items.length)}</MoreButton>
-      ) : (
-        <MoreButton onClick={() => setShowAll((v) => !v)} expanded={showAll}>
-          {showAll ? "Ver menos" : `Ver ${formatInt(hidden)} más`}
+    !expanded && (showAll || (hidden > 0 && !inlineMore)) ? (
+      showAll ? (
+        <MoreButton onClick={() => setShowAll(false)} expanded>
+          Ver menos
         </MoreButton>
+      ) : (
+        <MoreButton onClick={openMore}>{moreText}</MoreButton>
       )
     ) : null;
 
@@ -665,7 +871,7 @@ export function RankingList({ widget, result, height, span, expanded }: VizProps
           <BulletLegend spec={bullet} />
         </LegendSlot>
       )}
-      {vo.concentration && real.length > 1 && <Concentration items={real} total={total} kind={kind} />}
+      {vo.concentration && real.length > 1 && <Concentration items={real} total={total} kind={kind} narrow={W < STACK_BELOW} />}
       {pinned && (
         <PinnedRow
           item={pinned}
@@ -684,7 +890,8 @@ export function RankingList({ widget, result, height, span, expanded }: VizProps
         />
       )}
       {bulletInline && bullet && (
-        <div className="flex shrink-0 justify-end pb-1" style={{ minHeight: BULLET_HEAD_H }}>
+        // Franja de leyenda bajo el header, alineada a la izquierda (L2)
+        <div className="flex shrink-0 justify-start pb-1" style={{ minHeight: BULLET_HEAD_H }}>
           <BulletLegend spec={bullet} />
         </div>
       )}
@@ -711,7 +918,7 @@ export function RankingList({ widget, result, height, span, expanded }: VizProps
                         item={it}
                         rank={idx + 1}
                         mode={plan.mode}
-                        height={fit.rowH[idx - from]}
+                        height={free ? undefined : fit.cellH[idx]}
                         selected={sel}
                         dimmed={anySel && !sel}
                         onToggle={it.filterable ? toggle(it.raw) : undefined}
@@ -735,12 +942,13 @@ export function RankingList({ widget, result, height, span, expanded }: VizProps
                           item={it}
                           rank={null}
                           mode={plan.mode}
-                          height={fit.rowH[i - from] - (i === grid.sepAt ? HAIRLINE_BLOCK : 0)}
+                          height={free ? undefined : fit.cellH[i] - (i === grid.sepAt ? HAIRLINE_BLOCK : 0)}
                           selected={sel}
                           dimmed={anySel && !sel}
                           onToggle={it.filterable ? toggle(it.raw) : undefined}
                           delay={0.2}
                           {...rowProps}
+                          action={it.others ? inlineAction : undefined}
                         />
                       );
                     })}
@@ -787,8 +995,12 @@ export function RankingList({ widget, result, height, span, expanded }: VizProps
                 onToggle={it.filterable ? toggle(it.raw) : undefined}
                 delay={0}
                 {...rowProps}
-                showPct={showPct}
+                showPct={showPctRow}
                 twoLine={false}
+                hideSecondary={false}
+                useShort={false}
+                padY={0}
+                align="center"
               />
             );
           }}

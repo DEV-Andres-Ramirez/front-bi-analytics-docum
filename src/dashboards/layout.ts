@@ -112,9 +112,11 @@ export function requiredHeight(viz: Viz, w: WidgetDef, inner: number): number | 
     }
     case "composition": {
       const layout = w.vizOptions?.layout ?? (n <= 3 ? "split" : "legend");
-      if (layout === "split") return inner >= n * 110 ? 120 : n * 32 + 24;
-      const cols = inner < 400 ? 1 : inner < 640 ? 2 : 3;
-      return 50 + Math.ceil(n / cols) * 24;
+      // split: columnas de ≥ 140 px por parte (composition-bar.tsx › SPLIT_COL); si no caben, filas
+      if (layout === "split") return inner >= n * 140 ? 120 : n * 32 + 24;
+      // legend-table: columnas de ≥ 232 px (composition-bar.tsx › colRange); el total va en la cabecera o la franja
+      const cols = Math.max(1, Math.min(3, Math.floor((inner + 16) / 248)));
+      return 24 + Math.ceil(n / cols) * 24;
     }
     case "family-split":
       return 96 + 20 + Math.ceil(n / 2) * 20;

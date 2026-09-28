@@ -198,17 +198,21 @@ function CardHeader({
   );
 }
 
+/** Clave de comparación de rótulos: sin tildes, sin mayúsculas ni espacios extremos. */
+const navKey = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+
 /** El eyebrow de la tarjeta héroe sobra si repite el de su sección ("TERRITORIO" / "TERRITORIO"). */
 function heroEyebrow(hero: boolean | undefined, eyebrow: string | undefined, sectionNav: string | undefined): string | undefined {
   if (!hero || !eyebrow) return undefined;
-  const k = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
-  return sectionNav && k(sectionNav) === k(eyebrow) ? undefined : eyebrow;
+  return sectionNav && navKey(sectionNav) === navKey(eyebrow) ? undefined : eyebrow;
 }
 
-function WidgetBadges({ widget }: { widget: WidgetDef }) {
+function WidgetBadges({ widget, sectionNav }: { widget: WidgetDef; sectionNav?: string }) {
+  // "Año en curso" sobra si la sección ya se llama así; si no, rótulo en muted (es un alcance, no un estado)
+  const ytd = widget.type === "monthly" && widget.scope === "ytd" && !(sectionNav && navKey(sectionNav) === "ano en curso");
   return (
     <>
-      {widget.type === "monthly" && widget.scope === "ytd" && <Badge tone="info">Año en curso</Badge>}
+      {ytd && <span className="whitespace-nowrap text-[11px] font-semibold text-muted">Año en curso</span>}
       {widget.provisional && (
         <Tooltip content="Fórmula provisional: pendiente de validación con negocio." focusable>
           <Badge tone="warning" icon={<FlaskConical className="size-3" />}>
@@ -303,7 +307,7 @@ export function WidgetCard({ widget: initial, span, tier, legendStrip, stacked, 
         title={title}
         subtitle={subtitle}
         eyebrow={heroEyebrow(hero, widget.eyebrow, sectionNav)}
-        badges={<WidgetBadges widget={widget} />}
+        badges={<WidgetBadges widget={widget} sectionNav={sectionNav} />}
         extra={tabControl}
         slotRef={setHeaderEl}
         chipsRef={strip ? undefined : setChipsEl}

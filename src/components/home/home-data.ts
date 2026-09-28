@@ -111,7 +111,7 @@ const HERO_SHORT: Record<string, string> = {
   pqrd: "Radicados en el mes",
   "entes-control": "Radicados en el mes",
   "entes-control-eficiencia": "Asignación promedio",
-  "smart-momento-1": "Radicados en el mes",
+  "smart-momento-1": "Quejas en el mes",
   "smart-momento-2": "Transmitidos en el mes",
   "smart-momento-3": "Quejas en el mes",
   tutelas: "Tutelas en el mes",
@@ -126,33 +126,19 @@ export function heroShort(slug: string, fig: CatalogFigure | null): string {
 }
 
 /**
- * Nombre corto del KPI de salud para la fila de salud ("SLA 67,0 %").
- * Prioriza el alias de presentación y luego `short` del spec; siempre sin el "%" inicial
- * (la cifra ya lo lleva). No cambia la métrica.
+ * Nombre corto del KPI de salud para la fila de salud ("SLA 67,0 %"): `short` del spec (o su etiqueta),
+ * siempre sin el "%" inicial (la cifra ya lo lleva). No cambia la métrica.
  */
-const HEALTH_SHORT: Record<string, string> = {
-  "facturas-recibidas:valor": "Valor recibido",
-  "facturas-emitidas:inconsistentes": "Inconsistentes",
-  "pqrd:sla": "SLA",
-  "entes-control:aprobados": "Aprobados",
-  "entes-control-eficiencia:reabiertos": "Reabiertos",
-  "smart-momento-1:cruce": "Cruce con PQRD",
-  "smart-momento-2:transmitido": "Transmitido",
-  "smart-momento-3:vencidos": "Vencidos",
-  "tutelas:en-termino": "En término",
-  "medicina-laboral-entradas:vencidos": "Vencidos",
-  "medicina-laboral-salidas:entregadas": "Entregadas",
-  "correspondencia-entradas:pendientes": "Pendientes",
-  "correspondencia-salidas:digital": "Canal digital",
-};
-
-export function figureShort(slug: string, fig: CatalogFigure): string {
-  return (HEALTH_SHORT[`${slug}:${fig.kpi}`] ?? fig.short ?? fig.label).replace(/^%\s*/, "");
+export function figureShort(fig: CatalogFigure): string {
+  return (fig.short ?? fig.label).replace(/^%\s*/, "");
 }
 
 /** Aviso de calidad de la vista que reemplaza (o acompaña) al KPI de salud (AGENTS §6). */
 export interface HealthNote {
-  /** "quality": la cifra no informa (se reemplaza por un chip de calidad). "info": la cifra es constante por construcción. */
+  /**
+   * "quality": la cifra no informa (su chip de variación se reemplaza por un chip de calidad en warning).
+   * "info": la cifra es constante por construcción (el chip de variación lleva el ícono ⓘ y la explicación).
+   */
   kind: "quality" | "info";
   label: string;
   hint: string;
@@ -161,13 +147,13 @@ export interface HealthNote {
 const HEALTH_NOTES: Record<string, HealthNote & { when: (fig: CatalogFigure) => boolean }> = {
   "smart-momento-1:cruce": {
     kind: "quality",
-    label: "Sin cruce con PQRD",
+    label: "Sin cruce",
     hint: "El cruce de SMART Momento 1 con el seguimiento de PQRD falla en la vista de origen: casi ninguna queja trae su radicado PQRD, por eso el % de cruce queda en 0 %. Es un hallazgo de calidad de la vista, no un indicador de gestión.",
     when: (f) => !f.value && !f.previous,
   },
   "smart-momento-2:transmitido": {
     kind: "info",
-    label: "Constante",
+    label: "100 % por construcción",
     hint: "La vista de Momento 2 solo contiene casos transmitidos a la Superfinanciera, así que este porcentaje es 100 % por construcción.",
     when: (f) => f.value === 1 && f.previous === 1,
   },
@@ -199,17 +185,11 @@ export interface Pulse {
   top: PulseSignal[];
 }
 
-/** Umbral de materialidad del pulso: por debajo, la variación cuenta como estable. */
-export const PULSE_MIN_PP = 0.01; // 1 p.p. (formato pct)
-export const PULSE_MIN_REL = 0.03; // 3 % relativo (conteos, días, pesos)
-
-function material(fig: CatalogFigure, delta: DeltaInfo): boolean {
-  return Math.abs(delta.magnitude) >= (fig.format === "pct" ? PULSE_MIN_PP : PULSE_MIN_REL);
-}
-
 /**
- * Resume la salud del mes: tono = dirección × polaridad (describeDelta); bases pequeñas y variaciones
- * por debajo del umbral de materialidad (1 p.p. o 3 %) cuentan como estables.
+ * Resume la salud del mes con la MISMA regla que pinta los chips de las tarjetas (homeRedesign §5):
+ * tono = dirección × polaridad (describeDelta), sin umbral propio. Mejoró = tono good, empeoró = tono bad y
+ * estable = tono neutral (sin cambio al redondear a 1 decimal, o base pequeña). Así el balance del Pulso
+ * cuenta exactamente los chips verdes y rojos que se ven en las tarjetas.
  */
 export function computePulse(items: CatalogItem[]): Pulse {
   const signals: PulseSignal[] = [];
@@ -219,9 +199,8 @@ export function computePulse(items: CatalogItem[]): Pulse {
     if (!meta || !fig || fig.polarity === "neutral" || healthNote(item.slug, fig)) continue;
     signals.push({ meta, module: MODULE_BY_ID[meta.module], fig, delta: describeDelta(fig.value, fig.previous, fig.format, fig.polarity) });
   }
-  const moved = signals.filter((s) => material(s.fig, s.delta));
-  const worse = moved.filter((s) => s.delta.tone === "bad").sort((a, b) => Math.abs(b.delta.magnitude) - Math.abs(a.delta.magnitude));
-  const improved = moved.filter((s) => s.delta.tone === "good").length;
+  const worse = signals.filter((s) => s.delta.tone === "bad").sort((a, b) => Math.abs(b.delta.magnitude) - Math.abs(a.delta.magnitude));
+  const improved = signals.filter((s) => s.delta.tone === "good").length;
   return {
     total: signals.length,
     improved,
@@ -229,4 +208,33 @@ export function computePulse(items: CatalogItem[]): Pulse {
     stable: signals.length - improved - worse.length,
     top: worse.slice(0, 3),
   };
+}
+
+/* ── Accesos rápidos ───────────────────────────────────────────────────── */
+
+/** Líneas que ocupan chips de los anchos dados en un carril de ancho `avail` con separación `gap`. */
+function linesFor(widths: number[], avail: number, gap: number): number {
+  let lines = 1;
+  let x = 0;
+  for (const w of widths) {
+    const need = x === 0 ? w : x + gap + w;
+    if (need <= avail || x === 0) x = need;
+    else {
+      lines += 1;
+      x = w;
+    }
+  }
+  return lines;
+}
+
+/**
+ * Cuántos chips (en orden) caben en `maxLines` líneas. Si no caben todos, reserva en la última línea el chip
+ * "+N" (ancho `moreWidth`) que muestra el resto: ningún chip se corta a media palabra.
+ */
+export function fitChips(widths: number[], avail: number, gap: number, maxLines: number, moreWidth: number): number {
+  if (!widths.length || avail <= 0 || linesFor(widths, avail, gap) <= maxLines) return widths.length;
+  for (let k = widths.length - 1; k > 0; k--) {
+    if (linesFor([...widths.slice(0, k), moreWidth], avail, gap) <= maxLines) return k;
+  }
+  return 0;
 }

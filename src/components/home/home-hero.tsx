@@ -58,7 +58,7 @@ export function HomeHero({ query, onQueryChange, onOpenFirst, inputRef, favorite
       aria-labelledby="home-saludo"
       className="relative overflow-hidden border-b border-border bg-[linear-gradient(180deg,var(--bg-accent)_0%,var(--bg)_100%)]"
     >
-      <div className="@container/hero relative mx-auto max-w-[var(--content-max)] px-4 pb-5 pt-4 sm:px-6 lg:px-10">
+      <div className="@container/hero relative mx-auto max-w-[var(--content-max)] px-4 pb-4 pt-3 sm:px-5 xl:px-8">
         {/*
           Silueta decorativa. En escritorio va en el hueco entre el buscador (termina a 40 + 480 px) y el Pulso
           (empieza a 41,667 % − 12 px del borde derecho): solo cabe completa desde 1070 px de contenido (1150 con el padding); por debajo se oculta.
@@ -101,7 +101,7 @@ export function HomeHero({ query, onQueryChange, onOpenFirst, inputRef, favorite
               {DASHBOARDS.length} tableros en {MODULES.length} módulos: cifra del mes, variación y salud de cada flujo.
             </motion.p>
 
-            <motion.div {...enter(3)} role="search" className="group relative mt-4 w-full max-w-[480px]">
+            <motion.div {...enter(3)} role="search" className="group relative mt-3 w-full max-w-[480px]">
               <label htmlFor="home-search" className="sr-only">
                 Buscar tablero
               </label>

@@ -167,6 +167,7 @@ export interface ListGrid {
   rows: number;
   /** Alto de cada fila de la grilla: el de su celda más alta, así las columnas quedan alineadas. */
   heights: number[];
+  /** Alto ocupado: suma de las filas de la grilla o, en flujo libre, la columna más alta. */
   total: number;
   /** Índice de celda del primer neutral con separador (null si no hay o si abre una columna). */
   sepAt: number | null;
@@ -177,8 +178,10 @@ export interface ListGrid {
  * neutrales (`tail`). Cada fila de la grilla mide lo que su celda más alta, de modo que la fila 1
  * de una columna queda a la altura de la fila 1 de la otra aunque una etiqueta se envuelva.
  * `sep`: alto del separador (hairline) antes del primer neutral, salvo que abra una columna.
+ * `free`: cada columna fluye con sus propios altos (sin filas compartidas); el alto ocupado es el de la
+ * columna más alta.
  */
-export function gridLayout(real: number[], tail: number[], cols: number, shown: number, sep = 0): ListGrid {
+export function gridLayout(real: number[], tail: number[], cols: number, shown: number, sep = 0, free = false): ListGrid {
   const cells = [...real.slice(0, shown), ...tail];
   const n = cells.length;
   if (!n) return { shown, cols: 1, rows: 0, heights: [], total: 0, sepAt: null };
@@ -186,31 +189,40 @@ export function gridLayout(real: number[], tail: number[], cols: number, shown: 
   const used = Math.ceil(n / rows);
   const sepAt = tail.length && shown % rows !== 0 ? shown : null;
   const heights = new Array<number>(rows).fill(0);
+  const colSums = new Array<number>(used).fill(0);
   cells.forEach((h, i) => {
     const j = i % rows;
-    heights[j] = Math.max(heights[j], h + (i === sepAt ? sep : 0));
+    const hh = h + (i === sepAt ? sep : 0);
+    heights[j] = Math.max(heights[j], hh);
+    colSums[Math.floor(i / rows)] += hh;
   });
-  return { shown, cols: used, rows, heights, total: heights.reduce((a, b) => a + b, 0), sepAt };
-}
-
-/** Cuántas filas reales caben (hasta `cap`) en la grilla alineada de `cols` columnas y alto `maxH`. */
-export function fitGrid(real: number[], tail: number[], cols: number, maxH: number, cap = Infinity, sep = 0): ListGrid {
-  const start = Math.min(real.length, Math.max(0, cap));
-  for (let r = start; r > 0; r--) {
-    const g = gridLayout(real, tail, cols, r, sep);
-    if (g.total <= maxH) return g;
-  }
-  return gridLayout(real, tail, cols, 0, sep);
+  const total = free ? Math.max(...colSums) : heights.reduce((a, b) => a + b, 0);
+  return { shown, cols: used, rows, heights, total, sepAt };
 }
 
 /**
- * Elige la grilla: la MENOR cantidad de columnas en la que caben todas las filas (hasta `cap`);
- * si ninguna alcanza, la que muestra más filas (a igualdad, menos columnas). Así 8 productos van
- * 4 | 4 en lugar de 3 | 3 | 2 y un top 7 a span 8 va en una columna de filas de una línea.
- * `candidates[c - 1]` trae los altos estimados con el ancho de columna de `c` columnas.
+ * Cuántas filas reales caben (hasta `cap`) en la grilla alineada de `cols` columnas y alto `maxH`.
+ * `tailHidden`: altos de los neutrales cuando quedan filas ocultas (p. ej. "Otras N" con su
+ * "Ver N más" en línea, que puede partir la etiqueta).
+ */
+export function fitGrid(real: number[], tail: number[], cols: number, maxH: number, cap = Infinity, sep = 0, tailHidden?: number[], free = false): ListGrid {
+  const start = Math.min(real.length, Math.max(0, cap));
+  const tailFor = (r: number) => (tailHidden && r < real.length ? tailHidden : tail);
+  for (let r = start; r > 0; r--) {
+    const g = gridLayout(real, tailFor(r), cols, r, sep, free);
+    if (g.total <= maxH) return g;
+  }
+  return gridLayout(real, tailFor(0), cols, 0, sep, free);
+}
+
+/**
+ * Elige la grilla: el PRIMER candidato en el que caben todas las filas (hasta `cap`); si ninguno
+ * alcanza, el que muestra más filas (a igualdad, el primero). Los candidatos van de menos a más
+ * columnas, así 8 productos van 4 | 4 en lugar de 3 | 3 | 2 y un top 7 a span 8 va en una columna
+ * de filas de una línea. Cada candidato trae los altos estimados con su ancho de columna.
  */
 export function pickGrid(
-  candidates: { cols: number; heights: number[]; tail: number[] }[],
+  candidates: { cols: number; heights: number[]; tail: number[]; tailHidden?: number[]; free?: boolean }[],
   maxH: number,
   cap = Infinity,
   sep = 0,
@@ -218,7 +230,7 @@ export function pickGrid(
   let best: { grid: ListGrid; index: number } | null = null;
   for (let i = 0; i < candidates.length; i++) {
     const c = candidates[i];
-    const grid = fitGrid(c.heights, c.tail, c.cols, maxH, cap, sep);
+    const grid = fitGrid(c.heights, c.tail, c.cols, maxH, cap, sep, c.tailHidden, c.free);
     if (!best || grid.shown > best.grid.shown) best = { grid, index: i };
     if (grid.shown >= Math.min(cap, c.heights.length)) return { grid, index: i };
   }

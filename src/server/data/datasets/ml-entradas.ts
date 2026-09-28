@@ -2,9 +2,13 @@ import "server-only";
 
 import { canal, estadoSalidaML, orNoReporta } from "../normalizers";
 import type { Profile } from "../mock/generator";
-import { radicado } from "../mock/generator";
+import { addBusinessDays, radicado } from "../mock/generator";
 import profile from "../mock/profiles/ml_entradas.json";
 import type { DatasetDef } from "./types";
+
+/** Estados del término que implican un plazo (los "No Reporta…" no tienen fecha de vencimiento). */
+const CON_PLAZO = new Set(["En término", "Fuera de Término", "Vencido"]);
+const DAY_MS = 86_400_000;
 
 export const mlEntradas: DatasetDef = {
   id: "ml_entradas",
@@ -70,6 +74,16 @@ export const mlEntradas: DatasetDef = {
       row.Fecha_de_radicacion = ctx.date;
       const hasSalida = row.estado_salida && !/no reporta/i.test(String(row.estado_salida));
       row.radicado_salida = hasSalida ? radicado("SAL", ctx.date, 1_900_000 + ctx.index) : "";
+      // Fecha máxima de respuesta: el perfil la trae como desfase, pero el generador descarta los desfases
+      // que caen en el futuro (pensado para eventos como la aprobación). Un plazo sí puede estar en el futuro
+      // (los "En término" recientes): se deriva del tiempo definido, en días hábiles o calendario. Determinista
+      // (no consume el generador aleatorio), así que el resto de las filas no cambia.
+      if (row.fecha_max_respuesta == null && CON_PLAZO.has(String(row.tiempo_por_vencer))) {
+        const dias = Number(row.tiempo_definido);
+        if (Number.isFinite(dias) && dias > 0) {
+          row.fecha_max_respuesta = /calendario/i.test(String(row.formato_tiempo)) ? ctx.date + dias * DAY_MS : addBusinessDays(ctx.date, dias);
+        }
+      }
     },
   }),
   normalize: (r) => {

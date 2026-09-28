@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { useDashboard } from "@/components/dashboard/dashboard-context";
 import type { CategoryResult, PivotResult, WidgetResult } from "@/dashboards/dto";
 import { DIAS_ORDER } from "@/dashboards/specs/helpers";
@@ -25,7 +25,10 @@ import type { CompositeProps, VizProps } from "./types";
  * - HeatmapComposite: día × hora con marginales (facturas emitidas): escala raíz, jornada 7–17 h
  *   marcada con un corchete neutro bajo el eje (no con el color de selección), columnas desde la
  *   primera hasta la última hora con dato (sin columnas vacías fuera de la jornada), ScaleLegend
- *   continua bajo la grilla, clic en celda filtra ambas dimensiones.
+ *   continua bajo la grilla, clic en celda filtra ambas dimensiones. Los dos marginales usan la misma
+ *   jerarquía (cifras text-2/600, el máximo en tinta/700).
+ *   En angosto (< 560 px) se transpone: días en columnas (con su total en el encabezado) y horas en
+ *   filas (con su total a la derecha), así cabe en 326 px sin scroll horizontal.
  */
 
 // ─── Escala raíz común ───────────────────────────────────────────────────────
@@ -396,6 +399,193 @@ const TOP_H = 46;
 const AXIS_H = 22;
 const GAP = 2;
 const MIN_CELL = 28;
+/** Por debajo de este ancho la matriz se transpone (días en columnas, horas en filas). */
+const NARROW_BELOW = 560;
+/** Transpuesta (móvil): etiqueta de hora, marginal por hora, encabezado de día y paso de fila. */
+const T_LABEL_W = 30;
+const T_MARG_W = 46;
+const T_HEAD_H = 50;
+const T_ROW_H = 28;
+const T_MIN_CELL = 30;
+
+const at = (row: number, col: number, span = 1) => ({ gridRow: row, gridColumn: `${col} / span ${span}` });
+
+type Sel = ReturnType<typeof selectionOf>;
+
+/** Lo que comparten la grilla de escritorio y la transpuesta (celdas, marginales, tooltips y filtros). */
+interface GridCtx {
+  model: DHModel;
+  theme: ChartTheme;
+  unit: string;
+  rowSel: Sel;
+  colSel: Sel;
+  showValues: boolean;
+  tip: (el: Element, content: TooltipContent) => void;
+  hide: () => void;
+  toggleValue: (field: string, value: string) => void;
+  toggleMany: (pairs: { field: string; value: string }[]) => void;
+}
+
+/** Celda día × hora (misma en ambas orientaciones). */
+function dayHourCell(g: GridCtx, r: DHRow, c: DHCol, v: number, style: CSSProperties) {
+  const { model, theme, unit, rowSel, colSel, showValues, tip, hide, toggleMany } = g;
+  const rSel = rowSel.has(r.raw);
+  const inSel = (!rowSel.active || rSel) && (!colSel.active || colSel.has(c.raw));
+  if (!v)
+    return (
+      <div
+        key={`${r.raw}\u0001${c.raw}`}
+        aria-hidden
+        className={cn("grid place-items-center rounded-[3px] text-xs text-muted", c.band ? "bg-surface-3" : "bg-surface-2", !inSel && "opacity-45")}
+        style={style}
+      >
+        {showValues ? "·" : ""}
+      </div>
+    );
+  const bg = seqColor(theme, rootT(v, model.max));
+  const both = rSel && colSel.has(c.raw);
+  const content: TooltipContent = {
+    title: `${r.full} · ${hourRange(c.hour, c.label)}`,
+    value: `${formatInt(v)} ${unit}`,
+    valueNote: r.total ? `${formatPct(v / r.total)} del día` : undefined,
+    rows: model.total ? [{ label: "Del total", value: formatPct(v / model.total), color: bg }] : undefined,
+    hint: "Clic para filtrar día y hora",
+  };
+  return (
+    <button
+      key={`${r.raw}\u0001${c.raw}`}
+      type="button"
+      aria-pressed={both}
+      aria-label={`${r.full}, ${hourRange(c.hour, c.label)}: ${formatInt(v)} ${unit}`}
+      onClick={() => toggleMany([{ field: model.rowField, value: r.raw }, { field: model.colField, value: c.raw }])}
+      onMouseEnter={(e) => tip(e.currentTarget, content)}
+      onFocus={(e) => tip(e.currentTarget, content)}
+      onMouseLeave={hide}
+      onBlur={hide}
+      className={cn("tabular grid min-w-0 place-items-center rounded-[3px] text-[11px] font-semibold transition-[opacity,filter] hover:brightness-95 focus-visible:z-10", !inSel && "opacity-45")}
+      style={{ ...style, background: bg, color: inkOn(bg), boxShadow: both ? "inset 0 0 0 2px var(--primary)" : undefined }}
+    >
+      {showValues ? (v >= 1000 ? formatCompact(v) : formatInt(v)) : ""}
+    </button>
+  );
+}
+
+/** Tooltip de un marginal (hora o día). */
+function hourContent(g: GridCtx, c: DHCol): TooltipContent {
+  const share = g.model.margRowTotal ? c.marg / g.model.margRowTotal : 0;
+  return { title: hourRange(c.hour, c.label), value: `${formatInt(c.marg)} ${g.unit}`, valueNote: `${formatPct(share)} del total`, hint: "Clic para filtrar la hora" };
+}
+function dayContent(g: GridCtx, r: DHRow): TooltipContent {
+  const share = g.model.margRowTotal ? r.marg / g.model.margRowTotal : 0;
+  return { title: r.full, value: `${formatInt(r.marg)} ${g.unit}`, valueNote: `${formatPct(share)} del total`, hint: "Clic para filtrar el día" };
+}
+
+/** Cifra de un marginal por hora: misma jerarquía que el marginal por día (text-2/600; el máximo en tinta/700). */
+function hourMargText(g: GridCtx, c: DHCol, className?: string) {
+  const isMax = c.marg > 0 && c.marg === g.model.margColMax;
+  return (
+    <span className={cn("tabular text-[10.5px] leading-none", isMax ? "font-bold text-text" : "font-semibold text-text-2", className)}>
+      {c.marg >= 1000 ? formatCompact(c.marg) : formatInt(c.marg)}
+    </span>
+  );
+}
+
+/**
+ * Móvil: la matriz transpuesta (días en columnas, horas en filas) cabe en 326 px sin scroll
+ * horizontal. El total por día va en el encabezado de su columna y el total por hora, a la derecha.
+ */
+function TransposedGrid({ g, label }: { g: GridCtx; label: string }) {
+  const { model, rowSel, colSel, tip, hide, toggleValue, unit } = g;
+  const nD = model.rows.length;
+  const bandRows = model.cols.map((c, i) => (c.band ? i : -1)).filter((i) => i >= 0);
+  const style: CSSProperties = {
+    gridTemplateColumns: `${T_LABEL_W}px repeat(${nD}, minmax(${T_MIN_CELL}px, 1fr)) ${T_MARG_W}px`,
+    gridTemplateRows: `${T_HEAD_H}px repeat(${model.cols.length}, ${T_ROW_H}px)`,
+    gap: GAP,
+    minWidth: T_LABEL_W + T_MARG_W + nD * T_MIN_CELL + (nD + 1) * GAP,
+  };
+  return (
+    <div role="group" aria-label={label} className="grid" style={style}>
+      {/* Encabezado: día + total del día (el marginal derecho del escritorio) */}
+      {model.rows.map((r, i) => {
+        const rSel = rowSel.has(r.raw);
+        const share = model.margRowTotal ? r.marg / model.margRowTotal : 0;
+        const content = dayContent(g, r);
+        return (
+          <button
+            key={`d-${r.raw}`}
+            type="button"
+            aria-pressed={rSel}
+            aria-label={`${r.full}: ${formatInt(r.marg)} ${unit}, ${formatPct(share)}`}
+            onClick={() => toggleValue(model.rowField, r.raw)}
+            onMouseEnter={(e) => tip(e.currentTarget, content)}
+            onFocus={(e) => tip(e.currentTarget, content)}
+            onMouseLeave={hide}
+            onBlur={hide}
+            className={cn(
+              "flex min-w-0 flex-col items-center justify-end gap-0.5 rounded-md pb-1 transition hover:bg-surface-3",
+              rSel && "bg-primary-soft",
+              rowSel.active && !rSel && "opacity-45",
+            )}
+            style={at(1, i + 2)}
+          >
+            <span className={cn("text-xs font-semibold leading-none", rSel ? "text-primary-text" : "text-text-2")}>{r.short}</span>
+            <span className="tabular text-[11px] font-semibold leading-none text-text">{formatInt(r.marg)}</span>
+            <span className="tabular text-[10px] leading-none text-muted">{formatPct(share, 0)}</span>
+          </button>
+        );
+      })}
+      <div className="flex items-end justify-end pb-1 pr-0.5 text-[10.5px] font-semibold text-muted" style={at(1, nD + 2)}>
+        Total
+      </div>
+
+      {/* Jornada: corchete vertical a la derecha de las horas */}
+      {bandRows.length > 0 && (
+        <div
+          aria-hidden
+          className="pointer-events-none w-[5px] justify-self-end rounded-r-[3px] border-y-2 border-r-2 border-border-strong"
+          style={{ gridRow: `${bandRows[0] + 2} / span ${bandRows.length}`, gridColumn: 1 }}
+        />
+      )}
+
+      {model.cols.map((c, j) => {
+        const gr = j + 2;
+        const sel = colSel.has(c.raw);
+        const content = hourContent(g, c);
+        return (
+          <div key={`h-${c.raw}`} className="contents">
+            <div
+              aria-label={hourRange(c.hour, c.label)}
+              className={cn("flex items-center justify-end pr-2.5 text-[10.5px] tabular", c.band ? "font-semibold text-text-2" : "text-muted")}
+              style={at(gr, 1)}
+            >
+              {c.label}
+            </div>
+            {model.rows.map((r, i) => dayHourCell(g, r, c, r.values[j], at(gr, i + 2)))}
+            <button
+              type="button"
+              aria-pressed={sel}
+              aria-label={`${hourRange(c.hour, c.label)}: ${formatInt(c.marg)} ${unit}`}
+              onClick={() => toggleValue(model.colField, c.raw)}
+              onMouseEnter={(e) => tip(e.currentTarget, content)}
+              onFocus={(e) => tip(e.currentTarget, content)}
+              onMouseLeave={hide}
+              onBlur={hide}
+              disabled={!c.marg}
+              className={cn("flex min-w-0 items-center gap-1 rounded-md pl-1.5 pr-0.5 transition hover:bg-surface-3 disabled:hover:bg-transparent", sel && "bg-primary-soft", colSel.active && !sel && "opacity-45")}
+              style={at(gr, nD + 2)}
+            >
+              <span aria-hidden className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-3">
+                <span className={cn("block h-full rounded-full", sel ? "bg-primary" : "bg-[var(--seq-3)]")} style={{ width: `${model.margColMax ? (c.marg / model.margColMax) * 100 : 0}%` }} />
+              </span>
+              {c.marg > 0 ? hourMargText(g, c, "shrink-0") : <span className="shrink-0 text-[10.5px] leading-none text-muted">·</span>}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export function HeatmapComposite({ cell, widgets, results, expanded }: CompositeProps) {
   const theme = useChartTheme();
@@ -412,16 +602,18 @@ export function HeatmapComposite({ cell, widgets, results, expanded }: Composite
 
   const nC = model.cols.length;
   const nR = model.rows.length;
-  const narrow = measured && width < 560;
+  // Angosto (móvil): matriz transpuesta, días en columnas y horas en filas (sin scroll horizontal)
+  const narrow = measured && width < NARROW_BELOW;
   // Marginal derecho según el espacio: barra + conteo + % · conteo + % · solo conteo (el % queda en el tooltip)
   const room = measured ? width - LABEL_W - (nC + 1) * GAP - nC * MIN_CELL : 999;
-  const marg: "full" | "pct" | "count" = narrow ? "pct" : room >= 128 ? "full" : room >= 92 ? "pct" : room >= 52 ? "count" : "pct";
+  const marg: "full" | "pct" | "count" = room >= 128 ? "full" : room >= 92 ? "pct" : room >= 52 ? "count" : "pct";
   const margW = marg === "full" ? 128 : marg === "pct" ? 92 : 52;
   // Tamaño real de celda (decide si el valor cabe dentro)
-  const cellW = measured ? (width - LABEL_W - margW - (nC + 1) * GAP) / nC : 40;
-  const cellH = measured ? (height - TOP_H - AXIS_H - (nR + 1) * GAP) / nR : 40;
+  const cellW = narrow ? (width - T_LABEL_W - T_MARG_W - (nR + 1) * GAP) / nR : measured ? (width - LABEL_W - margW - (nC + 1) * GAP) / nC : 40;
+  const cellH = narrow ? T_ROW_H : measured ? (height - TOP_H - AXIS_H - (nR + 1) * GAP) / nR : 40;
   const showValues = Math.max(MIN_CELL, cellW) >= 28 && Math.max(MIN_CELL, cellH) >= 28;
   const minWidth = LABEL_W + margW + nC * MIN_CELL + (nC + 1) * GAP;
+  const tMinWidth = T_LABEL_W + T_MARG_W + nR * T_MIN_CELL + (nR + 1) * GAP;
 
   const rowSel = selectionOf(filters.eq, model.rowField);
   const colSel = selectionOf(filters.eq, model.colField);
@@ -431,6 +623,7 @@ export function HeatmapComposite({ cell, widgets, results, expanded }: Composite
     const { x, y } = anchorOf(el);
     show(x, y, content);
   };
+  const g: GridCtx = { model, theme, unit, rowSel, colSel, showValues, tip, hide, toggleValue, toggleMany };
 
   const gridStyle = {
     gridTemplateColumns: `${LABEL_W}px repeat(${nC}, minmax(${MIN_CELL}px, 1fr)) ${margW}px`,
@@ -438,162 +631,119 @@ export function HeatmapComposite({ cell, widgets, results, expanded }: Composite
     gap: GAP,
     minWidth,
   };
-  const at = (row: number, col: number, span = 1) => ({ gridRow: row, gridColumn: `${col} / span ${span}` });
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2.5">
       <div ref={ref} className={cn("min-h-0 flex-1 overflow-x-auto", expanded && "overflow-y-auto")}>
-        <div role="group" aria-label={cell.title} className="grid h-full" style={gridStyle}>
-          {/* Esquina (rótulo del marginal superior) y encabezado del marginal derecho */}
-          <div
-            className="sticky left-0 z-[2] flex items-end justify-end bg-surface pb-px pr-1 text-[10.5px] font-semibold text-muted"
-            style={{ ...at(1, 1), boxShadow: `${GAP}px 0 0 var(--surface)` }}
-          >
-            Total
-          </div>
-          <div aria-hidden className="sticky left-0 z-[2] bg-surface" style={{ ...at(2, 1), boxShadow: `${GAP}px 0 0 var(--surface)` }} />
-          <div className="flex items-end justify-between gap-1 pl-2 text-[10.5px] font-semibold text-muted" style={at(2, nC + 2)}>
-            <span>Total</span>
-            {marg !== "count" && <span>%</span>}
-          </div>
-
-          {/* Jornada: corchete hairline bajo las horas (neutro: el naranja queda para la selección) */}
-          {bandCols.length > 0 && (
-            <div aria-hidden className="pointer-events-none h-[5px] self-end rounded-b-[3px] border-x-2 border-b-2 border-border-strong" style={at(2, bandCols[0] + 2, bandCols.length)} />
-          )}
-
-          {/* Marginal superior (por hora) + eje de horas */}
-          {model.cols.map((c, j) => {
-            const sel = colSel.has(c.raw);
-            const h = model.margColMax ? (c.marg / model.margColMax) * 100 : 0;
-            const share = model.margRowTotal ? c.marg / model.margRowTotal : 0;
-            const content: TooltipContent = {
-              title: hourRange(c.hour, c.label),
-              value: `${formatInt(c.marg)} ${unit}`,
-              valueNote: `${formatPct(share)} del total`,
-              hint: "Clic para filtrar la hora",
-            };
-            return (
-              <button
-                key={`m-${c.raw}`}
-                type="button"
-                aria-pressed={sel}
-                aria-label={`${hourRange(c.hour, c.label)}: ${formatInt(c.marg)} ${unit}`}
-                onClick={() => toggleValue(model.colField, c.raw)}
-                onMouseEnter={(e) => tip(e.currentTarget, content)}
-                onFocus={(e) => tip(e.currentTarget, content)}
-                onMouseLeave={hide}
-                onBlur={hide}
-                disabled={!c.marg}
-                className={cn("group flex min-w-0 flex-col items-stretch justify-end gap-0.5 rounded-sm transition-opacity focus-visible:z-10", colSel.active && !sel && "opacity-45")}
-                style={at(1, j + 2)}
-              >
-                {c.marg > 0 && <span className="tabular text-center text-[10px] leading-none text-muted">{c.marg >= 1000 ? formatCompact(c.marg) : formatInt(c.marg)}</span>}
-                <span
-                  className={cn("block w-full shrink-0 rounded-t-[3px] transition-colors", sel ? "bg-primary" : "bg-[var(--seq-3)] group-hover:bg-[var(--seq-4)]")}
-                  style={{ height: `calc((100% - 12px) * ${(Math.max(c.marg ? 6 : 0, h) / 100).toFixed(3)})` }}
-                />
-              </button>
-            );
-          })}
-          {model.cols.map((c, j) => (
+        {narrow ? (
+          <TransposedGrid g={g} label={cell.title} />
+        ) : (
+          <div role="group" aria-label={cell.title} className="grid h-full" style={gridStyle}>
+            {/* Esquina (rótulo del marginal superior) y encabezado del marginal derecho */}
             <div
-              key={`a-${c.raw}`}
-              aria-label={hourRange(c.hour, c.label)}
-              className={cn("relative z-[1] flex justify-center pt-px text-[10.5px] leading-[14px] tabular", c.band ? "font-semibold text-text-2" : "text-muted")}
-              style={at(2, j + 2)}
+              className="sticky left-0 z-[2] flex items-end justify-end bg-surface pb-px pr-1 text-[10.5px] font-semibold text-muted"
+              style={{ ...at(1, 1), boxShadow: `${GAP}px 0 0 var(--surface)` }}
             >
-              {c.label}
+              Total
             </div>
-          ))}
+            <div aria-hidden className="sticky left-0 z-[2] bg-surface" style={{ ...at(2, 1), boxShadow: `${GAP}px 0 0 var(--surface)` }} />
+            <div className="flex items-end justify-between gap-1 pl-2 text-[10.5px] font-semibold text-muted" style={at(2, nC + 2)}>
+              <span>Total</span>
+              {marg !== "count" && <span>%</span>}
+            </div>
 
-          {/* Filas: etiqueta fija, celdas y marginal derecho */}
-          {model.rows.map((r, i) => {
-            const rSel = rowSel.has(r.raw);
-            const gr = i + 3;
-            const share = model.margRowTotal ? r.marg / model.margRowTotal : 0;
-            const rowContent: TooltipContent = { title: r.full, value: `${formatInt(r.marg)} ${unit}`, valueNote: `${formatPct(share)} del total`, hint: "Clic para filtrar el día" };
-            return (
-              <div key={r.raw} className="contents">
+            {/* Jornada: corchete hairline bajo las horas (neutro: el naranja queda para la selección) */}
+            {bandCols.length > 0 && (
+              <div aria-hidden className="pointer-events-none h-[5px] self-end rounded-b-[3px] border-x-2 border-b-2 border-border-strong" style={at(2, bandCols[0] + 2, bandCols.length)} />
+            )}
+
+            {/* Marginal superior (por hora) + eje de horas */}
+            {model.cols.map((c, j) => {
+              const sel = colSel.has(c.raw);
+              const h = model.margColMax ? (c.marg / model.margColMax) * 100 : 0;
+              const content = hourContent(g, c);
+              return (
                 <button
+                  key={`m-${c.raw}`}
                   type="button"
-                  aria-pressed={rSel}
-                  aria-label={`${r.full}: ${formatInt(r.marg)} ${unit}`}
-                  onClick={() => toggleValue(model.rowField, r.raw)}
-                  className={cn(
-                    "sticky left-0 z-[2] flex items-center rounded-md bg-surface pl-0.5 pr-1 text-left text-xs font-semibold text-text-2 transition hover:text-text",
-                    rSel && "bg-primary-soft text-primary-text",
-                    rowSel.active && !rSel && "opacity-45",
-                  )}
-                  style={{ ...at(gr, 1), boxShadow: `${GAP}px 0 0 var(--surface)` }}
-                >
-                  {r.short}
-                </button>
-                {r.values.map((v, j) => {
-                  const c = model.cols[j];
-                  const inSel = (!rowSel.active || rSel) && (!colSel.active || colSel.has(c.raw));
-                  if (!v)
-                    return (
-                      <div
-                        key={c.raw}
-                        aria-hidden
-                        className={cn("grid place-items-center rounded-[3px] text-xs text-muted", c.band ? "bg-surface-3" : "bg-surface-2", !inSel && "opacity-45")}
-                        style={at(gr, j + 2)}
-                      >
-                        {showValues ? "·" : ""}
-                      </div>
-                    );
-                  const bg = seqColor(theme, rootT(v, model.max));
-                  const both = rSel && colSel.has(c.raw);
-                  const content: TooltipContent = {
-                    title: `${r.full} · ${hourRange(c.hour, c.label)}`,
-                    value: `${formatInt(v)} ${unit}`,
-                    valueNote: r.total ? `${formatPct(v / r.total)} del día` : undefined,
-                    rows: model.total ? [{ label: "Del total", value: formatPct(v / model.total), color: bg }] : undefined,
-                    hint: "Clic para filtrar día y hora",
-                  };
-                  return (
-                    <button
-                      key={c.raw}
-                      type="button"
-                      aria-pressed={both}
-                      aria-label={`${r.full}, ${hourRange(c.hour, c.label)}: ${formatInt(v)} ${unit}`}
-                      onClick={() => toggleMany([{ field: model.rowField, value: r.raw }, { field: model.colField, value: c.raw }])}
-                      onMouseEnter={(e) => tip(e.currentTarget, content)}
-                      onFocus={(e) => tip(e.currentTarget, content)}
-                      onMouseLeave={hide}
-                      onBlur={hide}
-                      className={cn("tabular grid min-w-0 place-items-center rounded-[3px] text-[11px] font-semibold transition-[opacity,filter] hover:brightness-95 focus-visible:z-10", !inSel && "opacity-45")}
-                      style={{ ...at(gr, j + 2), background: bg, color: inkOn(bg), boxShadow: both ? "inset 0 0 0 2px var(--primary)" : undefined }}
-                    >
-                      {showValues ? (v >= 1000 ? formatCompact(v) : formatInt(v)) : ""}
-                    </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  aria-pressed={rSel}
-                  aria-label={`Total ${r.full}: ${formatInt(r.marg)} ${unit}, ${formatPct(share)}`}
-                  onClick={() => toggleValue(model.rowField, r.raw)}
-                  onMouseEnter={(e) => tip(e.currentTarget, rowContent)}
-                  onFocus={(e) => tip(e.currentTarget, rowContent)}
+                  aria-pressed={sel}
+                  aria-label={`${hourRange(c.hour, c.label)}: ${formatInt(c.marg)} ${unit}`}
+                  onClick={() => toggleValue(model.colField, c.raw)}
+                  onMouseEnter={(e) => tip(e.currentTarget, content)}
+                  onFocus={(e) => tip(e.currentTarget, content)}
                   onMouseLeave={hide}
                   onBlur={hide}
-                  className={cn("flex min-w-0 items-center gap-1.5 rounded-md pl-2 pr-0.5 text-left transition hover:bg-surface-3", rSel && "bg-primary-soft", rowSel.active && !rSel && "opacity-45")}
-                  style={at(gr, nC + 2)}
+                  disabled={!c.marg}
+                  className={cn("group flex min-w-0 flex-col items-stretch justify-end gap-0.5 rounded-sm transition-opacity focus-visible:z-10", colSel.active && !sel && "opacity-45")}
+                  style={at(1, j + 2)}
                 >
-                  {marg === "full" && (
-                    <span aria-hidden className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-surface-3">
-                      <span className="block h-full rounded-full bg-[var(--seq-4)]" style={{ width: `${model.margRowMax ? (r.marg / model.margRowMax) * 100 : 0}%` }} />
-                    </span>
-                  )}
-                  <span className="tabular text-xs font-semibold text-text">{formatInt(r.marg)}</span>
-                  {marg !== "count" && <span className="tabular ml-auto text-[11px] text-muted">{formatPct(share)}</span>}
+                  {c.marg > 0 && hourMargText(g, c, "text-center")}
+                  <span
+                    className={cn("block w-full shrink-0 rounded-t-[3px] transition-colors", sel ? "bg-primary" : "bg-[var(--seq-3)] group-hover:bg-[var(--seq-4)]")}
+                    style={{ height: `calc((100% - 12px) * ${(Math.max(c.marg ? 6 : 0, h) / 100).toFixed(3)})` }}
+                  />
                 </button>
+              );
+            })}
+            {model.cols.map((c, j) => (
+              <div
+                key={`a-${c.raw}`}
+                aria-label={hourRange(c.hour, c.label)}
+                className={cn("relative z-[1] flex justify-center pt-px text-[10.5px] leading-[14px] tabular", c.band ? "font-semibold text-text-2" : "text-muted")}
+                style={at(2, j + 2)}
+              >
+                {c.label}
               </div>
-            );
-          })}
-        </div>
+            ))}
+
+            {/* Filas: etiqueta fija, celdas y marginal derecho */}
+            {model.rows.map((r, i) => {
+              const rSel = rowSel.has(r.raw);
+              const gr = i + 3;
+              const share = model.margRowTotal ? r.marg / model.margRowTotal : 0;
+              const rowContent = dayContent(g, r);
+              return (
+                <div key={r.raw} className="contents">
+                  <button
+                    type="button"
+                    aria-pressed={rSel}
+                    aria-label={`${r.full}: ${formatInt(r.marg)} ${unit}`}
+                    onClick={() => toggleValue(model.rowField, r.raw)}
+                    className={cn(
+                      "sticky left-0 z-[2] flex items-center rounded-md bg-surface pl-0.5 pr-1 text-left text-xs font-semibold text-text-2 transition hover:text-text",
+                      rSel && "bg-primary-soft text-primary-text",
+                      rowSel.active && !rSel && "opacity-45",
+                    )}
+                    style={{ ...at(gr, 1), boxShadow: `${GAP}px 0 0 var(--surface)` }}
+                  >
+                    {r.short}
+                  </button>
+                  {r.values.map((v, j) => dayHourCell(g, r, model.cols[j], v, at(gr, j + 2)))}
+                  <button
+                    type="button"
+                    aria-pressed={rSel}
+                    aria-label={`Total ${r.full}: ${formatInt(r.marg)} ${unit}, ${formatPct(share)}`}
+                    onClick={() => toggleValue(model.rowField, r.raw)}
+                    onMouseEnter={(e) => tip(e.currentTarget, rowContent)}
+                    onFocus={(e) => tip(e.currentTarget, rowContent)}
+                    onMouseLeave={hide}
+                    onBlur={hide}
+                    className={cn("flex min-w-0 items-center gap-1.5 rounded-md pl-2 pr-0.5 text-left transition hover:bg-surface-3", rSel && "bg-primary-soft", rowSel.active && !rSel && "opacity-45")}
+                    style={at(gr, nC + 2)}
+                  >
+                    {marg === "full" && (
+                      <span aria-hidden className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-surface-3">
+                        <span className="block h-full rounded-full bg-[var(--seq-4)]" style={{ width: `${model.margRowMax ? (r.marg / model.margRowMax) * 100 : 0}%` }} />
+                      </span>
+                    )}
+                    <span className="tabular text-xs font-semibold text-text">{formatInt(r.marg)}</span>
+                    {marg !== "count" && <span className="tabular ml-auto text-[11px] text-muted">{formatPct(share)}</span>}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Leyenda bajo la grilla, a la izquierda (legendSystem L2) */}
@@ -602,11 +752,15 @@ export function HeatmapComposite({ cell, widgets, results, expanded }: Composite
         <ScaleLegend gradient={gradient} min={formatInt(model.minPos)} max={formatInt(model.max)} noData note={theme.mode === "dark" ? "Escala raíz · más claro = más" : "Escala raíz"} />
         {bandCols.length > 0 && (
           <span className="flex items-center gap-1.5 pb-[15px] text-[11px] text-text-2">
-            <span aria-hidden className="inline-block h-[5px] w-4 rounded-b-[2px] border-x-2 border-b-2 border-border-strong" />
+            <span
+              aria-hidden
+              className={cn("inline-block border-border-strong", narrow ? "h-3.5 w-[5px] rounded-r-[2px] border-y-2 border-r-2" : "h-[5px] w-4 rounded-b-[2px] border-x-2 border-b-2")}
+            />
             Jornada laboral {BAND[0]}–{BAND[1]} h
           </span>
         )}
-        {narrow && <span className="pb-[15px] text-[11px] text-muted">Desliza para ver todas las horas</span>}
+        {/* Solo si ni la transpuesta cabe (pantallas de menos de 320 px) */}
+        {narrow && width < tMinWidth && <span className="pb-[15px] text-[11px] text-muted">Desliza para ver todos los días</span>}
       </div>
       <ChartTooltip state={state} />
     </div>

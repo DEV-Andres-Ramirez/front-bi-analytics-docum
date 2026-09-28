@@ -6,14 +6,14 @@ import { useDashboard } from "@/components/dashboard/dashboard-context";
 import { EmptyState } from "@/components/ui/primitives";
 import type { TooltipContent } from "@/components/widgets/kit/chart-tooltip";
 import { VizError } from "@/components/widgets/kit/viz-states";
-import type { GeoValue, MapResult } from "@/dashboards/dto";
+import type { FilterOption, GeoValue, MapResult } from "@/dashboards/dto";
 import type { MapWidget } from "@/dashboards/types";
 import { useElementSize } from "@/hooks/use-element-size";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { cn } from "@/lib/cn";
-import { categoryColors, useChartTheme, type ChartTheme } from "@/lib/charts/theme";
+import { useChartTheme, type ChartTheme } from "@/lib/charts/theme";
 import { isNeutral } from "@/lib/charts/semantic";
-import { formatInt, formatPct } from "@/lib/format";
+import { formatInt, formatPct, formatValue } from "@/lib/format";
 import { displayLabel } from "@/lib/labels";
 import { DPTO_BBOX, DPTO_LABEL, MAINLAND, SAN_ANDRES_CODE, type BBox } from "@/lib/geo/bounds";
 import { useExporter } from "../frame-context";
@@ -23,7 +23,7 @@ import { composeMapPng } from "./export";
 import { geometryBBox, loadBaseGeo, loadMunicipios, type BaseGeo, type MpioFC } from "./geo-data";
 import { labelPoint, MapCanvas, TOKEN, type LabelFC, type MapCanvasApi, type MapPalette } from "./map-canvas";
 import { MapLegend, MapNotes } from "./map-legend";
-import { CoverageBanner, MapDetail, MapRanking, PanelHeader, PanelSummary, SelectHint, type BreakdownPart, type GeoRow } from "./map-panel";
+import { CoverageBanner, MapDetail, MapRanking, needsCoverageBanner, PanelHeader, PanelSummary, type BreakdownPart, type GeoRow } from "./map-panel";
 import { MapSheet } from "./map-sheet";
 import { SanAndresInset } from "./san-andres-inset";
 
@@ -31,14 +31,60 @@ import { SanAndresInset } from "./san-andres-inset";
  * HeroMap (P1 de los 10 tableros con mapa · docs/ui-design-system.md "mapRedesign").
  * Composición en su propio contenedor:
  *  - ≥ 800 px internos: lienzo (máx. 600) + panel de insights (≥ 380) lado a lado, alto del tier.
- *  - < 800 px: lienzo a ancho completo (máx. 560; alto 480 tablet / 420 móvil) y panel debajo;
- *    el detalle se abre en una hoja inferior y los municipios con botón (sin doble clic).
+ *  - < 800 px: lienzo a ancho completo (tableta: alto ≈ ancho / 1,1, así Colombia pasa del 60 % del
+ *    ancho; móvil: 420 a sangre) y panel debajo; el detalle se abre en una hoja inferior y los
+ *    municipios con botón (sin doble clic).
  */
 
 const SIDE_MIN = 800;
 const MOBILE_MAX = 568;
 const TOP_N = 10;
 const LABELS_N = 5;
+/** Tableta apilada: proporción ancho/alto del lienzo y límites del alto. */
+const TABLET_ASPECT = 1.1;
+const TABLET_H: [number, number] = [480, 680];
+/** colorSystem D: en el mapa (se comparan todos los territorios) el desglose usa como máximo 3 slots. */
+const BREAKDOWN_SLOTS = 3;
+/** Marcador proporcional del territorio dominante: ≥ 30 % de lo ubicado sobre un polígono diminuto. */
+const MARKER_SHARE = 0.3;
+/** Área de la caja (grados²) bajo la cual el polígono mide menos de ≈ 400 px² en la vista nacional. */
+const MARKER_MAX_AREA = 0.8;
+
+const bboxArea = (b: BBox | undefined) => (b ? (b[2] - b[0]) * (b[3] - b[1]) : Infinity);
+
+/**
+ * Orden estable del desglose (el color sigue a la entidad, nunca a su puesto en cada territorio):
+ * las opciones facetadas del campo (no cambian al filtrarlo) o, si no es filtro, la suma de los top
+ * de todos los departamentos. Solo los 3 primeros no neutrales reciben slot; el resto va a "Otros".
+ */
+function breakdownSlots(options: FilterOption[] | undefined, dptos: GeoValue[]): string[] {
+  const acc = new Map<string, number>();
+  if (options?.length) for (const o of options) acc.set(o.value, o.count);
+  else for (const d of dptos) for (const t of d.top ?? []) acc.set(t.label, (acc.get(t.label) ?? 0) + t.value);
+  return [...acc]
+    .filter(([label, n]) => n > 0 && !isNeutral(label))
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "es"))
+    .slice(0, BREAKDOWN_SLOTS)
+    .map(([label]) => label);
+}
+
+/**
+ * Desglose de un territorio con colores estables: entidades con slot (por valor), neutrales en gris
+ * con su nombre y "Otros" (lo que no tiene slot + lo que quedó fuera del top del servidor).
+ */
+function breakdownParts(row: GeoRow, slots: string[], theme: ChartTheme): BreakdownPart[] {
+  const top = row.top ?? [];
+  if (!top.length) return [];
+  const slotted = top.filter((t) => slots.includes(t.label)).sort((a, b) => b.value - a.value);
+  const neutral = top.filter((t) => isNeutral(t.label)).sort((a, b) => b.value - a.value);
+  const parts: BreakdownPart[] = [
+    ...slotted.map((t) => ({ label: t.label, value: t.value, color: theme.series[slots.indexOf(t.label)] ?? theme.other })),
+    ...neutral.map((t) => ({ label: t.label, value: t.value, color: theme.other })),
+  ];
+  const rest = row.value - parts.reduce((s, p) => s + p.value, 0);
+  if (rest > 0) parts.push({ label: "Otros", value: rest, color: theme.other });
+  return parts;
+}
 
 function useMapPalette(): { theme: ChartTheme; palette: MapPalette; font: string; surface2: string; border: string } {
   const theme = useChartTheme();
@@ -63,7 +109,7 @@ function useMapPalette(): { theme: ChartTheme; palette: MapPalette; font: string
 }
 
 export function HeroMap({ widget, result, span }: VizProps<MapWidget, MapResult>) {
-  const { spec, filters, toggleValue } = useDashboard();
+  const { spec, data, filters, toggleValue } = useDashboard();
   const colors = useMapPalette();
   const { palette, theme } = colors;
   const unit = unitOf(spec.unit);
@@ -162,6 +208,15 @@ export function HeroMap({ widget, result, span }: VizProps<MapWidget, MapResult>
   const filtered = useMemo(() => filters.eq[filterField] ?? [], [filters.eq, filterField]);
 
   // ─── Etiquetas de valor (top 5 del nivel) ──────────────────────────────────
+  // Territorio dominante sobre un polígono diminuto (Bogotá con el 78 %): círculo proporcional a su
+  // participación en lo ubicado y rótulo más pesado; si no, el foco se lo robaban polígonos grandes
+  const dominant = useMemo(() => {
+    const top = rows[0];
+    if (level !== "dpto" || !top || located <= 0 || top.code === SAN_ANDRES_CODE) return null;
+    const share = top.value / located;
+    if (share < MARKER_SHARE || bboxArea(DPTO_BBOX[top.code]) >= MARKER_MAX_AREA) return null;
+    return { code: top.code, r: Math.round((6 + 16 * Math.sqrt(Math.min(1, share))) * 2) / 2 };
+  }, [rows, level, located]);
   const labels: LabelFC = useMemo(() => {
     const anchor = (code: string): [number, number] | null => {
       if (level === "dpto") return code === SAN_ANDRES_CODE ? null : (DPTO_LABEL[code] ?? null);
@@ -171,9 +226,17 @@ export function HeroMap({ widget, result, span }: VizProps<MapWidget, MapResult>
       .map((r) => ({ r, at: anchor(r.code) }))
       .filter((x): x is { r: GeoRow; at: [number, number] } => Boolean(x.at))
       .slice(0, LABELS_N)
-      .map(({ r, at }) => labelPoint(at, { code: r.code, name: shortGeoName(r.name), value: formatInt(r.value), sk: -r.value }));
+      .map(({ r, at }) =>
+        labelPoint(at, {
+          code: r.code,
+          name: shortGeoName(r.name),
+          value: formatInt(r.value),
+          sk: -r.value,
+          ...(dominant?.code === r.code ? { r: dominant.r, color: r.color } : {}),
+        }),
+      );
     return { type: "FeatureCollection", features };
-  }, [rows, level, mpios]);
+  }, [rows, level, mpios, dominant]);
 
   const frame: BBox = useMemo(() => {
     if (!drill) return MAINLAND;
@@ -209,19 +272,19 @@ export function HeroMap({ widget, result, span }: VizProps<MapWidget, MapResult>
     if (b && api) api.focus(b, level === "dpto" ? 6.8 : 9.5);
   };
 
+  // ─── Desglose con color estable por entidad ────────────────────────────────
+  const breakdownField = widget.breakdown?.field;
+  const breakdownOptions = breakdownField ? data?.options[breakdownField] : undefined;
+  const slots = useMemo(() => breakdownSlots(breakdownOptions, result.dptos), [breakdownOptions, result.dptos]);
+
   // ─── Selección ─────────────────────────────────────────────────────────────
   const sel = useMemo(() => {
     if (!selected) return null;
     const idx = rows.findIndex((r) => r.code === selected);
     const name = (level === "dpto" ? dptoNames.get(selected) : mpioNames.get(selected)) ?? selected;
     const row: GeoRow = idx >= 0 ? rows[idx] : { code: selected, name, value: 0, pct: 0, color: palette.surface3 };
-    const top = [...(row.top ?? [])].sort((a, b) => Number(isNeutral(a.label)) - Number(isNeutral(b.label)) || b.value - a.value);
-    const rest = row.value - top.reduce((s, t) => s + t.value, 0);
-    const cols = categoryColors(theme, top.map((t) => t.label));
-    const parts: BreakdownPart[] = top.map((t, i) => ({ label: t.label, value: t.value, color: cols[i] }));
-    if (top.length && rest > 0) parts.push({ label: "Resto", value: rest, color: theme.other });
-    return { row, rank: idx >= 0 ? idx + 1 : null, parts };
-  }, [selected, rows, level, dptoNames, mpioNames, palette.surface3, theme]);
+    return { row, rank: idx >= 0 ? idx + 1 : null, parts: breakdownParts(row, slots, theme) };
+  }, [selected, rows, level, dptoNames, mpioNames, palette.surface3, theme, slots]);
   const detailRow = sel?.row ?? null;
   const scopeLabel = level === "dpto" ? "del total" : `de ${drillName}`;
   const announce = detailRow ? `Seleccionado: ${detailRow.name}, ${formatInt(detailRow.value)} ${detailRow.value === 1 ? unit.singular : unit.plural} (${formatPct(detailRow.pct)})` : "";
@@ -232,19 +295,23 @@ export function HeroMap({ widget, result, span }: VizProps<MapWidget, MapResult>
     const name = row?.name ?? (lvl === "dpto" ? (dptoValue.get(code)?.name ?? dptoNames.get(code)) : mpioNames.get(code)) ?? code;
     const hint = side && lvl === "dpto" ? "Clic: detalle · doble clic: municipios" : "Clic para ver el detalle";
     if (!row) return { title: name, value: "Sin registros", hint };
-    const top = row.top ?? [];
-    const cols = categoryColors(theme, top.map((t) => t.label));
+    const parts = breakdownParts(row, slots, theme);
     return {
       title: name,
       value: formatInt(row.value),
       valueNote: `${row.value === 1 ? unit.singular : unit.plural} · ${formatPct(row.pct)}`,
-      rows: top.map((t, i) => ({ label: displayLabel(t.label).full, value: formatInt(t.value), share: formatPct(t.value / (row.value || 1)), color: cols[i] })),
+      rows: parts.map((t) => ({ label: displayLabel(t.label).full, value: formatInt(t.value), share: formatPct(t.value / (row.value || 1)), color: t.color })),
       hint,
     };
   };
 
   // ─── Leyenda ───────────────────────────────────────────────────────────────
-  const legendClasses = useMemo(() => cls.classes.map((c) => ({ color: ramp[c.ramp], label: classLabel(c) })), [cls, ramp]);
+  // La clase aislada del dominante lleva el nombre del territorio ("119 · Bogotá D.C.")
+  const topName = rows[0] ? shortGeoName(rows[0].name) : null;
+  const legendClasses = useMemo(
+    () => cls.classes.map((c) => ({ color: ramp[c.ramp], label: c.dominant && topName ? `${classLabel(c)} · ${topName}` : classLabel(c) })),
+    [cls, ramp, topName],
+  );
   const { title, geo } = panelTitle(unit, widget.geoLabel, level);
   const legendTitle = `${unit.plural.charAt(0).toUpperCase()}${unit.plural.slice(1)} por ${level === "dpto" ? "departamento" : "municipio"}`;
 
@@ -298,8 +365,9 @@ export function HeroMap({ widget, result, span }: VizProps<MapWidget, MapResult>
       bare={!side}
     />
   );
-  const summary = <PanelSummary level={level} withData={rows.length} universe={universe} top={rows[0] ?? null} located={located} total={locTotal} />;
-  const banner = level === "dpto" ? <CoverageBanner located={located} total={locTotal} unit={unit} /> : null;
+  const summary = <PanelSummary level={level} withData={rows.length} universe={universe} top={rows[0] ?? null} located={located} total={locTotal} unit={unit} />;
+  const showBanner = level === "dpto" && needsCoverageBanner(located, locTotal);
+  const banner = showBanner ? <CoverageBanner located={located} total={locTotal} unit={unit} /> : null;
   const ranking = (
     <MapRanking
       rows={rows}
@@ -316,11 +384,21 @@ export function HeroMap({ widget, result, span }: VizProps<MapWidget, MapResult>
       onPick={pick}
       onDrill={openDrill}
       columns={widePanel ? 2 : 1}
+      fit={side}
     />
   );
-  const legend = <MapLegend title={legendTitle} classes={legendClasses} dark={palette.mode === "dark"} />;
-  const notes = <MapNotes note={widget.note} context={widget.vizOptions?.mapContext} />;
-  const canvasHeight = side ? undefined : mobile ? 420 : 480;
+  // Apilado, el encabezado del panel ya nombra la métrica ("Tutelas por departamento"): la leyenda no lo repite
+  const legend = <MapLegend title={legendTitle} hideTitle={!side} classes={legendClasses} method={cls.method} dark={palette.mode === "dark"} />;
+  // Contexto del panel: la cifra de un KPI del tablero ("93 municipios cubiertos") o el texto declarado
+  const ctxId = widget.vizOptions?.mapContextKpi;
+  const ctxDef = ctxId ? spec.kpis.find((k) => k.id === ctxId) : undefined;
+  const ctxValue = ctxId ? data?.kpis.find((k) => k.id === ctxId)?.value : undefined;
+  const context = ctxDef && ctxValue !== null && ctxValue !== undefined ? `${formatValue(ctxValue, ctxDef.format)} ${ctxDef.label.toLocaleLowerCase("es-CO")}` : widget.vizOptions?.mapContext;
+  // Con el banner de cobertura a la vista, la nota del widget sobre "sin ubicación" lo repetía (SMART 3)
+  const notes = <MapNotes note={showBanner ? undefined : widget.note} context={context} />;
+  // Tableta apilada: el lienzo usa todo el ancho de la tarjeta y su alto sigue al ancho (Colombia ≥ 60 % del ancho)
+  const tabletHeight = Math.round(Math.min(TABLET_H[1], Math.max(TABLET_H[0], width / TABLET_ASPECT)));
+  const canvasHeight = side ? undefined : mobile ? 420 : tabletHeight;
 
   return (
     <div ref={rootRef} onKeyDown={onKeyDown} className={cn("relative h-full min-h-0", !side && !mobile && "overflow-y-auto")} data-hero-map={side ? "side" : "stacked"}>
@@ -330,7 +408,7 @@ export function HeroMap({ widget, result, span }: VizProps<MapWidget, MapResult>
       >
         <MapCanvas
           key={attempt}
-          className={side ? "h-full min-h-0" : mobile ? "-mx-4 w-[calc(100%+32px)] rounded-none border-x-0" : "mx-auto w-full max-w-[560px]"}
+          className={side ? "h-full min-h-0" : mobile ? "-mx-4 w-[calc(100%+32px)] rounded-none border-x-0" : "w-full"}
           style={canvasHeight ? { height: canvasHeight } : undefined}
           base={base}
           mpios={mpios}
@@ -346,6 +424,7 @@ export function HeroMap({ widget, result, span }: VizProps<MapWidget, MapResult>
           palette={palette}
           allowDrill={side}
           ariaLabel={`Mapa: ${title}`}
+          ariaDescription={side && level === "dpto" ? "Clic en un territorio: detalle · doble clic: municipios. El ranking del panel permite recorrerlo con el teclado." : "Clic en un territorio: detalle."}
           tooltipFor={tooltipFor}
           onHover={setHovered}
           onSelect={select}
@@ -385,24 +464,20 @@ export function HeroMap({ widget, result, span }: VizProps<MapWidget, MapResult>
         </MapCanvas>
 
         <aside aria-label="Resumen del mapa" className={cn("flex min-h-0 min-w-0 flex-col", side ? "gap-3" : "gap-4")}>
-          <PanelHeader title={title} geo={geo} level={level} dptoName={drillName} onBack={back} />
+          <PanelHeader title={title} geo={geo} level={level} dptoName={drillName} onBack={back} compact={side} />
           {side ? (
             <>
-              <div className={cn("-mr-2 min-h-0 flex-1 overflow-y-auto pr-2", widePanel ? "grid grid-cols-2 content-start gap-x-5 gap-y-4" : "flex flex-col gap-4")}>
-                <div className={cn("flex flex-col gap-4", widePanel && "col-span-2")}>
-                  {summary}
-                  {banner}
-                </div>
-                <div className={cn("min-w-0", widePanel && "col-span-2")}>{ranking}</div>
-                <div className={cn("empty:hidden", widePanel && "col-span-2")}>{notes}</div>
-                {/* Desvanecido inferior mientras hay más contenido (el espaciador evita tapar el final) */}
-                <span aria-hidden className={cn("h-3 shrink-0", widePanel && "col-span-2")} />
-                <span aria-hidden className={cn("pointer-events-none sticky bottom-0 -mt-7 h-4 shrink-0 bg-gradient-to-t from-surface to-transparent", widePanel && "col-span-2")} />
-              </div>
-              {/* Pie fijo: detalle del seleccionado (o pista) y leyenda siempre visible */}
+              {/* Sin scroll de panel: cifras arriba, ranking con el alto restante (filas enteras y
+                  "Ver los N" visible) y pie fijo con detalle, leyenda y notas */}
               <div className="flex shrink-0 flex-col gap-3">
-                {detail ?? <SelectHint level={level} allowDrill />}
+                {summary}
+                {banner}
+              </div>
+              {ranking}
+              <div className="flex shrink-0 flex-col gap-3">
+                {detail}
                 {legend}
+                {notes}
               </div>
             </>
           ) : (

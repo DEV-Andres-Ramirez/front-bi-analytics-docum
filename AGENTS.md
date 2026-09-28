@@ -218,7 +218,7 @@ Todas las fechas se manejan como **milisegundos "de pared" de Bogotá** (UTC-5 f
   - tuplas geográficas;
   - histogramas de día y hora.
 - Nunca se guardan nombres reales, documentos, correos, teléfonos, direcciones ni textos libres.
-- `mock/generator.ts` genera filas con semilla fija, desde 2025-01-01 hasta hoy, con estacionalidad y sesgo "abierto" para registros recientes. Cada dataset ajusta distribuciones con `reweight`, `overrides` y `namePools` para parecerse a los pantallazos.
+- `mock/generator.ts` genera filas con semilla fija, desde 2025-01-01 hasta hoy, con estacionalidad y sesgo "abierto" para registros recientes. Cada dataset ajusta distribuciones con `reweight`, `overrides` y `namePools` para parecerse a los pantallazos. Si el perfil viene de un corte de un solo día (p. ej. ml_salidas), `weekday` y `hour` en MockConfig reemplazan sus histogramas.
 - `mock/load.ts` construye la tabla columnar una vez por proceso (~1 s para todo) y resuelve `__dpto` y `__mpio` con el diccionario geográfico.
 
 ---

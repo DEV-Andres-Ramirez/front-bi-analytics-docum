@@ -30,6 +30,8 @@ const LEGEND_INLINE_H = 32;
 const GAP_X = 12;
 /** Ancho aproximado del Segmented "Cantidad | %". */
 const SEGMENTED_W = 112;
+/** Ancho de tarjeta en el que los controles del header bajan a su propia línea (globals.css: @container card ≤ 460 px). */
+const HEADER_WRAP_W = 460;
 /** Por debajo de este ancho la etiqueta va en su propia línea (390 px: nunca se recorta). */
 const STACKED_BELOW = 420;
 
@@ -92,9 +94,12 @@ export function SplitRows({ widget, result, height, span, expanded }: VizProps<B
 
   // Layout: columna de etiquetas, pista y altos
   const W = mw || innerWidth(span);
-  // "Cantidad | %" va en el header si cabe junto al título; si no, a la derecha de la línea de leyenda
+  // "Cantidad | %" va en el header si cabe junto al título; si no, a la derecha de la línea de leyenda.
+  // En tarjetas ≤ 460 px los controles del header ya bajan a su propia línea bajo el título, alineados a
+  // la izquierda (globals.css, @container card): ahí va siempre al header, así las SplitRows hermanas
+  // (títulos largos y cortos) lo ponen en el mismo lugar.
   const titleW = textWidth(widget.title, 700, 15) + (widget.provisional ? 96 : 0) + (widget.note ? 24 : 0);
-  const segInHeader = Boolean(expanded) || titleW + SEGMENTED_W + 32 + 24 <= W;
+  const segInHeader = Boolean(expanded) || W <= HEADER_WRAP_W || titleW + SEGMENTED_W + 32 + 24 <= W;
   const strip = Boolean(frame?.legendEl);
   // Control: header → franja (derecha) → línea propia en el cuerpo
   const segPlace: "header" | "strip" | "line" = segInHeader ? "header" : strip ? "strip" : "line";

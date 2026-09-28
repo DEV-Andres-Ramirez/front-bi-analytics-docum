@@ -1,4 +1,5 @@
 import type { SemanticFamily, StatusTone, VizOptions } from "@/dashboards/types";
+import { durationLabel } from "@/lib/labels";
 
 /**
  * Registro semántico: traduce etiquetas de datos a estados con tono, orden, grupo e
@@ -25,6 +26,11 @@ export interface StatusInfo {
   group?: string;
   /** Etiqueta para mostrar (sin prefijos ordinales ni código de proceso, en tipo oración). */
   display: string;
+  /**
+   * Etiqueta corta para contextos compactos (badge de la tabla de detalle, ≤ 200 px) cuando `display`
+   * no cabe: "032 Recibo del bien". El texto completo va en title y en la ficha.
+   */
+  short?: string;
   /** Código de proceso de 3 dígitos separado de la etiqueta (RADIAN "030"), para mostrarlo en mono. */
   code?: string;
 }
@@ -40,6 +46,41 @@ export const TONE_VARS: Record<StatusTone, { solid: string; ink: string; soft: s
 
 /** Severidad para ordenar tonos (bueno → crítico → neutral al final). */
 export const TONE_ORDER: Record<StatusTone, number> = { good: 0, info: 1, warning: 2, serious: 3, critical: 4, neutral: 9 };
+
+/**
+ * Escalones de un tono repetido dentro de un grupo (2.º y 3.º estado con el mismo tono).
+ * Claro: mezcla con la superficie al 72 / 48 %. Oscuro: la opacidad apagaría el tono hacia el
+ * fondo (≈ 2,4:1), así que se aclara con blanco al 18 / 32 %: toda muestra conserva ≥ 3:1 sobre
+ * surface. Los porcentajes y la base viven en globals.css (--tone-step-1, --tone-step-2,
+ * --tone-step-base) para que el color siga al tema sin volver a calcular.
+ */
+export const TONE_STEP_MIX: Record<"light" | "dark", { toward: "surface" | "white"; weights: readonly [1, number, number] }> = {
+  light: { toward: "surface", weights: [1, 0.72, 0.48] },
+  dark: { toward: "white", weights: [1, 0.82, 0.68] },
+};
+
+/** Número de escalones por tono (el 4.º repite el 1.º). */
+export const TONE_STEPS = 3;
+
+/** Color CSS del escalón `step` (0, 1, 2…) de un sólido (variable CSS o hex); sigue al tema por tokens. */
+export function toneStep(solid: string, step: number): string {
+  const k = step % TONE_STEPS;
+  return k === 0 ? solid : `color-mix(in srgb, ${solid} var(--tone-step-${k}), var(--tone-step-base))`;
+}
+
+/** Mismo escalón en hex (para elegir la tinta legible sobre el segmento). `surface` es el hex de --surface. */
+export function toneStepHex(solidHex: string, step: number, mode: "light" | "dark", surface: string): string {
+  const k = step % TONE_STEPS;
+  if (k === 0) return solidHex;
+  const { toward, weights } = TONE_STEP_MIX[mode];
+  const base = toward === "white" ? "#ffffff" : surface;
+  const pa = parseInt(solidHex.replace("#", ""), 16);
+  const pb = parseInt(base.replace("#", ""), 16);
+  if (Number.isNaN(pa) || Number.isNaN(pb)) return solidHex;
+  const t = weights[k];
+  const ch = (sh: number) => Math.round(((pa >> sh) & 255) * t + ((pb >> sh) & 255) * (1 - t));
+  return `#${[16, 8, 0].map((sh) => ch(sh).toString(16).padStart(2, "0")).join("")}`;
+}
 
 // ─── Normalización ───────────────────────────────────────────────────────────
 
@@ -60,11 +101,17 @@ const ACRONYMS = new Set(["pqrd", "arl", "jrc", "ml", "ia", "ai", "nit", "dian",
 export function statusDisplay(label: string): string {
   const raw = label.replace(/^\s*\d{1,2}\.\s*/, "").trim();
   if (!raw) return "No reporta";
+  // Plazos ("1 Días", "6 día(s) hábiles"): la misma forma que displayLabel ("1 día", "6 días hábiles")
+  const duration = durationLabel(raw);
+  if (duration) return duration;
   const words = raw.split(/\s+/);
   return words
     .map((w, i) => {
       const bare = w.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z]/g, "");
       if (ACRONYMS.has(bare) && bare !== "el" && bare !== "at") return w.toUpperCase();
+      // "EL" / "AT" en MAYÚSCULAS al final son siglas ("Origen EL", "Origen AT"), no artículo ni palabra
+      if ((bare === "el" || bare === "at") && i > 0 && i === words.length - 1 && w === w.toUpperCase()) return w;
+      if (/[a-z][A-Z]/.test(w)) return w; // marcas con mayúscula interna: SealMail, WhatsApp…
       const lower = w.toLocaleLowerCase("es-CO");
       return i === 0 ? lower.charAt(0).toLocaleUpperCase("es-CO") + lower.slice(1) : lower;
     })
@@ -122,6 +169,8 @@ interface Rule {
   order: number;
   group?: string;
   display?: string;
+  /** Etiqueta corta (ver StatusInfo.short). */
+  short?: string;
 }
 
 const eq = (...values: string[]) => (n: string) => values.includes(n);
@@ -189,14 +238,15 @@ const FAMILIES: Record<SemanticFamily, Rule[]> = {
     { test: eq("cerrada"), tone: "good", order: 3 },
     NEUTRAL_RULE,
   ],
-  // Los nombres visibles repiten los de la banda de KPIs (Entregadas · Abiertas · Fallidas)
+  // Los nombres visibles son los de la banda de KPIs en singular (Entregadas · Abiertas · Fallidas → Entregada,
+  // Abierta, Fallida): los mismos en la tira, la tabla, los filtros y los tooltips. El valor crudo va en title.
   notificacion: [
-    { test: starts("acuse de recibo"), tone: "good", order: 1, display: "Entregada (acuse de recibo)" },
+    { test: starts("acuse de recibo"), tone: "good", order: 1, display: "Entregada" },
     { test: starts("entregado"), tone: "good", order: 1 },
-    { test: starts("el destinatario abrio"), tone: "info", order: 2, display: "Abierta por el destinatario" },
+    { test: starts("el destinatario abrio"), tone: "info", order: 2, display: "Abierta" },
     { test: starts("abierto"), tone: "info", order: 2 },
     { test: starts("enviado"), tone: "info", order: 3 },
-    { test: starts("no fue posible"), tone: "critical", order: 4, display: "Entrega fallida" },
+    { test: starts("no fue posible"), tone: "critical", order: 4, display: "Fallida" },
     { test: (n) => isNeutral(n), tone: "neutral", order: 99, display: "Sin evento" },
   ],
   guia: [
@@ -212,12 +262,14 @@ const FAMILIES: Record<SemanticFamily, Rule[]> = {
     { test: eq("inconsistente"), tone: "critical", order: 2 },
     NEUTRAL_RULE,
   ],
+  // Etiquetas oficiales RADIAN (DIAN) completas en tiras, tooltips y ficha; `short` para el badge de la tabla.
   radian: [
     { test: eq("sin evento radian"), tone: "warning", order: 1, display: "Pendiente de acuse" },
     { test: starts("030"), tone: "info", order: 2 },
-    { test: starts("031"), tone: "critical", order: 5 },
-    { test: starts("032"), tone: "good", order: 3 },
-    { test: starts("033", "034"), tone: "good", order: 4 },
+    { test: starts("031"), tone: "critical", order: 5, short: "Reclamo" },
+    { test: starts("032"), tone: "good", order: 3, short: "Recibo del bien" },
+    { test: starts("033"), tone: "good", order: 4, short: "Aceptación expresa" },
+    { test: starts("034"), tone: "good", order: 4, short: "Aceptación tácita" },
     NEUTRAL_RULE,
   ],
   transmision: [
@@ -244,7 +296,8 @@ const FAMILIES: Record<SemanticFamily, Rule[]> = {
     { test: eq("en contra", "confirma en contra", "revoca en contra", "sancion"), tone: "critical", order: 2, group: "Desfavorable" },
     {
       test: (n) => ["informativo", "informativos", "cierre", "decreta nulidad", "oficios de tramite"].includes(n) || n.includes("requerimiento"),
-      tone: "neutral",
+      // Categoría real (no dato faltante): info, igual que la familia del FamilySplit; "Sin dato" es el único gris
+      tone: "info",
       order: 3,
       group: "Trámite o informativo",
     },
@@ -278,6 +331,8 @@ export function resolveStatus(label: string, family: SemanticFamily, overrides?:
     order: rule?.order ?? 50,
     group: ov?.group ?? rule?.group,
     display: ov?.label ?? rule?.display ?? split.text,
+    // Un alias del spec manda sobre la forma corta del registro
+    short: ov?.label ? undefined : rule?.short,
     code: split.code,
   };
 }

@@ -25,29 +25,44 @@ export function scrollToTop() {
 }
 
 /**
- * Scroll-spy: la sección activa es la primera (en orden del documento) que cruza la banda
- * entre el borde inferior de la zona sticky y el 40 % superior del viewport
- * (rootMargin −(sticky-h) 0 −60 % 0).
+ * Scroll-spy: la sección activa es la ÚLTIMA (en orden del documento) cuyo inicio ya pasó la línea
+ * de lectura, a 40 % del viewport bajo la zona sticky. Con la primera que cruzaba la banda, el pie
+ * de la sección anterior (≈ 70 px) mantenía activa la pestaña equivocada. Al llegar al final de la
+ * página se activa la última sección que asoma (las cortas nunca alcanzan la línea).
+ * Scroll + rAF (sin setState síncrono en el efecto).
  */
 export function useScrollSpy(ids: string[]): string | null {
   const [active, setActive] = useState<string | null>(null);
   const key = ids.join("|");
   useEffect(() => {
     const list = key ? key.split("|") : [];
-    const els = list.map((id) => document.getElementById(id)).filter((el): el is HTMLElement => el !== null);
-    if (!els.length) return;
-    const stickyH = Math.round(getTopbarState().stickyH || TOPBAR_H);
-    const visible = new Map<string, boolean>();
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) visible.set(e.target.id, e.isIntersecting);
-        const first = list.find((id) => visible.get(id));
-        if (first) setActive(first);
-      },
-      { rootMargin: `-${stickyH}px 0px -60% 0px` },
-    );
-    els.forEach((el) => io.observe(el));
-    return () => io.disconnect();
+    if (!list.length) return;
+    let raf = 0;
+    const compute = () => {
+      raf = 0;
+      const stickyH = getTopbarState().stickyH || TOPBAR_H;
+      const vh = window.innerHeight;
+      const line = stickyH + (vh - stickyH) * 0.4;
+      const atBottom = window.scrollY + vh >= document.documentElement.scrollHeight - 2;
+      let current: string | null = null;
+      for (const id of list) {
+        const top = document.getElementById(id)?.getBoundingClientRect().top;
+        if (top === undefined) continue;
+        if (top <= line || (atBottom && top < vh)) current = id;
+      }
+      setActive(current);
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(compute);
+    };
+    schedule();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+    };
   }, [key]);
   return active;
 }
@@ -110,7 +125,10 @@ function useRailWidth() {
   return { ref, width };
 }
 
-/** Anchos de cada pestaña y del botón "Más" (último hijo) medidos en una capa invisible. */
+/**
+ * Anchos medidos en una capa invisible: cada pestaña (n), el botón "Más" y, después, el botón con
+ * la etiqueta de cada sección (n): cuando la sección activa está en el menú, el botón la nombra.
+ */
 function useTabWidths() {
   const [widths, setWidths] = useState<number[] | null>(null);
   const ref = useCallback((el: HTMLElement | null) => {
@@ -127,25 +145,32 @@ function useTabWidths() {
   return { ref, widths };
 }
 
-/** Cuántas pestañas caben completas; si no caben todas, se reserva el botón "Más". */
+/**
+ * Cuántas pestañas caben completas. Si no caben todas, se reserva el botón del menú con el ancho de
+ * su etiqueta más larga posible ("Más" o el nombre de cualquier sección del menú): así no salta
+ * cuando pasa a nombrar la sección activa.
+ */
 function countFitting(widths: number[] | null, available: number, total: number): number {
-  if (!widths || widths.length !== total + 1 || available <= 0) return 0;
+  if (!widths || widths.length !== total * 2 + 1 || available <= 0) return 0;
   const tabs = widths.slice(0, total);
-  const all = tabs.reduce((a, w) => a + w, 0);
-  if (all <= available + 0.5) return total;
-  const room = available - widths[total];
-  let used = 0;
-  let fit = 0;
-  for (const w of tabs) {
-    if (used + w > room + 0.5) break;
-    used += w;
-    fit += 1;
+  const more = widths[total];
+  const named = widths.slice(total + 1);
+  if (tabs.reduce((a, w) => a + w, 0) <= available + 0.5) return total;
+  for (let fit = total - 1; fit >= 0; fit--) {
+    const used = tabs.slice(0, fit).reduce((a, w) => a + w, 0);
+    const reserve = Math.max(more, ...named.slice(fit));
+    if (used + reserve <= available + 0.5) return fit;
   }
-  return fit;
+  return 0;
 }
 
-const TAB =
-  "relative flex h-16 shrink-0 items-center whitespace-nowrap px-2.5 text-[13px] font-semibold transition-colors focus-visible:outline-offset-[-4px]";
+/**
+ * Pestaña de 64 px. El foco visible no es el rectángulo de toda la barra: el anillo redondeado
+ * va en la etiqueta interna (TAB_LABEL), como el resto de controles del sistema.
+ */
+const TAB = "group/tab relative flex h-16 shrink-0 items-center whitespace-nowrap px-1.5 text-[13px] font-semibold transition-colors focus-visible:outline-none";
+const TAB_LABEL =
+  "flex items-center gap-1 rounded-lg px-1 py-1 group-focus-visible/tab:outline-2 group-focus-visible/tab:outline-offset-0 group-focus-visible/tab:outline-primary group-focus-visible/tab:outline-solid";
 
 function Underline() {
   return (
@@ -171,7 +196,8 @@ export function SectionNav({ sections, className }: { sections: TopbarSection[];
   const measured = tabWidths !== null && railWidth > 0;
   const shown = sections.slice(0, fit);
   const rest = sections.slice(fit);
-  const activeInRest = rest.some((s) => s.id === active);
+  const activeRest = rest.find((s) => s.id === active);
+  const activeInRest = Boolean(activeRest);
   const moreRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -197,7 +223,7 @@ export function SectionNav({ sections, className }: { sections: TopbarSection[];
                     }}
                     className={cn(TAB, on ? "text-text" : "text-muted hover:text-text")}
                   >
-                    {s.label}
+                    <span className={TAB_LABEL}>{s.label}</span>
                     {on && <Underline />}
                   </a>
                 </li>
@@ -212,27 +238,34 @@ export function SectionNav({ sections, className }: { sections: TopbarSection[];
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
             aria-haspopup="dialog"
-            aria-label={`Más secciones (${rest.length})${activeInRest ? ", incluye la sección actual" : ""}`}
-            className={cn(TAB, "gap-1", activeInRest ? "text-text" : "text-muted hover:text-text")}
+            aria-label={activeRest ? `Sección actual: ${activeRest.label}. Más secciones (${rest.length})` : `Más secciones (${rest.length})`}
+            className={cn(TAB, activeInRest ? "text-text" : "text-muted hover:text-text")}
           >
-            Más
-            <ChevronDown className={cn("size-3.5 transition-transform", open && "rotate-180")} aria-hidden />
+            {/* Con la sección activa dentro del menú, el botón la nombra (no "Más"): se sabe dónde se está */}
+            <span className={TAB_LABEL}>
+              {activeRest ? activeRest.label : "Más"}
+              <ChevronDown className={cn("size-3.5 transition-transform", open && "rotate-180")} aria-hidden />
+            </span>
             {activeInRest && <Underline />}
           </button>
         )}
       </div>
 
-      {/* Capa de medida (invisible, fuera del flujo): pestañas + botón "Más" */}
+      {/* Capa de medida (invisible, fuera del flujo): pestañas, botón "Más" y botón con cada etiqueta */}
       <div key={measureKey} ref={measureRef} aria-hidden inert className="pointer-events-none invisible absolute left-0 top-0 flex h-0 overflow-hidden whitespace-nowrap">
         {sections.map((s) => (
           <span key={s.id} className={TAB}>
-            {s.label}
+            <span className={TAB_LABEL}>{s.label}</span>
           </span>
         ))}
-        <span className={cn(TAB, "gap-1")}>
-          Más
-          <ChevronDown className="size-3.5" aria-hidden />
-        </span>
+        {["Más", ...sections.map((s) => s.label)].map((label, i) => (
+          <span key={`more-${i}`} className={TAB}>
+            <span className={TAB_LABEL}>
+              {label}
+              <ChevronDown className="size-3.5" aria-hidden />
+            </span>
+          </span>
+        ))}
       </div>
 
       <Popover anchor={moreRef} open={open && rest.length > 0} onClose={close} align="end" width={240} label="Más secciones">

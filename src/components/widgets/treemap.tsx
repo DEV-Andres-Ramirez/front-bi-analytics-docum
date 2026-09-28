@@ -2,7 +2,8 @@
 
 import { Chart as ChartJS, type ActiveElement, type ChartData, type ChartEvent, type ChartOptions, type Plugin, type TooltipModel } from "chart.js";
 import { TreemapController, TreemapElement, type TreemapDataPoint } from "chartjs-chart-treemap";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { useCallback, useMemo, useRef, useState, type UIEvent } from "react";
 import { Chart } from "react-chartjs-2";
 import { useDashboard } from "@/components/dashboard/dashboard-context";
 import { Segmented } from "@/components/ui/primitives";
@@ -21,7 +22,6 @@ import { HeaderSlot, LegendSlot } from "./kit/legend-slot";
 import { CountChip, QUALITY_CHIP_MIN, QUALITY_NOTICE_MIN, QualityChip } from "./kit/quality";
 import { mixHex, RESIZE_RECOVERY, selectionOf } from "./matrix-kit";
 import { RankingList } from "./ranking-list";
-import { useScrollEdges } from "./table-scroll";
 import type { VizProps } from "./types";
 
 registerCharts();
@@ -29,15 +29,17 @@ ChartJS.register(TreemapController, TreemapElement);
 
 /**
  * Treemap (docs/ui-design-system.md › Treemap): partes de un todo con muchas categorías cortas.
- * - Un solo tono secuencial por valor; los neutrales NO entran al árbol (chip en la franja: chip de
- *   calidad entre el 15 y el 85 %, conteo gris por debajo).
- * - Máximo 12 tiles + "Otras (N)": se pliega además toda categoría con menos del 2 % del árbol o cuyo
- *   tile estimado no alcanza para una etiqueta, así que todo tile visible lleva al menos su valor.
- * - Etiqueta dentro (inkOn): nombre en hasta 4 líneas + valor si el tile mide ≥ 80×36; solo el valor
- *   (y el nombre si hay alto) desde 44 px de ancho.
+ * - Un solo tono secuencial por valor. Los faltantes ("No reporta", "Sin …") NO entran al árbol: chip en
+ *   la franja (calidad entre el 15 y el 85 %, conteo gris por debajo). Las cubetas residuales del
+ *   catálogo ("Otros", "Resto / otras", "Otros motivos") no son faltantes: van a la tesela gris "Otras (N)".
+ * - Máximo 12 tiles + "Otras (N)", siempre al final (abajo a la derecha): se pliega además toda
+ *   categoría con menos del 2 % del árbol o cuyo tile estimado no alcanza para una etiqueta.
+ * - Etiqueta dentro (inkOn): nombre por palabras enteras (sin partir sílabas; elipsis en la última
+ *   línea) + valor si el tile mide ≥ 80×36; entre 44 y 80 px, solo el valor (nombre en tooltip y Lista).
  * - Hueco de 2 px; ChartTooltip con nombre completo, valor y %; clic filtra.
  * - vizOptions.listToggle: Segmented "Mapa de árbol | Lista" (RankingList con el mismo resultado).
- *   En angosto (< 480 px) abre en Lista mientras el usuario no elija.
+ *   En angosto (< 480 px) abre en Lista mientras el usuario no elija; si el cuerpo tiene alto fijo y
+ *   la lista no cabe, desvanecido inferior + pie "+N más · desplaza".
  */
 
 const MAX_TILES = 12;
@@ -68,41 +70,58 @@ interface Tile {
  * Tiles del árbol. `area` (px², 0 si no se ha medido) estima el tamaño de cada tile para plegar a
  * "Otras N" los que no alcanzarían una etiqueta completa.
  */
+/** Cubeta residual ("Otros", "Otras 5", "Resto / otras", "Otros motivos"): neutral pero no es un faltante. */
+function isResidual(label: string): boolean {
+  const n = label
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  return /^(otr[oa]s|resto)\b/.test(n);
+}
+
 function buildTiles(result: CategoryResult, kind: BarWidget["labelKind"], area: number) {
+  /** Faltantes (chip de calidad): "No reporta", "Sin …", "N/A". */
   const neutrals: { label: string; value: number }[] = [];
+  /** Cubetas residuales del catálogo: van a "Otras (N)" (gris, al final), no al chip. */
+  const residual: { label: string; value: number }[] = [];
   const real: Tile[] = [];
   let engineOthers = 0;
   result.labels.forEach((label, i) => {
     const value = result.values[i] ?? 0;
     if (value <= 0) return;
     const n = label.trim().toLowerCase();
-    // "Otros" del motor (categorías plegadas) se suma a "Otras N"; el resto de neutrales va al chip
+    // "Otros" del motor (categorías plegadas) se suma a "Otras N"
     if (result.folded && (n === "otros" || n === "otras")) {
       engineOthers += value;
       return;
     }
     if (isNeutral(label)) {
-      neutrals.push({ label: displayLabel(label).short, value });
+      if (isResidual(label)) residual.push({ label: displayLabel(label).full, value });
+      else neutrals.push({ label: displayLabel(label).short, value });
       return;
     }
     const d = displayLabel(label, kind);
     real.push({ key: label, raw: label, label: d.short, full: d.full, value });
   });
   real.sort((a, b) => b.value - a.value);
-  const treeTotal = real.reduce((s, t) => s + t.value, 0) + engineOthers;
+  const residualValue = residual.reduce((s, t) => s + t.value, 0);
+  const treeTotal = real.reduce((s, t) => s + t.value, 0) + engineOthers + residualValue;
   const minShare = Math.max(MIN_SHARE, area > 0 ? (FULL_W * MIN_H * AREA_SLACK) / area : 0);
   let cut = 0;
   while (cut < real.length && cut < MAX_TILES && (!treeTotal || real[cut].value / treeTotal >= minShare)) cut++;
   // Un "Otras 1" no aporta: si queda una sola categoría pequeña (y cabe), va con su nombre
-  if (real.length - cut === 1 && !engineOthers && cut < MAX_TILES) cut++;
+  if (real.length - cut === 1 && !engineOthers && !residualValue && cut < MAX_TILES) cut++;
   const tiles = real.slice(0, cut);
   const rest = real.slice(cut);
-  const restCount = rest.length + (result.folded ?? 0);
-  const restValue = rest.reduce((s, t) => s + t.value, 0) + engineOthers;
+  const restCount = rest.length + (result.folded ?? 0) + residual.length;
+  const restValue = rest.reduce((s, t) => s + t.value, 0) + engineOthers + residualValue;
   if (restValue > 0) {
-    // "Otras (4)": el conteo entre paréntesis no se confunde con el valor del tile ("Otras (4)  16")
+    // "Otras (4)": el conteo entre paréntesis no se confunde con el valor del tile ("Otras (4)  16").
+    // Va último en el árbol (unsorted): el neutral queda al final, abajo a la derecha.
     const label = `Otras (${formatInt(restCount || 1)})`;
-    tiles.push({ key: "__otras", raw: null, label, full: `Otras ${restCount} categorías`, value: restValue, members: rest.map((t) => ({ label: t.full, value: t.value })) });
+    const members = [...rest.map((t) => ({ label: t.full, value: t.value })), ...residual].sort((a, b) => b.value - a.value);
+    tiles.push({ key: "__otras", raw: null, label, full: `Otras ${restCount} categorías`, value: restValue, members });
   }
   return { tiles, neutrals, max: real[0]?.value ?? 0, realCount: real.length };
 }
@@ -120,56 +139,119 @@ function fitText(ctx: CanvasRenderingContext2D, text: string, maxW: number): str
   return lo > 1 ? `${text.slice(0, lo).trimEnd()}…` : "";
 }
 
+const VOWEL = /[aeiouáéíóúü]/i;
+const LETTER = /\p{L}/u;
+/** Grupos consonánticos que no se separan al silabear ("ha-blar", "Ins-truc-ción", "ca-lle"). */
+const CLUSTERS = new Set(["bl", "br", "cl", "cr", "dr", "fl", "fr", "gl", "gr", "kl", "kr", "pl", "pr", "tl", "tr", "ch", "ll", "rr"]);
+/** Palabras de hasta 14 letras nunca se parten ("Actualización", "Informativos", "Heredadas"). */
+const MAX_WHOLE = 14;
+/** Conectores que no cierran una línea con elipsis ("Datos de…" → "Datos…"). */
+const CONNECTOR = /^(de|del|el|la|las|los|en|y|e|o|u|a|al|por|para|con|sin)$/i;
+
 /**
- * Parte un texto en hasta `maxLines` líneas por palabras. Una palabra más ancha que la línea se
- * corta con guion; si el texto no cabe, la elipsis va solo en la última línea.
+ * ¿Se puede partir `w` antes de `w[k]`? Silabeo español simplificado: nunca antes de vocal
+ * (sílaba CV, diptongos e hiatos quedan juntos); V-CV ("He-re-da-das"), VC-CV ("In-for-ma")
+ * y V-CCV con grupo inseparable ("Ins-truc-ción").
+ */
+function syllableBreak(w: string, k: number): boolean {
+  const a = w[k - 1] ?? "";
+  const b = w[k] ?? "";
+  const c = w[k + 1] ?? "";
+  if (!LETTER.test(a) || !LETTER.test(b) || !LETTER.test(c) || VOWEL.test(b)) return false;
+  const bc = CLUSTERS.has(`${b}${c}`.toLowerCase());
+  if (VOWEL.test(a)) return VOWEL.test(c) || (bc && VOWEL.test(w[k + 2] ?? ""));
+  return !CLUSTERS.has(`${a}${b}`.toLowerCase()) && (VOWEL.test(c) || bc);
+}
+
+interface Token {
+  text: string;
+  /** Va separada de la anterior por un espacio (false: sigue a una "/"). */
+  space: boolean;
+}
+
+/** Palabras del texto; tras una "/" se puede cortar sin guion ("Heredadas/" + "Trasladadas"). */
+function tokenize(text: string): Token[] {
+  const out: Token[] = [];
+  for (const word of text.split(/\s+/)) {
+    if (!word) continue;
+    // Separador suelto ("reembolso / incapacidad"): viaja con la palabra anterior, nunca abre línea
+    const prev = out[out.length - 1];
+    if (prev && /^[/\-–—·|]+$/.test(word)) {
+      out[out.length - 1] = { ...prev, text: `${prev.text} ${word}` };
+      continue;
+    }
+    let rest = word;
+    let space = true;
+    let at = rest.indexOf("/");
+    while (at >= 0 && at < rest.length - 1) {
+      out.push({ text: rest.slice(0, at + 1), space });
+      rest = rest.slice(at + 1);
+      space = false;
+      at = rest.indexOf("/");
+    }
+    out.push({ text: rest, space });
+  }
+  return out;
+}
+
+const joinTokens = (ts: Token[]) => ts.map((t, i) => (i && t.space ? ` ${t.text}` : t.text)).join("");
+
+/** Corte con guion en un límite de sílaba (solo para palabras de más de 14 letras). */
+function hyphenate(ctx: CanvasRenderingContext2D, w: string, maxW: number): [string, string] | null {
+  let k = w.length - 3;
+  while (k >= 3 && (ctx.measureText(`${w.slice(0, k)}-`).width > maxW || !syllableBreak(w, k))) k--;
+  return k >= 3 ? [`${w.slice(0, k)}-`, w.slice(k)] : null;
+}
+
+/** Cierra una línea con elipsis quitando palabras enteras (y conectores colgantes). */
+function ellipsize(ctx: CanvasRenderingContext2D, ts: Token[], maxW: number): string {
+  for (let n = ts.length; n > 0; n--) {
+    if (n > 1 && CONNECTOR.test(ts[n - 1].text)) continue;
+    const t = `${joinTokens(ts.slice(0, n)).replace(/[\s,;:./-]+$/, "")}…`;
+    if (ctx.measureText(t).width <= maxW) return t;
+  }
+  return fitText(ctx, joinTokens(ts), maxW);
+}
+
+/**
+ * Parte un texto en hasta `maxLines` líneas por palabras enteras: nunca parte una palabra de hasta
+ * 14 letras (las más largas, por sílaba y con guion). Si el texto no cabe, la última línea se cierra
+ * con elipsis sin partir palabras. Devuelve [] si ni la primera palabra cabe entera (el tile muestra
+ * solo el valor; el nombre queda en el tooltip y en la Lista).
  */
 function wrapN(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number): string[] {
   if (maxLines <= 0 || maxW <= 0) return [];
   if (ctx.measureText(text).width <= maxW) return [text];
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let line = "";
+  const tokens = tokenize(text);
+  const fits = (ts: Token[]) => ctx.measureText(joinTokens(ts)).width <= maxW;
+  const lines: Token[][] = [];
+  let line: Token[] = [];
   let i = 0;
-  while (i < words.length && lines.length < maxLines - 1) {
-    const next = line ? `${line} ${words[i]}` : words[i];
-    if (ctx.measureText(next).width <= maxW) {
-      line = next;
+  while (i < tokens.length) {
+    const tk = tokens[i];
+    if (fits([...line, tk])) {
+      line.push(tk);
       i++;
       continue;
     }
-    if (line) {
+    if (line.length) {
+      if (lines.length === maxLines - 1) break;
       lines.push(line);
-      line = "";
+      line = [];
       continue;
     }
-    // Palabra sola más ancha que la línea: corte preferido tras "/" o "-" (sin guion extra);
-    // si no, se corta con guion (mínimo 3 letras por lado)
-    const w = words[i];
-    let at = -1;
-    for (let j = w.length - 1; j >= 3 && at < 0; j--) if ((w[j - 1] === "/" || w[j - 1] === "-") && ctx.measureText(w.slice(0, j)).width <= maxW) at = j;
-    if (at > 0) {
-      lines.push(w.slice(0, at));
-      words[i] = w.slice(at);
-      continue;
-    }
-    // (sin dejar menos de 3 letras antes de una "/": "Heredadas/…" → "Here-" y no "Heredad-" + "as/")
-    const bad = (k: number) => {
-      const slash = w.indexOf("/", k);
-      return ctx.measureText(`${w.slice(0, k)}-`).width > maxW || (slash >= 0 && slash - k < 3) || w[k - 1] === "/";
-    };
-    let k = w.length - 3;
-    while (k >= 3 && bad(k)) k--;
-    if (k < 3) break;
-    lines.push(`${w.slice(0, k)}-`);
-    words[i] = w.slice(k);
+    // Palabra sola más ancha que la línea
+    const letters = [...tk.text].filter((ch) => LETTER.test(ch)).length;
+    const cut = letters > MAX_WHOLE && lines.length < maxLines - 1 ? hyphenate(ctx, tk.text, maxW) : null;
+    if (!cut) break;
+    lines.push([{ text: cut[0], space: tk.space }]);
+    tokens[i] = { text: cut[1], space: false };
   }
-  const rest = [line, ...words.slice(i)].filter(Boolean).join(" ");
-  if (rest) {
-    const last = fitText(ctx, rest, maxW);
-    if (last) lines.push(last);
-  }
-  return lines;
+  if (line.length) lines.push(line);
+  if (i >= tokens.length) return lines.map(joinTokens);
+  if (!lines.length) return [];
+  const last = lines.pop()!;
+  return [...lines.map(joinTokens), ellipsize(ctx, last, maxW)];
 }
 
 const FONT_NAME = { size: 11, weight: 600 as const, lineHeight: 1.3 };
@@ -187,9 +269,9 @@ interface LabelLayout {
 
 /**
  * Etiqueta del tile (cada línea con su fuente):
- * - ≥ 80 px de ancho: una línea "Nombre  valor" hasta 48 px de alto; desde 48 px, nombre en tantas
- *   líneas como quepan (máx. 4) + valor.
- * - 44–80 px: el valor solo y, si hay alto y al menos 40 px de línea, el nombre encima (máx. 3 líneas).
+ * - ≥ 80 px de ancho: una línea "Nombre  valor" hasta 48 px de alto; desde 48 px, nombre por palabras
+ *   enteras en tantas líneas como quepan (máx. 3) + valor. Si ni la primera palabra cabe, solo el valor.
+ * - 44–80 px: solo el valor (el nombre partido en 3 líneas de 60 px no se lee: va al tooltip y a la Lista).
  * - < 44×36: nada (tooltip y lista).
  */
 function layoutLabel(c: CanvasRenderingContext2D, t: Tile, w: number, h: number, format: ValueFormat): LabelLayout | null {
@@ -203,22 +285,63 @@ function layoutLabel(c: CanvasRenderingContext2D, t: Tile, w: number, h: number,
   let out: LabelLayout | null;
   if (w < FULL_W) {
     c.font = fontString(FONT_VALUE);
-    const fits = c.measureText(val).width <= maxW;
-    c.font = fontString(FONT_NAME);
-    const name = maxW >= 40 && h >= 72 ? wrapN(c, t.label, maxW, Math.min(3, room)) : [];
-    out = fits ? { lines: [...name, val], fonts: [...name.map(() => FONT_NAME), FONT_VALUE] } : null;
+    out = c.measureText(val).width <= maxW ? { lines: [val], fonts: [FONT_VALUE] } : null;
   } else if (h < 48) {
     c.font = fontString(FONT_NAME);
     const vw = c.measureText(val).width;
-    const name = fitText(c, t.label, maxW - vw - 8);
+    const name = wrapN(c, t.label, maxW - vw - 8, 1)[0] ?? "";
     out = { lines: [name ? `${name}  ${val}` : val], fonts: [FONT_NAME] };
   } else {
     c.font = fontString(FONT_NAME);
-    const name = wrapN(c, t.label, maxW, Math.max(1, Math.min(4, room)));
+    const name = wrapN(c, t.label, maxW, Math.max(1, Math.min(3, room)));
     out = { lines: [...name, val], fonts: [...name.map(() => FONT_NAME), FONT_VALUE] };
   }
   c.restore();
   return out;
+}
+
+interface ListOverflow {
+  /** Queda contenido bajo el borde inferior (desvanecido). */
+  bottom: boolean;
+  /** Filas de la lista (li) que no se ven completas. */
+  below: number;
+}
+
+const NO_LIST_OVERFLOW: ListOverflow = { bottom: false, below: 0 };
+
+function readListOverflow(el: HTMLElement): ListOverflow {
+  const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+  if (!bottom) return NO_LIST_OVERFLOW;
+  const edge = el.getBoundingClientRect().bottom;
+  let below = 0;
+  el.querySelectorAll("li").forEach((li) => {
+    if (li.getBoundingClientRect().bottom > edge + 1) below++;
+  });
+  return { bottom, below };
+}
+
+/**
+ * Contenido oculto de la Lista cuando el cuerpo tiene alto fijo (móvil: 300 px): desvanecido y pie
+ * "+N más · desplaza". Se mide en un ref callback (ResizeObserver) y en onScroll, nunca en render.
+ */
+function useListOverflow() {
+  const [overflow, setOverflow] = useState<ListOverflow>(NO_LIST_OVERFLOW);
+  const update = useCallback((el: HTMLElement) => {
+    const next = readListOverflow(el);
+    setOverflow((s) => (s.bottom === next.bottom && s.below === next.below ? s : next));
+  }, []);
+  const ref = useCallback(
+    (el: HTMLElement | null) => {
+      if (!el) return;
+      const ro = new ResizeObserver(() => update(el));
+      ro.observe(el);
+      for (const child of Array.from(el.children)) ro.observe(child);
+      return () => ro.disconnect();
+    },
+    [update],
+  );
+  const onScroll = useCallback((e: UIEvent<HTMLElement>) => update(e.currentTarget), [update]);
+  return { ref, onScroll, overflow };
 }
 
 type TreemapChart = ChartJS<"treemap", TreemapDataPoint[], unknown>;
@@ -277,8 +400,8 @@ export function Treemap({ widget, result, height, span, expanded }: VizProps<Bar
   const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
   const chartRef = useRef<TreemapChart | null>(null);
   const [listEl, setListEl] = useState<HTMLDivElement | null>(null);
-  // Lista dentro de un cuerpo de alto fijo (móvil: 300 px del canvas): desvanecido si queda contenido abajo
-  const { ref: listScrollRef, onScroll: onListScroll, edges: listEdges } = useScrollEdges<HTMLDivElement>();
+  // Lista dentro de un cuerpo de alto fijo (móvil: 300 px del canvas): desvanecido y pie con las filas ocultas
+  const { ref: listScrollRef, onScroll: onListScroll, overflow: listOverflow } = useListOverflow();
   // Fila por contenido (móvil): la RankingList no se ajusta a un alto (muestra todo y recorta), así
   // que va en un envoltorio de alto automático y el scroll lo lleva este contenedor, con desvanecido.
   const [byContent, setByContent] = useState(false);
@@ -372,6 +495,9 @@ export function Treemap({ widget, result, height, span, expanded }: VizProps<Bar
           },
           labels: { display: false },
           captions: { display: false },
+          // Orden del árbol = orden de `tiles` (real por valor y "Otras (N)" al final): el neutral no
+          // queda en medio del árbol aunque sume más que las últimas categorías
+          unsorted: true,
           documLabels,
         } as ChartData<"treemap", TreemapDataPoint[], unknown>["datasets"][number],
       ],
@@ -475,16 +601,29 @@ export function Treemap({ widget, result, height, span, expanded }: VizProps<Bar
       {pending ? (
         <div className="min-h-0 flex-1" aria-hidden />
       ) : showList ? (
-        <div
-          ref={listRef}
-          onScroll={onListScroll}
-          data-treemap-list=""
-          className="min-h-0 flex-1 overflow-y-auto"
-          style={listEdges.bottom ? { maskImage: LIST_FADE, WebkitMaskImage: LIST_FADE } : undefined}
-        >
-          <div className={byContent ? undefined : "h-full"}>
-            <RankingList widget={listWidget} result={result} height={height} span={span} expanded={expanded} />
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div
+            ref={listRef}
+            onScroll={onListScroll}
+            data-treemap-list=""
+            className="min-h-0 flex-1 overflow-y-auto"
+            style={listOverflow.bottom ? { maskImage: LIST_FADE, WebkitMaskImage: LIST_FADE } : undefined}
+          >
+            <div className={byContent ? undefined : "h-full"}>
+              <RankingList widget={listWidget} result={result} height={height} span={span} expanded={expanded} />
+            </div>
           </div>
+          {/* Filas ocultas bajo el borde: pie flotante sobre el desvanecido (el scroll interno no queda mudo) */}
+          {listOverflow.below > 0 && (
+            <button
+              type="button"
+              onClick={() => listEl?.scrollBy({ top: Math.max(48, listEl.clientHeight - 64), behavior: reduced ? "auto" : "smooth" })}
+              className="absolute bottom-1 left-1/2 z-[2] inline-flex -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-full border border-border bg-surface px-2.5 py-0.5 text-[11px] font-semibold text-text-2 shadow-sm transition hover:bg-surface-3"
+            >
+              +{formatInt(listOverflow.below)} más · desplaza
+              <ChevronDown className="size-3.5" aria-hidden />
+            </button>
+          )}
         </div>
       ) : (
         <div className="relative min-h-0 flex-1" data-selected={sel.active ? "1" : undefined}>

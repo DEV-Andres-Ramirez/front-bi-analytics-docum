@@ -1,19 +1,22 @@
 "use client";
 
-import { AlertTriangle, ChevronRight, Filter, FilterX, Layers, MousePointerClick, X } from "lucide-react";
-import { StatusIcon } from "@/components/widgets/kit/status-icon";
+import { ChevronRight, Filter, FilterX, Layers, X } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { StatusIcon, TONE_ICON } from "@/components/widgets/kit/status-icon";
 import type { StatusTone } from "@/dashboards/types";
+import { useElementSize } from "@/hooks/use-element-size";
 import { cn } from "@/lib/cn";
 import { TONE_VARS } from "@/lib/charts/semantic";
 import { formatInt, formatPct } from "@/lib/format";
 import { displayLabel } from "@/lib/labels";
-import { pluralArticle, type MapUnit } from "./classify";
+import { pluralArticle, shortGeoName, type MapUnit } from "./classify";
 
 /**
  * Panel de insights del HeroMap (mapRedesign 7):
  * (a) título con la geografía explícita + migas · (b) tres cifras · banner de cobertura
  * (c) ranking top 10 sincronizado con el mapa · (d) detalle del seleccionado · (e) leyenda (map-legend.tsx).
- * El ranking es la ruta por teclado del mapa.
+ * El ranking es la ruta por teclado del mapa. Lado a lado, el ranking se ajusta al alto que le queda
+ * (filas enteras, "Top N" real y "Ver los 33" siempre visible) en lugar de cortar la última fila.
  */
 
 export interface GeoRow {
@@ -30,9 +33,24 @@ export interface GeoRow {
 export type MapLevel = "dpto" | "mpio";
 
 // ─── (a) Título + migas ──────────────────────────────────────────────────────
-export function PanelHeader({ title, geo, level, dptoName, onBack }: { title: string; geo: string | null; level: MapLevel; dptoName?: string; onBack: () => void }) {
+export function PanelHeader({
+  title,
+  geo,
+  level,
+  dptoName,
+  onBack,
+  compact = false,
+}: {
+  title: string;
+  geo: string | null;
+  level: MapLevel;
+  dptoName?: string;
+  onBack: () => void;
+  /** Lado a lado: solo las migas (el título repetía el de la tarjeta y costaba ≈ 45 px del ranking). */
+  compact?: boolean;
+}) {
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 shrink-0">
       <nav aria-label="Nivel del mapa" className="flex flex-wrap items-center gap-1 text-[11px] font-semibold">
         <Layers className="size-3.5 text-muted" aria-hidden />
         {level === "mpio" ? (
@@ -53,15 +71,24 @@ export function PanelHeader({ title, geo, level, dptoName, onBack }: { title: st
           </>
         )}
       </nav>
-      <h4 className="mt-1 text-[15px] font-bold leading-snug text-text">{title}</h4>
-      {geo && <p className="text-xs text-muted">{geo}</p>}
+      <h4 className={compact ? "sr-only" : "mt-1 text-[15px] font-bold leading-snug text-text"}>{title}</h4>
+      {geo && <p className={compact ? "sr-only" : "text-xs text-muted"}>{geo}</p>}
     </div>
   );
 }
 
 // ─── (b) Tres cifras ─────────────────────────────────────────────────────────
+/**
+ * Tono de la ubicación válida: bueno ≥ 95 %, advertencia ≥ 50 %, crítico < 50 %. El banner de
+ * cobertura (< 80 %) usa el mismo tono: un mismo hecho nunca se dice con dos severidades.
+ */
 function locTone(ratio: number): StatusTone {
-  return ratio >= 0.95 ? "good" : ratio >= 0.8 ? "warning" : "critical";
+  return ratio >= 0.95 ? "good" : ratio >= 0.5 ? "warning" : "critical";
+}
+
+/** "100 %" exacto sin decimal (a 390 px "100,0 %" desbordaba la celda); el resto con 1 decimal. */
+function sharePct(ratio: number): string {
+  return ratio >= 1 ? "100\u00a0%" : formatPct(ratio);
 }
 
 export function PanelSummary({
@@ -80,15 +107,26 @@ export function PanelSummary({
   top: GeoRow | null;
   located: number;
   total: number;
+  unit: MapUnit;
   className?: string;
 }) {
   const noun = level === "dpto" ? "departamentos" : "municipios";
   const ratio = total ? located / total : 1;
-  const tone = locTone(ratio);
+  // El tono se evalúa sobre la cifra mostrada (1 decimal): 0,4997 se lee "50,0 %" y es advertencia, no crítico
+  const tone = locTone(shownRatio(located, total));
   const missing = Math.max(0, total - located);
-  const cell = "flex min-w-0 flex-col rounded-xl bg-surface-2 px-2.5 py-2 @min-[400px]:px-3";
-  const lab = "text-[11px] font-semibold leading-tight text-muted";
-  const num = "tabular whitespace-nowrap text-lg font-bold leading-none text-text @min-[400px]:text-xl";
+  // Con el banner de cobertura, la concentración describe el mapa que se ve (sobre lo ubicado): sobre el
+  // total, SMART 3 decía "19,9 % en Bogotá" cuando Bogotá tiene el 74,8 % de lo que el mapa muestra
+  const partial = needsCoverageBanner(located, total);
+  const conc = top ? (partial ? top.value / (located || 1) : top.pct) : null;
+  const located_ = pluralArticle(unit.plural) === "las" ? "ubicadas" : "ubicados";
+  // Celdas de ≈ 103 px a 390: cifra y relleno se reducen bajo 360 px de contenedor
+  const cell = "flex min-w-0 flex-col rounded-xl bg-surface-2 px-2 py-2 @min-[360px]:px-2.5 @min-[400px]:px-3";
+  // Una sola línea: las cifras de las tres celdas quedan en la misma línea base (a 390 px "Ubicación válida" se partía)
+  const lab = "whitespace-nowrap text-[11px] font-semibold leading-tight text-muted";
+  const num = "tabular whitespace-nowrap text-base font-bold leading-none text-text @min-[360px]:text-lg @min-[400px]:text-xl";
+  const foot = "mt-1 block whitespace-nowrap text-[11px] leading-tight text-text-2";
+  const locLabel = level === "dpto" ? "Ubicación válida" : "Con municipio";
   return (
     <dl className={cn("@container grid grid-cols-3 gap-2", className)}>
       <div className={cell}>
@@ -102,16 +140,28 @@ export function PanelSummary({
       <div className={cell}>
         <dt className={lab}>Concentración</dt>
         <dd className="mt-1">
-          <span className={num}>{top ? formatPct(top.pct, 0) : "—"}</span>
-          <span className="mt-1 block text-[11px] leading-tight text-text-2 [overflow-wrap:anywhere]">{top ? `en ${top.name}` : "sin datos"}</span>
+          <span className={num}>{conc !== null ? sharePct(conc) : "—"}</span>
+          <span className="mt-1 block text-[11px] leading-tight text-text-2 [overflow-wrap:anywhere]">
+            {top ? (partial ? `de ${pluralArticle(unit.plural)} ${located_} · en ${top.name}` : `en ${top.name}`) : "sin datos"}
+          </span>
         </dd>
       </div>
       <div className={cell}>
-        <dt className={lab}>{level === "dpto" ? "Ubicación válida" : "Con municipio"}</dt>
+        <dt className={lab}>
+          {level === "dpto" ? (
+            <>
+              {/* Cada variante se oculta (display: none) en el otro ancho: el lector lee solo la visible */}
+              <span className="@max-[399px]:hidden">{locLabel}</span>
+              <span className="@min-[400px]:hidden">Con ubicación</span>
+            </>
+          ) : (
+            locLabel
+          )}
+        </dt>
         <dd className="mt-1">
           <span className="flex items-center gap-1">
             <StatusIcon tone={tone} />
-            <span className={num}>{formatPct(ratio, ratio > 0.999 ? 0 : 1)}</span>
+            <span className={num}>{sharePct(ratio)}</span>
           </span>
           <span
             className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-surface-3"
@@ -123,22 +173,49 @@ export function PanelSummary({
           >
             <span className="block h-full rounded-full" style={{ width: `${Math.max(2, ratio * 100)}%`, background: TONE_VARS[tone].solid }} />
           </span>
-          <span className="tabular mt-1 block text-[11px] leading-tight text-text-2">{missing ? `${formatInt(missing)} sin ubicación` : "todos ubicados"}</span>
+          {/* Con el banner a la vista la cifra no se repite; en celdas angostas, "sin ubicar" cabe en una línea */}
+          <span className={cn(foot, "tabular")}>
+            {partial ? (
+              "ver aviso"
+            ) : missing ? (
+              <>
+                {formatInt(missing)} <span className="@max-[399px]:hidden">sin ubicación</span>
+                <span className="@min-[400px]:hidden">sin ubicar</span>
+              </>
+            ) : (
+              "todos ubicados"
+            )}
+          </span>
         </dd>
       </div>
     </dl>
   );
 }
 
-/** Banner cuando más del 20 % no tiene ubicación: el mapa no representa el total. */
+/** Proporción ubicada tal como se muestra (1 decimal en %): tono y banner se deciden sobre esa cifra. */
+function shownRatio(located: number, total: number): number {
+  return total ? Math.round((located / total) * 1000) / 1000 : 1;
+}
+
+/** Más del 20 % sin ubicación (la cifra mostrada queda bajo 80,0 %): el mapa no representa el total. */
+export function needsCoverageBanner(located: number, total: number): boolean {
+  return total > 0 && shownRatio(located, total) < 0.8;
+}
+
+/**
+ * Banner cuando más del 20 % no tiene ubicación: el mapa no representa el total. Toma el tono de la
+ * celda "Ubicación válida" (advertencia de 50 a 80 %, crítico bajo 50 %).
+ */
 export function CoverageBanner({ located, total, unit }: { located: number; total: number; unit: MapUnit }) {
-  if (!total || (total - located) / total <= 0.2) return null;
+  if (!needsCoverageBanner(located, total)) return null;
   const missing = total - located;
+  const critical = locTone(shownRatio(located, total)) === "critical";
+  const Icon = TONE_ICON[critical ? "critical" : "warning"];
   return (
-    <p className="flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2 text-xs leading-snug text-warning-ink">
-      <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
+    <p className={cn("flex items-start gap-2 rounded-xl px-3 py-2 text-xs leading-snug", critical ? "bg-critical-soft text-critical-ink" : "bg-warning-soft text-warning-ink")}>
+      <Icon className="mt-px size-3.5 shrink-0" aria-hidden />
       <span>
-        El mapa representa el <strong className="tabular font-bold">{formatPct(located / total, 0)}</strong> de {pluralArticle(unit.plural)} {unit.plural} (
+        El mapa representa el <strong className="tabular font-bold">{formatPct(located / total)}</strong> de {pluralArticle(unit.plural)} {unit.plural} (
         <span className="tabular">{formatInt(missing)}</span> sin ubicación)
       </span>
     </p>
@@ -146,6 +223,10 @@ export function CoverageBanner({ located, total, unit }: { located: number; tota
 }
 
 // ─── (c) Ranking ─────────────────────────────────────────────────────────────
+/** Alto de una fila del ranking ajustado (h-6) y del botón "Ver los N" (h-6 + mt-1). */
+const ROW_H = 24;
+const TOGGLE_H = 28;
+
 export function MapRanking({
   rows,
   zeros,
@@ -161,12 +242,14 @@ export function MapRanking({
   onPick,
   onDrill,
   columns = 1,
+  fit = false,
   className,
 }: {
   rows: GeoRow[];
   /** Territorios sin registros (se listan al ver todos). */
   zeros: string[];
   level: MapLevel;
+  /** Máximo de filas del top (10). */
   limit: number;
   showAll: boolean;
   onToggleAll: () => void;
@@ -179,74 +262,118 @@ export function MapRanking({
   onDrill: (code: string) => void;
   /** 2: lista en dos columnas (panel ancho: diálogo Ampliar o > 1600 px). */
   columns?: 1 | 2;
+  /**
+   * Lado a lado: ocupa el alto restante del panel. Sin selección muestra solo las filas enteras que
+   * caben (el título dice el N real). Con el detalle abierto (le quita alto) el top conserva sus
+   * filas en un área con scroll de filas enteras, sin mover la fila elegida. "Ver los N" queda
+   * siempre visible y la lista completa hace scroll dentro de ese alto.
+   */
+  fit?: boolean;
   className?: string;
 }) {
-  const noun = level === "dpto" ? (rows.length === 1 ? "departamento" : "departamentos") : rows.length === 1 ? "municipio" : "municipios";
-  const visible = showAll ? rows : rows.slice(0, limit);
+  const { ref: boxRef, height: boxH, measured } = useElementSize<HTMLDivElement>();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sizing = fit && measured;
+  const pinned = sizing && !showAll && selected !== null;
+  // Filas enteras que caben (en dos columnas, el doble), reservando o no el sitio del botón
+  const cap = (reserve: number) => Math.max(1, Math.floor((boxH - reserve) / ROW_H)) * columns;
+  const shownTop = !sizing || pinned ? Math.min(limit, rows.length) : rows.length <= Math.min(limit, cap(0)) ? rows.length : Math.min(limit, cap(TOGGLE_H));
+  const truncated = rows.length > shownTop;
+  const visible = showAll ? rows : rows.slice(0, shownTop);
+  // Área con scroll: lista completa, o el top con el detalle abierto si no cabe entero
+  const scrollH = Math.max(ROW_H, Math.floor((boxH - (truncated || showAll ? TOGGLE_H : 0)) / ROW_H) * ROW_H);
+  const overflows = sizing && (showAll || (pinned && Math.ceil(visible.length / columns) * ROW_H > scrollH));
+  const nounFor = (n: number) => (level === "dpto" ? (n === 1 ? "departamento" : "departamentos") : n === 1 ? "municipio" : "municipios");
   const max = rows[0]?.value || 1;
   const anyFilter = filtered.length > 0;
+
+  // La fila elegida (en el mapa o en la lista) queda a la vista dentro del área con scroll
+  const selIndex = selected ? visible.findIndex((r) => r.code === selected) : -1;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !overflows || selIndex < 0 || columns !== 1) return;
+    const top = selIndex * ROW_H;
+    if (top < el.scrollTop) el.scrollTop = top;
+    else if (top + ROW_H > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW_H - el.clientHeight;
+  }, [selIndex, overflows, scrollH, columns]);
+
   return (
-    <div className={cn("min-w-0", className)}>
-      <div className="mb-1 flex items-baseline justify-between gap-2 px-1">
-        <p className="text-xs font-semibold text-text-2">{showAll || rows.length <= limit ? `${formatInt(rows.length)} ${noun} con registros` : `Top ${limit} ${noun}`}</p>
+    <div className={cn("flex min-w-0 flex-col", fit && "min-h-0 flex-1", className)}>
+      <div className="mb-1 flex shrink-0 items-baseline justify-between gap-2 px-1">
+        <p className="text-xs font-semibold text-text-2">
+          {showAll || !truncated ? `${formatInt(rows.length)} ${nounFor(rows.length)} con registros` : `Top ${shownTop} ${nounFor(shownTop)}`}
+        </p>
         <span className="text-[11px] text-muted">{level === "dpto" ? "% del total" : "% del departamento"}</span>
       </div>
-      <ol role="list" className={columns === 2 ? "columns-2 gap-x-6 [&>li]:break-inside-avoid" : "flex flex-col"} onMouseLeave={() => onHover(null)}>
-        {visible.map((r, i) => {
-          const isSel = r.code === selected;
-          const isHover = r.code === hovered;
-          const isFiltered = filtered.includes(r.code);
-          return (
-            <li key={r.code} className={cn("flex items-stretch rounded-lg transition-opacity", anyFilter && !isFiltered && !isSel && "opacity-45")}>
-              <button
-                type="button"
-                aria-pressed={isSel}
-                onClick={() => onPick(r.code)}
-                onMouseEnter={() => onHover(r.code)}
-                onFocus={() => onHover(r.code)}
-                onBlur={() => onHover(null)}
-                title={`${r.name}: ${formatInt(r.value)} (${formatPct(r.pct)})`}
-                className={cn(
-                  "flex min-w-0 flex-1 items-center gap-2 rounded-lg border px-1.5 py-[3px] text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary",
-                  isSel ? "border-primary/40 bg-primary-soft" : isHover ? "border-transparent bg-surface-3" : "border-transparent hover:bg-surface-3",
-                )}
-              >
-                <span className="tabular w-4 shrink-0 text-right text-[11px] text-muted">{i + 1}</span>
-                <span className="min-w-0 flex-1 text-[12.5px] leading-tight text-text [overflow-wrap:anywhere]">
-                  {r.name}
-                  {isFiltered && <Filter className="ml-1 inline size-3 align-[-1px] text-primary-text" aria-label="Filtrado" />}
-                </span>
-                <span className="h-1.5 w-12 shrink-0 overflow-hidden rounded-full bg-surface-3" aria-hidden>
-                  <span className="block h-full rounded-full" style={{ width: `${Math.max(3, (r.value / max) * 100)}%`, background: r.color }} />
-                </span>
-                <span className="tabular w-11 shrink-0 text-right text-xs font-semibold text-text">{formatInt(r.value)}</span>
-                <span className="tabular w-12 shrink-0 text-right text-[11px] text-muted">{formatPct(r.pct)}</span>
-              </button>
-              {canDrill && (
-                <button
-                  type="button"
-                  onClick={() => onDrill(r.code)}
-                  aria-label={`Ver municipios de ${r.name}`}
-                  title="Ver municipios"
-                  className="grid w-7 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-surface-3 hover:text-text focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
-                >
-                  <ChevronRight className="size-4" aria-hidden />
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ol>
-      {showAll && zeros.length > 0 && (
-        <p className="mt-2 px-1 text-[11px] leading-snug text-muted">
-          <span className="font-semibold text-text-2">Sin registros ({zeros.length}):</span> {zeros.join(", ")}
-        </p>
-      )}
-      {rows.length > limit && (
-        <button type="button" onClick={onToggleAll} aria-expanded={showAll} className="mt-1 rounded-full px-2 py-1 text-xs font-semibold text-primary-text transition hover:bg-primary-soft">
-          {showAll ? "Ver menos" : `Ver los ${formatInt(rows.length + zeros.length)}`}
-        </button>
-      )}
+      <div ref={boxRef} className={cn("min-w-0", fit && "min-h-0 flex-1 overflow-hidden")}>
+        <div ref={scrollRef} className={cn(overflows && "overflow-y-auto overscroll-contain")} style={overflows ? { maxHeight: scrollH } : undefined}>
+          <ol role="list" className={columns === 2 ? "columns-2 gap-x-6 [&>li]:break-inside-avoid" : "flex flex-col"} onMouseLeave={() => onHover(null)}>
+            {visible.map((r, i) => {
+              const isSel = r.code === selected;
+              const isHover = r.code === hovered;
+              const isFiltered = filtered.includes(r.code);
+              return (
+                <li key={r.code} className={cn("flex items-stretch rounded-lg transition-opacity", fit && "h-6", anyFilter && !isFiltered && !isSel && "opacity-45")}>
+                  <button
+                    type="button"
+                    aria-pressed={isSel}
+                    onClick={() => onPick(r.code)}
+                    onMouseEnter={() => onHover(r.code)}
+                    onFocus={() => onHover(r.code)}
+                    onBlur={() => onHover(null)}
+                    title={`${r.name}: ${formatInt(r.value)} (${formatPct(r.pct)})`}
+                    className={cn(
+                      "flex min-w-0 flex-1 items-center gap-2 rounded-lg border px-1.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary",
+                      fit ? "py-0" : "py-[3px]",
+                      isSel ? "border-primary/40 bg-primary-soft" : isHover ? "border-transparent bg-surface-3" : "border-transparent hover:bg-surface-3",
+                    )}
+                  >
+                    <span className="tabular w-4 shrink-0 text-right text-[11px] text-muted">{i + 1}</span>
+                    <span className="flex min-w-0 flex-1 items-center gap-1">
+                      {/* Lado a lado la fila mide 24 px fijos: el nombre completo queda en el title */}
+                      <span className={cn("min-w-0 text-[12.5px] leading-tight text-text", fit ? "truncate" : "[overflow-wrap:anywhere]")}>{fit ? shortGeoName(r.name) : r.name}</span>
+                      {isFiltered && <Filter className="size-3 shrink-0 text-primary-text" aria-label="Filtrado" />}
+                    </span>
+                    <span className="h-1.5 w-12 shrink-0 overflow-hidden rounded-full bg-surface-3" aria-hidden>
+                      <span className="block h-full rounded-full" style={{ width: `${Math.max(3, (r.value / max) * 100)}%`, background: r.color }} />
+                    </span>
+                    <span className="tabular w-11 shrink-0 text-right text-xs font-semibold text-text">{formatInt(r.value)}</span>
+                    <span className="tabular w-12 shrink-0 text-right text-[11px] text-muted">{formatPct(r.pct)}</span>
+                  </button>
+                  {canDrill && (
+                    <button
+                      type="button"
+                      onClick={() => onDrill(r.code)}
+                      aria-label={`Ver municipios de ${r.name}`}
+                      title="Ver municipios"
+                      className="grid w-7 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-surface-3 hover:text-text focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+                    >
+                      <ChevronRight className="size-4" aria-hidden />
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+          {showAll && zeros.length > 0 && (
+            <p className="mt-2 px-1 text-[11px] leading-snug text-muted">
+              <span className="font-semibold text-text-2">Sin registros ({zeros.length}):</span> {zeros.join(", ")}
+            </p>
+          )}
+          {/* Con scroll: desvanecido al pie mientras hay más (el espaciador evita tapar el final) */}
+          {overflows && (
+            <>
+              <span aria-hidden className="block h-4" />
+              <span aria-hidden className="pointer-events-none sticky bottom-0 -mt-4 block h-4 bg-gradient-to-t from-surface to-transparent" />
+            </>
+          )}
+        </div>
+        {(truncated || showAll) && (
+          <button type="button" onClick={onToggleAll} aria-expanded={showAll} className="mt-1 h-6 shrink-0 rounded-full px-2 text-xs font-semibold text-primary-text transition hover:bg-primary-soft">
+            {showAll ? "Ver menos" : `Ver los ${formatInt(rows.length + zeros.length)}`}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -357,18 +484,5 @@ export function MapDetail({
         )}
       </div>
     </div>
-  );
-}
-
-/** Pie del panel sin selección. */
-export function SelectHint({ level, allowDrill }: { level: MapLevel; allowDrill: boolean }) {
-  return (
-    <p className="flex items-start gap-2 rounded-xl border border-dashed border-border px-3 py-1.5 text-[11.5px] leading-snug text-muted">
-      <MousePointerClick className="mt-px size-3.5 shrink-0" aria-hidden />
-      <span>
-        Clic en un territorio: detalle
-        {allowDrill && level === "dpto" ? " · doble clic: municipios" : ""}
-      </span>
-    </p>
   );
 }

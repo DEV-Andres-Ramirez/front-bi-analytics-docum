@@ -39,8 +39,12 @@ function useHeadingSentinel() {
 
 /**
  * DashboardHeader: tile de 56 px con el degradado del módulo (ViewTransition dash-icon-<slug>),
- * eyebrow del módulo en --mod-ink, H1 corto en una línea (dash-title-<slug>), descripción de hasta
- * dos líneas (nunca cortada a media frase en escritorio) y, a la derecha, "N radicados en el periodo · N vistas · N notas de datos".
+ * eyebrow del módulo en --mod-ink, H1 corto en una línea (dash-title-<slug>), descripción y
+ * "N radicados en el periodo · N vistas · N notas de datos".
+ * Los metadatos van a la derecha solo si la página mide ≥ 1040 px (@container page): por debajo
+ * (1024 con riel, 1280 con sidebar abierto) ocupaban ≈ 440 px y cortaban la descripción, así que
+ * pasan a su propia línea. Bajo 600 px la descripción usa todo el ancho, bajo el tile, con hasta
+ * 3 líneas: no se corta con "…" en el teléfono.
  * El rango de fechas vive solo en la FilterBar; "Datos de prueba", solo en el topbar.
  */
 export function DashboardHeader() {
@@ -53,14 +57,15 @@ export function DashboardHeader() {
   const views = meta.views;
 
   return (
-    <header className="flex flex-col gap-3 pb-5 pt-6 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:pt-8">
-      <div className="flex min-w-0 items-center gap-3.5 sm:gap-4">
+    <header className="flex flex-col gap-3 pb-5 pt-6 lg:pt-8 @min-[1040px]/page:flex-row @min-[1040px]/page:items-center @min-[1040px]/page:justify-between @min-[1040px]/page:gap-6">
+      {/* Grid: el tile ocupa las dos filas (título y descripción) desde 600 px; en el teléfono la descripción baja a todo el ancho */}
+      <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3.5 sm:gap-x-4">
         <ViewTransition name={`dash-icon-${meta.slug}`} share="morph" default="none">
-          <span className="mod-tile grid size-12 shrink-0 place-items-center rounded-2xl sm:size-14">
+          <span className="mod-tile grid size-12 shrink-0 place-items-center rounded-2xl sm:size-14 @min-[600px]/page:row-span-2">
             <Icon className="size-6 sm:size-7" aria-hidden />
           </span>
         </ViewTransition>
-        <div className="min-w-0">
+        <div className="min-w-0 self-center @min-[600px]/page:self-end">
           <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-mod-ink">{mod?.label}</p>
           <ViewTransition name={`dash-title-${meta.slug}`} share="morph" default="none">
             <h1
@@ -72,13 +77,16 @@ export function DashboardHeader() {
               {meta.heading.replaceAll(" · ", "\u00a0· ")}
             </h1>
           </ViewTransition>
-          <p className="mt-1 line-clamp-2 max-w-[75ch] text-pretty text-sm text-muted" title={meta.description}>
-            {meta.description}
-          </p>
         </div>
+        <p
+          className="col-span-2 mt-2.5 line-clamp-3 max-w-[75ch] self-start text-pretty text-sm text-muted @min-[600px]/page:col-span-1 @min-[600px]/page:col-start-2 @min-[600px]/page:mt-1 @min-[600px]/page:line-clamp-2"
+          title={meta.description}
+        >
+          {meta.description}
+        </p>
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 lg:justify-end">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 @min-[1040px]/page:justify-end">
         <p className="whitespace-nowrap text-sm text-text-2" aria-live="polite">
           {n === undefined ? (
             <span className="skeleton inline-block h-4 w-44 align-middle" aria-label="Cargando registros" />

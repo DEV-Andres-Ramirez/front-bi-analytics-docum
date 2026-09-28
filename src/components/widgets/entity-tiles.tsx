@@ -152,56 +152,70 @@ export function EntityTiles({ widget, result, height, span }: VizProps<BarWidget
             </div>
           );
         })}
-        {rest.length > 0 && <GroupTile title={`Otros ${rest.length} entes`} items={rest} total={total} cf={cf} widget={widget} />}
-        {unidentified.length > 0 && <GroupTile title="No identificados" items={unidentified} total={total} cf={cf} widget={widget} />}
+        {rest.length > 0 && <GroupTile title={`Otros ${rest.length} entes`} items={rest} total={total} cf={cf} widget={widget} narrow={narrow} />}
+        {unidentified.length > 0 && <GroupTile title="No identificados" items={unidentified} total={total} cf={cf} widget={widget} narrow={narrow} />}
         <ChartTooltip state={state} />
       </div>
     </>
   );
 }
 
-function GroupTile({ title, items, total, cf, widget }: { title: string; items: Item[]; total: number; cf: ReturnType<typeof useCrossFilter>; widget: BarWidget | DonutWidget }) {
+/**
+ * Grupo final en neutral ("No identificados" u "Otros N entes"): nombre y desglose en la cabecera (a la altura del
+ * monograma), cifra al pie en la misma línea base que los tiles vecinos y, en el lugar de la barra, un hueco del
+ * mismo alto: lo neutral va sin barra (fuera de la escala común).
+ */
+function GroupTile({ title, items, total, cf, widget, narrow }: { title: string; items: Item[]; total: number; cf: ReturnType<typeof useCrossFilter>; widget: BarWidget | DonutWidget; narrow: boolean }) {
   const sum = items.reduce((a, b) => a + b.value, 0);
   const dimmed = cf.active && !items.some((it) => cf.isSelected(it.label));
   return (
     <div role="listitem" className={cn("flex min-w-0 flex-col rounded-2xl border border-dashed border-border-strong bg-surface p-3 transition-opacity", dimmed && "opacity-45")}>
-      <div className="flex min-w-0 items-center gap-2.5">
+      <div className={cn("flex min-w-0 gap-2.5", narrow ? "flex-col items-start gap-1.5" : "items-start")}>
         <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-neutral-soft text-neutral-ink">
           <CircleDashed className="size-4" />
         </span>
-        <span className="min-w-0 text-[13px] font-semibold leading-4 text-text-2">{title}</span>
+        <div className="min-w-0">
+          <span className="block text-[13px] font-semibold leading-4 text-text-2">{title}</span>
+          <GroupDetail title={title} items={items} cf={cf} widget={widget} />
+        </div>
       </div>
       <p className="mt-auto flex items-baseline gap-1.5 pt-2">
         <span className="tabular text-2xl font-bold leading-none tracking-tight text-text-2">{formatInt(sum)}</span>
         <span className="tabular text-xs text-muted">{formatPct(total ? sum / total : 0)}</span>
       </p>
-      <ul className="mt-1.5 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[11.5px] leading-4" aria-label={`${title}: detalle`}>
-        {items.map((it) => {
-          const name = displayLabel(it.label, widget.labelKind ?? "ente").full;
-          const body = (
-            <>
-              {name} <span className="tabular font-semibold text-text">{formatInt(it.value)}</span>
-            </>
-          );
-          return (
-            <li key={it.label}>
-              {cf.can(it.label) ? (
-                <button
-                  type="button"
-                  aria-pressed={cf.isSelected(it.label)}
-                  title="Clic para filtrar"
-                  onClick={() => cf.toggle(it.label)}
-                  className={cn("-mx-1 rounded px-1 text-muted hover:bg-surface-3 hover:text-text", cf.isSelected(it.label) && "bg-primary-soft text-text")}
-                >
-                  {body}
-                </button>
-              ) : (
-                <span className="text-muted">{body}</span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+      <span aria-hidden className="mt-2 block h-1" />
     </div>
+  );
+}
+
+function GroupDetail({ title, items, cf, widget }: { title: string; items: Item[]; cf: ReturnType<typeof useCrossFilter>; widget: BarWidget | DonutWidget }) {
+  return (
+    <ul className="flex flex-wrap gap-x-2.5 text-[11.5px] leading-4" aria-label={`${title}: detalle`}>
+      {items.map((it) => {
+        const name = displayLabel(it.label, widget.labelKind ?? "ente").full;
+        const body = (
+          <>
+            {name} <span className="tabular font-semibold text-text">{formatInt(it.value)}</span>
+          </>
+        );
+        return (
+          <li key={it.label}>
+            {cf.can(it.label) ? (
+              <button
+                type="button"
+                aria-pressed={cf.isSelected(it.label)}
+                title="Clic para filtrar"
+                onClick={() => cf.toggle(it.label)}
+                className={cn("-mx-1 rounded px-1 text-muted hover:bg-surface-3 hover:text-text", cf.isSelected(it.label) && "bg-primary-soft text-text")}
+              >
+                {body}
+              </button>
+            ) : (
+              <span className="text-muted">{body}</span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }

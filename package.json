@@ -9,17 +9,30 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.104.0",
+    "chart.js": "^4.5.1",
+    "chartjs-chart-sankey": "^0.19.1",
+    "chartjs-plugin-datalabels": "^2.2.0",
+    "date-fns": "^4.4.0",
+    "jose": "^6.2.12",
+    "lucide-react": "^1.48.0",
+    "mapbox-gl": "^3.31.0",
+    "motion": "^13.4.4",
     "next": "16.3.6",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-chartjs-2": "^5.3.1",
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/geojson": "^7946.0.16",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "mapshaper": "^0.7.68",
     "tailwindcss": "^4",
     "typescript": "^5"
   },

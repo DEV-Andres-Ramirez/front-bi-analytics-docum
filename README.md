@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Docum BI · Tableros de seguimiento de flujos (Positiva)
 
-## Getting Started
+Front-end de los **13 tableros ejecutivos** de SGDEA / Docum para **Positiva Compañía de Seguros**: facturación electrónica, PQRD, entes de control, SMART Supervisión (momentos 1, 2 y 3), tutelas, medicina laboral y correspondencia.
 
-First, run the development server:
+Reemplaza los tableros de Looker Studio con una experiencia moderna:
+- catálogo de inicio y menú lateral;
+- filtros cruzados sincronizados con la URL;
+- KPIs con variación frente al periodo anterior;
+- mapas de Colombia con doble clic para bajar a municipios;
+- tema claro y oscuro, diseño responsivo y exportación a CSV o PNG.
+
+> Documentación técnica y de negocio completa (para desarrolladores y agentes): **[AGENTS.md](./AGENTS.md)**.
+
+## Requisitos
+
+- Node.js ≥ 20 (probado con 24)
+- pnpm 12
+
+## Puesta en marcha
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+cp .env.example .env.local      # completa los valores (ver tabla)
+pnpm dev                         # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Ingresa con el token de acceso definido en `ACCESS_TOKEN`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Variables de entorno
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Descripción |
+|---|---|
+| `ACCESS_TOKEN` | Token único de acceso que se digita en `/login` (solo servidor). |
+| `SESSION_SECRET` | Secreto de ≥ 32 caracteres para firmar la sesión (`openssl rand -base64 48`). |
+| `SESSION_TTL_HOURS` | Duración de la sesión en horas (por defecto 8). |
+| `NEXT_PUBLIC_MAPBOX_TOKEN` | Token público de Mapbox (`pk.…`). |
+| `NEXT_PUBLIC_MAPBOX_STYLE` | Estilo del mapa (`mapbox://styles/andres-ramirez/cmqkorkc6003101s46xcreztw`). |
+| `DATA_SOURCE` | `mock` (por defecto, datos sintéticos) o `postgres` (conexión real, pendiente). |
+| `DB_*` | Credenciales de la BD para la fase 2 (solo en `.env.local`, nunca en el repo). |
 
-## Learn More
+## Scripts
 
-To learn more about Next.js, take a look at the following resources:
+| Comando | Uso |
+|---|---|
+| `pnpm dev` / `pnpm build` / `pnpm start` | Desarrollo, compilación y producción. |
+| `pnpm lint` | ESLint. |
+| `node scripts/mock/build-profiles.mjs` | Regenera los perfiles anonimizados de datos mock desde los CSV locales de `top_secret/db`. |
+| `node scripts/geo/build-geo.mjs` | Simplifica los GeoJSON de `public/data` y genera el catálogo DIVIPOLA. |
+| `node scripts/geo/check-dictionary.mjs` | Mide el cruce del diccionario geográfico contra los CSV reales (100 % departamentos, 99,1 % municipios). |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Datos
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Hoy**: datos **sintéticos y anonimizados**. Se generan con semilla fija a partir de las distribuciones de las 19 vistas reales, sin nombres, documentos ni textos reales.
+- **Fase 2**: conexión de solo lectura a las vistas `oro_tableros.vw_reporte_datastudio_*`.
+  - El acceso a Cloud SQL se hace por un túnel IAP en `127.0.0.1:5432`. El procedimiento está en el runbook interno, fuera del repo.
+  - El plan de implementación está en [`src/server/data/postgres/README.md`](./src/server/data/postgres/README.md).
+  - Importante: el SQL de las vistas está escrito en dialecto BigQuery. Hay que confirmar la fuente definitiva antes de conectar.
 
-## Deploy on Vercel
+## Estructura (resumen)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+src/app            rutas (login, catálogo, tableros, API)
+src/dashboards     contrato declarativo y specs de los 13 tableros
+src/components     shell, home, dashboard, widgets (Chart.js / Mapbox), ui
+src/server         auth, datos (provider, motor de agregación, datasets, mock)
+src/lib            fechas, formatos, filtros, gráficas, diccionario geográfico
+scripts            generación de perfiles mock y de geografía
+public/data        GeoJSON de Colombia (originales + simplificados)
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Seguridad
+
+- `top_secret/` (pantallazos, CSV reales, SQL y runbook con credenciales) está en `.gitignore` y **no se versiona**.
+- `.env*` está ignorado, salvo `.env.example`.
+- Las rutas `/api/*` responden 401 sin sesión. Las páginas redirigen a `/login`.

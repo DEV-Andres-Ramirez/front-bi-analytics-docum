@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Balú — Design Tokens · Spec Sheet</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Poppins:wght@500;600&family=Red+Hat+Display:wght@700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ============ TOKENS (idénticos a tokens.css) ============ */
+  :root {
+    --balu-naranja-balu: #DF7702;
+    --balu-naranja-hover: #F3B168;
+    --balu-naranja-pressed: #C05800;
+    --balu-naranja-tint-200: #FFD9AE;
+    --balu-naranja-tint-100: #FFEDD8;
+    --balu-naranja-tint-50: #FFF7EF;
+    --balu-neutros-blanco: #FFFFFF;
+    --balu-neutros-negro: #000000;
+    --balu-gris-fondo: #F8F8F8;
+    --balu-gris-claro: #F5F5F5;
+    --balu-gris-stroke: #E0E0E0;
+    --balu-gris-stroke-oscuro: #838383;
+    --balu-gris-texto: #A2A2A2;
+    --balu-gris-disabled-bg: #E1E1E1;
+    --balu-gris-disabled-text: #A0A0A0;
+    --balu-estado-verde: #0D8C3C;
+    --balu-estado-verde-oscuro: #014E19;
+    --balu-estado-rojo-oscuro: #BD1C1C;
+    --balu-estado-azul: #2C70D5;
+    --balu-estado-amarillo-oscuro: #9D590C;
+    --balu-estado-violeta: #602CA0;
+    --balu-grey-100: #E3E5E7;
+    --balu-grey-200: #C7CCD0;
+    --balu-grey-700: #4D5257;
+    --balu-color-primary: var(--balu-naranja-balu);
+    --balu-color-white: var(--balu-neutros-blanco);
+    --balu-color-black: var(--balu-neutros-negro);
+    --balu-color-grey-100: var(--balu-grey-100);
+    --balu-color-grey-200: var(--balu-grey-200);
+    --balu-color-grey-700: var(--balu-grey-700);
+    --balu-success-50: #D4EADC;
+    --balu-success-100: #ACD8BC;
+    --balu-success-200: #84C59C;
+    --balu-success-300: #5DB27C;
+    --balu-success-400: #359F5C;
+    --balu-success-500: #0D8C3C;
+    --balu-success-600: #0B7633;
+    --balu-success-700: #096029;
+    --balu-success-800: #014E19;
+    --balu-success-900: #053416;
+    --balu-success: var(--balu-success-500);
+    --balu-error-50: #F5DCDC;
+    --balu-error-100: #EDC1C1;
+    --balu-error-200: #E5A5A5;
+    --balu-error-300: #DD8A8A;
+    --balu-error-400: #D56E6E;
+    --balu-error-500: #CD5353;
+    --balu-error-600: #C53737;
+    --balu-error-700: #BD1C1C;
+    --balu-error-800: #8E1515;
+    --balu-error-900: #5E0E0E;
+    --balu-error: var(--balu-error-700);
+    --balu-warning-50: #F1E7DC;
+    --balu-warning-100: #E6D5C2;
+    --balu-warning-200: #DCC4A8;
+    --balu-warning-300: #D1B28E;
+    --balu-warning-400: #C7A074;
+    --balu-warning-500: #BC8E5A;
+    --balu-warning-600: #B27D40;
+    --balu-warning-700: #A76B26;
+    --balu-warning-800: #9D590C;
+    --balu-warning-900: #653908;
+    --balu-warning: var(--balu-warning-800);
+    --balu-info-50: #DCE8F8;
+    --balu-info-100: #BFD4F2;
+    --balu-info-200: #A2C0EC;
+    --balu-info-300: #84ACE7;
+    --balu-info-400: #6798E1;
+    --balu-info-500: #4984DB;
+    --balu-info-600: #2C70D5;
+    --balu-info-700: #245AAC;
+    --balu-info-800: #1B4583;
+    --balu-info-900: #132F5A;
+    --balu-info: var(--balu-info-600);
+
+    --balu-font-heading: 'Montserrat', sans-serif;
+    --balu-font-body: 'Montserrat', sans-serif;
+    --balu-font-button: 'Poppins', sans-serif;
+    --balu-font-display: 'Red Hat Display', sans-serif;
+
+    --balu-weight-regular: 400;
+    --balu-weight-medium: 500;
+    --balu-weight-semibold: 600;
+    --balu-weight-bold: 700;
+
+    --balu-h1-size: 58px; --balu-h1-line: 66px;
+    --balu-h2-size: 48px; --balu-h2-line: 54px;
+    --balu-h3-size: 40px; --balu-h3-line: 44px;
+    --balu-h4-size: 32px; --balu-h4-line: 40px;
+    --balu-h5-size: 28px; --balu-h5-line: 32px;
+
+    --balu-s1-size: 24px; --balu-s1-line: 30px;
+    --balu-s2-size: 24px; --balu-s2-line: 30px;
+    --balu-s3-size: 20px; --balu-s3-line: 25px; --balu-s3-tracking: -0.015em;
+    --balu-s4-size: 20px; --balu-s4-line: 26px;
+
+    --balu-body-18-size: 18px; --balu-body-18-line: 26px;
+    --balu-body-16-size: 16px; --balu-body-16-line: 22px;
+    --balu-body-14-size: 14px; --balu-body-14-line: 20px;
+    --balu-body-12-size: 12px; --balu-body-12-line: 18px;
+    --balu-body-10-size: 10px; --balu-body-10-line: 16px;
+
+    --balu-button-l-size: 18px; --balu-button-l-line: 26px;
+    --balu-button-m-size: 16px; --balu-button-m-line: 24px;
+    --balu-button-s-size: 14px; --balu-button-s-line: 26px;
+
+    --balu-radius-1: 8px;
+    --balu-radius-2: 16px;
+    --balu-radius-3: 24px;
+    --balu-radius-full: 96px;
+    --balu-radius-alert: var(--balu-radius-1);
+    --balu-radius-table: var(--balu-radius-1);
+    --balu-radius-textarea: var(--balu-radius-2);
+    --balu-radius-popup: var(--balu-radius-2);
+    --balu-radius-card: var(--balu-radius-3);
+    --balu-radius-button: var(--balu-radius-full);
+
+    --balu-shadow-xs: 0px 2px 4px 0px rgba(80, 80, 80, 0.10);
+    --balu-shadow-sm: 0px 2px 6px 0px rgba(80, 80, 80, 0.10);
+    --balu-shadow-md: 0px 12px 18px -4px rgba(80, 80, 80, 0.10);
+    --balu-shadow-lg: 0px 24px 54px -12px rgba(80, 80, 80, 0.24);
+    --balu-shadow-xl: 0px 30px 64px 12px rgba(80, 80, 80, 0.14);
+
+    --balu-spacing-1: 8px;  --balu-spacing-2: 16px; --balu-spacing-3: 24px;
+    --balu-spacing-4: 32px; --balu-spacing-5: 40px; --balu-spacing-6: 48px;
+    --balu-spacing-7: 56px; --balu-spacing-8: 64px; --balu-spacing-9: 72px;
+    --balu-spacing-10: 80px; --balu-spacing-11: 88px; --balu-spacing-12: 96px;
+
+    --page-shadow: 12px 12px 65px 0px rgba(115, 173, 255, 0.2);
+    --mono: 'JetBrains Mono', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #EEF3FA;
+    font-family: var(--balu-font-body);
+    color: var(--balu-color-black);
+    padding: 48px 16px 80px;
+  }
+
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    background: var(--balu-color-white);
+    border-radius: 40px;
+    box-shadow: var(--page-shadow);
+    overflow: hidden;
+  }
+
+  /* ---- Header estilo Figma Balú ---- */
+  .header {
+    padding: 56px 64px 40px;
+    border-bottom: 1px solid #F8F8F8;
+    box-shadow: -2px 2px 25px 0px rgba(111, 171, 255, 0.1);
+    border-radius: 0 0 0 120px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 24px;
+  }
+  .header .eyebrow {
+    font-family: var(--balu-font-button);
+    font-weight: var(--balu-weight-semibold);
+    font-size: 16px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--balu-color-primary);
+  }
+  .header h1 {
+    font-family: var(--balu-font-display);
+    font-weight: 700;
+    font-size: clamp(40px, 6vw, 64px);
+    line-height: 1.1;
+  }
+  .header .meta {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--balu-color-grey-700);
+    text-align: right;
+    line-height: 1.7;
+  }
+
+  section { padding: var(--balu-spacing-6) 64px; }
+  section + section { border-top: 1px solid #F5F5F5; }
+  @media (max-width: 720px) { .header, section { padding-left: 24px; padding-right: 24px; } }
+
+  .section-title {
+    font-family: var(--balu-font-button);
+    font-weight: var(--balu-weight-medium);
+    font-size: 25px;
+    margin-bottom: var(--balu-spacing-4);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .section-title .count {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--balu-color-grey-700);
+  }
+
+  .token-name {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--balu-color-grey-700);
+  }
+  .token-value {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--balu-color-black);
+    font-weight: 500;
+  }
+
+  /* ---- Colores ---- */
+  .swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--balu-spacing-2); }
+  .swatch { border: 1px solid var(--balu-color-grey-100); border-radius: var(--balu-radius-textarea); overflow: hidden; }
+  .swatch .chip { height: 88px; }
+  .swatch .info { padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; background: var(--balu-color-white); }
+  .pending {
+    margin-top: var(--balu-spacing-3);
+    border: 1px dashed var(--balu-color-grey-200);
+    border-radius: var(--balu-radius-alert);
+    padding: var(--balu-spacing-2) var(--balu-spacing-3);
+    font-size: var(--balu-body-14-size);
+    line-height: var(--balu-body-14-line);
+    color: var(--balu-color-grey-700);
+  }
+  .pending strong { color: var(--balu-color-primary); }
+
+  /* ---- Tipografía ---- */
+  .type-row {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: var(--balu-spacing-3);
+    align-items: baseline;
+    padding: 14px 0;
+    border-bottom: 1px solid #F5F5F5;
+  }
+  .type-row:last-child { border-bottom: none; }
+  @media (max-width: 720px) { .type-row { grid-template-columns: 1fr; gap: 4px; } }
+  .type-label { display: flex; flex-direction: column; gap: 2px; }
+  .type-sample { overflow-wrap: anywhere; }
+
+  .t-h1 { font: var(--balu-weight-bold) var(--balu-h1-size)/var(--balu-h1-line) var(--balu-font-heading); }
+  .t-h2 { font: var(--balu-weight-bold) var(--balu-h2-size)/var(--balu-h2-line) var(--balu-font-heading); }
+  .t-h3 { font: var(--balu-weight-bold) var(--balu-h3-size)/var(--balu-h3-line) var(--balu-font-heading); }
+  .t-h4 { font: var(--balu-weight-bold) var(--balu-h4-size)/var(--balu-h4-line) var(--balu-font-heading); }
+  .t-h5 { font: var(--balu-weight-bold) var(--balu-h5-size)/var(--balu-h5-line) var(--balu-font-heading); }
+  .t-s1 { font: var(--balu-weight-bold) var(--balu-s1-size)/var(--balu-s1-line) var(--balu-font-heading); }
+  .t-s2 { font: var(--balu-weight-semibold) var(--balu-s2-size)/var(--balu-s2-line) var(--balu-font-heading); }
+  .t-s3 { font: var(--balu-weight-bold) var(--balu-s3-size)/var(--balu-s3-line) var(--balu-font-heading); letter-spacing: var(--balu-s3-tracking); }
+  .t-s4 { font: var(--balu-weight-semibold) var(--balu-s4-size)/var(--balu-s4-line) var(--balu-font-heading); }
+  .t-b18 { font-size: var(--balu-body-18-size); line-height: var(--balu-body-18-line); }
+  .t-b16 { font-size: var(--balu-body-16-size); line-height: var(--balu-body-16-line); }
+  .t-b14 { font-size: var(--balu-body-14-size); line-height: var(--balu-body-14-line); }
+  .t-b12 { font-size: var(--balu-body-12-size); line-height: var(--balu-body-12-line); }
+  .t-b10 { font-size: var(--balu-body-10-size); line-height: var(--balu-body-10-line); }
+  .variants { display: flex; flex-direction: column; gap: 4px; }
+  .v-italic { font-style: italic; }
+  .v-semibold { font-weight: var(--balu-weight-semibold); }
+  .v-bold { font-weight: var(--balu-weight-bold); }
+
+
+  /* ---- Radios ---- */
+  .radius-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--balu-spacing-3); }
+  .radius-card { display: flex; flex-direction: column; gap: 10px; }
+  .radius-shape {
+    height: 110px;
+    background: var(--balu-color-white);
+    border: 1px solid #838383;
+  }
+  .radius-info { display: flex; justify-content: space-between; align-items: baseline; }
+
+  /* ---- Sombras ---- */
+  .shadow-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--balu-spacing-4); }
+  .shadow-card { display: flex; flex-direction: column; gap: 12px; }
+  .shadow-demo {
+    height: 120px;
+    background: var(--balu-color-grey-100);
+    border: 1px solid var(--balu-color-grey-200);
+    border-radius: var(--balu-radius-textarea);
+  }
+  .shadow-info { display: flex; flex-direction: column; gap: 2px; }
+
+  /* ---- Spacing ---- */
+  .spacing-list { display: flex; flex-direction: column; gap: 10px; }
+  .spacing-row { display: grid; grid-template-columns: 160px 60px 1fr; align-items: center; gap: var(--balu-spacing-2); }
+  @media (max-width: 720px) { .spacing-row { grid-template-columns: 120px 50px 1fr; } }
+  .spacing-bar { height: 20px; background: var(--balu-color-primary); border-radius: 4px; opacity: 0.9; }
+
+  /* ---- Footer estilo Figma ---- */
+  .footer {
+    background: var(--balu-color-primary);
+    color: var(--balu-color-white);
+    text-align: center;
+    padding: 20px;
+    font-weight: var(--balu-weight-semibold);
+    font-size: 18px;
+    line-height: 26px;
+    border-radius: 0 0 20px 20px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="header">
+    <div>
+      <div class="eyebrow">Design Tokens</div>
+      <h1>Balú</h1>
+    </div>
+    <div class="meta">
+      tokens.css · v0.1.0<br>
+      fuente: Figma "Sistema de Diseño — Balú"<br>
+      este documento se renderiza con los propios tokens
+    </div>
+  </div>
+
+  <!-- ============ COLORES ============ -->
+  <section>
+    <div class="section-title">Colores <span class="count">estilos del proyecto · 24 tokens</span></div>
+
+    <p class="token-name" style="margin-bottom:10px; font-size:12px;">Naranja — marca y estados de interacción</p>
+    <div class="swatch-grid" style="margin-bottom: var(--balu-spacing-4)">
+      <div class="swatch"><div class="chip" style="background:#DF7702"></div><div class="info"><span class="token-name">Naranja/Balu</span><span class="token-value">#DF7702</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#F3B168"></div><div class="info"><span class="token-name">naranja-hover</span><span class="token-value">#F3B168</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#C05800"></div><div class="info"><span class="token-name">naranja-pressed</span><span class="token-value">#C05800</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#FFD9AE"></div><div class="info"><span class="token-name">naranja-tint-200</span><span class="token-value">#FFD9AE</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#FFEDD8"></div><div class="info"><span class="token-name">naranja-tint-100</span><span class="token-value">#FFEDD8</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#FFF7EF"></div><div class="info"><span class="token-name">naranja-tint-50</span><span class="token-value">#FFF7EF</span></div></div>
+    </div>
+
+    <p class="token-name" style="margin-bottom:10px; font-size:12px;">Neutros y grises</p>
+    <div class="swatch-grid" style="margin-bottom: var(--balu-spacing-4)">
+      <div class="swatch"><div class="chip" style="background:#FFFFFF; border-bottom:1px solid #F0F0F0"></div><div class="info"><span class="token-name">Neutros/Blanco</span><span class="token-value">#FFFFFF</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#000000"></div><div class="info"><span class="token-name">Neutros/Negro</span><span class="token-value">#000000</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#F8F8F8"></div><div class="info"><span class="token-name">Gris/Fondo</span><span class="token-value">#F8F8F8</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#F5F5F5"></div><div class="info"><span class="token-name">Gris/Claro</span><span class="token-value">#F5F5F5</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#E0E0E0"></div><div class="info"><span class="token-name">Gris/Stroke</span><span class="token-value">#E0E0E0</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#838383"></div><div class="info"><span class="token-name">Gris/Stroke oscuro</span><span class="token-value">#838383</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#A2A2A2"></div><div class="info"><span class="token-name">Gris/Texto</span><span class="token-value">#A2A2A2</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#E1E1E1"></div><div class="info"><span class="token-name">gris-disabled-bg</span><span class="token-value">#E1E1E1</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#A0A0A0"></div><div class="info"><span class="token-name">gris-disabled-text</span><span class="token-value">#A0A0A0</span></div></div>
+    </div>
+
+    <p class="token-name" style="margin-bottom:10px; font-size:12px;">Acciones y estados</p>
+    <div class="swatch-grid" style="margin-bottom: var(--balu-spacing-4)">
+      <div class="swatch"><div class="chip" style="background:#0D8C3C"></div><div class="info"><span class="token-name">Verde</span><span class="token-value">#0D8C3C</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#014E19"></div><div class="info"><span class="token-name">Verde oscuro</span><span class="token-value">#014E19</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#BD1C1C"></div><div class="info"><span class="token-name">Rojo oscuro</span><span class="token-value">#BD1C1C</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#2C70D5"></div><div class="info"><span class="token-name">Azul</span><span class="token-value">#2C70D5</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#9D590C"></div><div class="info"><span class="token-name">Amarillo oscuro</span><span class="token-value">#9D590C</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#602CA0"></div><div class="info"><span class="token-name">Violeta</span><span class="token-value">#602CA0</span></div></div>
+    </div>
+
+    <p class="token-name" style="margin-bottom:10px; font-size:12px;">Grey — usados en la sección de sombras</p>
+    <div class="swatch-grid">
+      <div class="swatch"><div class="chip" style="background:#E3E5E7"></div><div class="info"><span class="token-name">Grey/100</span><span class="token-value">#E3E5E7</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#C7CCD0"></div><div class="info"><span class="token-name">Grey/200</span><span class="token-value">#C7CCD0</span></div></div>
+      <div class="swatch"><div class="chip" style="background:#4D5257"></div><div class="info"><span class="token-name">Grey/700</span><span class="token-value">#4D5257</span></div></div>
+    </div>
+
+    <div class="pending" style="border-style:solid">
+      <strong>Demo de estados</strong> — alertas construidas con los propios tokens (compara contra tu componente Alertas):
+      <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:12px;">
+        <span style="display:inline-block; padding:8px 16px; border:1px solid var(--balu-success); border-radius:var(--balu-radius-alert); color:var(--balu-success-800); font-weight:700; font-size:14px; background:var(--balu-neutros-blanco)">¡Éxito!</span>
+        <span style="display:inline-block; padding:8px 16px; border:1px solid var(--balu-error); border-radius:var(--balu-radius-alert); color:var(--balu-error); font-weight:700; font-size:14px; background:var(--balu-neutros-blanco)">¡Error!</span>
+        <span style="display:inline-block; padding:8px 16px; border:1px solid var(--balu-naranja-balu); border-radius:var(--balu-radius-alert); color:var(--balu-warning); font-weight:700; font-size:14px; background:var(--balu-neutros-blanco)">¡Atención!</span>
+        <span style="display:inline-block; padding:8px 16px; border:1px solid var(--balu-info); border-radius:var(--balu-radius-alert); color:var(--balu-info); font-weight:700; font-size:14px; background:var(--balu-gris-fondo)">Recuerda que</span>
+      </div>
+    </div>
+
+    <p class="token-name" style="margin:var(--balu-spacing-4) 0 10px; font-size:12px;">Capa semántica — escalas 50–900 (el paso marcado es el valor de Figma)</p>
+    <div style="margin-bottom:18px;">
+      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;"><span class="token-name" style="font-size:12px;">--balu-success-*</span><span class="token-value">--balu-success → 500</span></div>
+      <div style="display:grid; grid-template-columns:repeat(10, 1fr); gap:4px;">
+        <div><div style="height:44px; border-radius:6px; background:#D4EADC;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">50<br>#D4EADC</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#ACD8BC;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">100<br>#ACD8BC</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#84C59C;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">200<br>#84C59C</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#5DB27C;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">300<br>#5DB27C</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#359F5C;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">400<br>#359F5C</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#0D8C3C; box-shadow:0 0 0 2px var(--balu-neutros-blanco), 0 0 0 4px var(--balu-neutros-negro);"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">500●<br>#0D8C3C</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#0B7633;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">600<br>#0B7633</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#096029;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">700<br>#096029</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#014E19; box-shadow:0 0 0 2px var(--balu-neutros-blanco), 0 0 0 4px var(--balu-neutros-negro);"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">800●<br>#014E19</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#053416;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">900<br>#053416</div></div>
+      </div>
+    </div>
+    <div style="margin-bottom:18px;">
+      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;"><span class="token-name" style="font-size:12px;">--balu-error-*</span><span class="token-value">--balu-error → 700</span></div>
+      <div style="display:grid; grid-template-columns:repeat(10, 1fr); gap:4px;">
+        <div><div style="height:44px; border-radius:6px; background:#F5DCDC;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">50<br>#F5DCDC</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#EDC1C1;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">100<br>#EDC1C1</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#E5A5A5;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">200<br>#E5A5A5</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#DD8A8A;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">300<br>#DD8A8A</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#D56E6E;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">400<br>#D56E6E</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#CD5353;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">500<br>#CD5353</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#C53737;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">600<br>#C53737</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#BD1C1C; box-shadow:0 0 0 2px var(--balu-neutros-blanco), 0 0 0 4px var(--balu-neutros-negro);"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">700●<br>#BD1C1C</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#8E1515;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">800<br>#8E1515</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#5E0E0E;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">900<br>#5E0E0E</div></div>
+      </div>
+    </div>
+    <div style="margin-bottom:18px;">
+      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;"><span class="token-name" style="font-size:12px;">--balu-warning-*</span><span class="token-value">--balu-warning → 800</span></div>
+      <div style="display:grid; grid-template-columns:repeat(10, 1fr); gap:4px;">
+        <div><div style="height:44px; border-radius:6px; background:#F1E7DC;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">50<br>#F1E7DC</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#E6D5C2;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">100<br>#E6D5C2</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#DCC4A8;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">200<br>#DCC4A8</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#D1B28E;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">300<br>#D1B28E</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#C7A074;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">400<br>#C7A074</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#BC8E5A;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">500<br>#BC8E5A</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#B27D40;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">600<br>#B27D40</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#A76B26;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">700<br>#A76B26</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#9D590C; box-shadow:0 0 0 2px var(--balu-neutros-blanco), 0 0 0 4px var(--balu-neutros-negro);"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">800●<br>#9D590C</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#653908;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">900<br>#653908</div></div>
+      </div>
+    </div>
+    <div style="margin-bottom:18px;">
+      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;"><span class="token-name" style="font-size:12px;">--balu-info-*</span><span class="token-value">--balu-info → 600</span></div>
+      <div style="display:grid; grid-template-columns:repeat(10, 1fr); gap:4px;">
+        <div><div style="height:44px; border-radius:6px; background:#DCE8F8;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">50<br>#DCE8F8</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#BFD4F2;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">100<br>#BFD4F2</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#A2C0EC;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">200<br>#A2C0EC</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#84ACE7;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">300<br>#84ACE7</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#6798E1;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">400<br>#6798E1</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#4984DB;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">500<br>#4984DB</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#2C70D5; box-shadow:0 0 0 2px var(--balu-neutros-blanco), 0 0 0 4px var(--balu-neutros-negro);"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">600●<br>#2C70D5</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#245AAC;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">700<br>#245AAC</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#1B4583;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">800<br>#1B4583</div></div>
+        <div><div style="height:44px; border-radius:6px; background:#132F5A;"></div><div class="token-value" style="margin-top:4px; text-align:center; font-size:10px;">900<br>#132F5A</div></div>
+      </div>
+    </div>
+  </section>
+  <section>
+    <div class="section-title">Títulos <span class="count">Montserrat Bold</span></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">H1</span><span class="token-value">58px / 66px · 700</span></div><div class="type-sample t-h1">Lorem ipsum dolor</div></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">H2</span><span class="token-value">48px / 54px · 700</span></div><div class="type-sample t-h2">Lorem ipsum dolor</div></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">H3</span><span class="token-value">40px / 44px · 700</span></div><div class="type-sample t-h3">Lorem ipsum dolor sit</div></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">H4</span><span class="token-value">32px / 40px · 700</span></div><div class="type-sample t-h4">Lorem ipsum dolor sit amet</div></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">H5</span><span class="token-value">28px / 32px · 700</span></div><div class="type-sample t-h5">Lorem ipsum dolor sit amet</div></div>
+  </section>
+
+  <!-- ============ TIPOGRAFÍA: SUBTÍTULOS ============ -->
+  <section>
+    <div class="section-title">Subtítulos <span class="count">Montserrat</span></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">S1</span><span class="token-value">24px / 30px · 700</span></div><div class="type-sample t-s1">Lorem ipsum dolor sit amet consectetur</div></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">S2</span><span class="token-value">24px / 30px · 600</span></div><div class="type-sample t-s2">Lorem ipsum dolor sit amet consectetur</div></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">S3</span><span class="token-value">20px / 25px · 700</span></div><div class="type-sample t-s3">Lorem ipsum dolor sit amet consectetur</div></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">S4</span><span class="token-value">20px / 26px · 600</span></div><div class="type-sample t-s4">Lorem ipsum dolor sit amet consectetur</div></div>
+  </section>
+
+  <!-- ============ TIPOGRAFÍA: CUERPO ============ -->
+  <section>
+    <div class="section-title">Cuerpo <span class="count">Montserrat · regular / italic / semibold / bold</span></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">Body 18</span><span class="token-value">18px / 26px · 400–700</span></div>
+      <div class="variants t-b18"><span>Lorem ipsum dolor sit amet consectetur.</span><span class="v-italic">Lorem ipsum dolor sit amet consectetur.</span><span class="v-semibold">Lorem ipsum dolor sit amet consectetur.</span><span class="v-bold">Lorem ipsum dolor sit amet consectetur.</span></div></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">Body 16</span><span class="token-value">16px / 22px · 400–700</span></div>
+      <div class="variants t-b16"><span>Lorem ipsum dolor sit amet consectetur.</span><span class="v-italic">Lorem ipsum dolor sit amet consectetur.</span><span class="v-semibold" style="letter-spacing:-0.015em">Lorem ipsum dolor sit amet consectetur.</span><span class="v-bold">Lorem ipsum dolor sit amet consectetur.</span></div></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">Body 14</span><span class="token-value">14px / 20px · 400–700 (bold 14px/18px)</span></div>
+      <div class="variants t-b14"><span>Lorem ipsum dolor sit amet consectetur.</span><span class="v-italic">Lorem ipsum dolor sit amet consectetur.</span><span class="v-semibold">Lorem ipsum dolor sit amet consectetur.</span><span class="v-bold" style="line-height:18px">Lorem ipsum dolor sit amet consectetur.</span></div></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">Body 12</span><span class="token-value">12px / 18px · 400–700</span></div>
+      <div class="variants t-b12"><span>Lorem ipsum dolor sit amet consectetur.</span><span class="v-italic" style="line-height:20px">Lorem ipsum dolor sit amet consectetur.</span><span class="v-semibold">Lorem ipsum dolor sit amet consectetur.</span><span class="v-bold">Lorem ipsum dolor sit amet consectetur.</span></div></div>
+    <div class="type-row"><div class="type-label"><span class="token-name">Body 10</span><span class="token-value">10px / 16px · 400–700 (bold 10px/14px)</span></div>
+      <div class="variants t-b10"><span>Lorem ipsum dolor sit amet consectetur.</span><span class="v-italic">Lorem ipsum dolor sit amet consectetur.</span><span class="v-semibold">Lorem ipsum dolor sit amet consectetur.</span><span class="v-bold" style="line-height:14px">Lorem ipsum dolor sit amet consectetur.</span></div></div>
+  </section>
+
+  <!-- ============ RADIOS ============ -->
+  <section>
+    <div class="section-title">Radios <span class="count">escala base 8px · por uso</span></div>
+    <div class="radius-grid">
+      <div class="radius-card"><div class="radius-shape" style="border-radius:8px"></div><div class="radius-info"><span class="token-name">--balu-radius-alert · Alertas | Avisos</span><span class="token-value">8px</span></div></div>
+      <div class="radius-card"><div class="radius-shape" style="border-radius:8px"></div><div class="radius-info"><span class="token-name">--balu-radius-table · Tablas</span><span class="token-value">8px</span></div></div>
+      <div class="radius-card"><div class="radius-shape" style="border-radius:16px"></div><div class="radius-info"><span class="token-name">--balu-radius-textarea · Text area</span><span class="token-value">16px</span></div></div>
+      <div class="radius-card"><div class="radius-shape" style="border-radius:16px"></div><div class="radius-info"><span class="token-name">--balu-radius-popup · Pop ups</span><span class="token-value">16px</span></div></div>
+      <div class="radius-card"><div class="radius-shape" style="border-radius:24px"></div><div class="radius-info"><span class="token-name">--balu-radius-card · Cards</span><span class="token-value">24px</span></div></div>
+      <div class="radius-card"><div class="radius-shape" style="border-radius:96px"></div><div class="radius-info"><span class="token-name">--balu-radius-button · Botones</span><span class="token-value">96px</span></div></div>
+    </div>
+  </section>
+
+  <!-- ============ SOMBRAS ============ -->
+  <section>
+    <div class="section-title">Sombras <span class="count">xs → xl</span></div>
+    <div class="shadow-grid">
+      <div class="shadow-card"><div class="shadow-demo" style="box-shadow:var(--balu-shadow-xs)"></div><div class="shadow-info"><span class="token-name">--balu-shadow-xs</span><span class="token-value">0 2 4 0 · 10%</span></div></div>
+      <div class="shadow-card"><div class="shadow-demo" style="box-shadow:var(--balu-shadow-sm)"></div><div class="shadow-info"><span class="token-name">--balu-shadow-sm</span><span class="token-value">0 2 6 0 · 10%</span></div></div>
+      <div class="shadow-card"><div class="shadow-demo" style="box-shadow:var(--balu-shadow-md)"></div><div class="shadow-info"><span class="token-name">--balu-shadow-md</span><span class="token-value">0 12 18 -4 · 10%</span></div></div>
+      <div class="shadow-card"><div class="shadow-demo" style="box-shadow:var(--balu-shadow-lg)"></div><div class="shadow-info"><span class="token-name">--balu-shadow-lg</span><span class="token-value">0 24 54 -12 · 24%</span></div></div>
+      <div class="shadow-card"><div class="shadow-demo" style="box-shadow:var(--balu-shadow-xl)"></div><div class="shadow-info"><span class="token-name">--balu-shadow-xl</span><span class="token-value">0 30 64 12 · 14%</span></div></div>
+    </div>
+  </section>
+
+  <!-- ============ SPACING ============ -->
+  <section>
+    <div class="section-title">Spacing <span class="count">escala base 8px</span></div>
+    <div class="spacing-list">
+      <div class="spacing-row"><span class="token-name">--balu-spacing-1</span><span class="token-value">8px</span><div class="spacing-bar" style="width:8px"></div></div>
+      <div class="spacing-row"><span class="token-name">--balu-spacing-2</span><span class="token-value">16px</span><div class="spacing-bar" style="width:16px"></div></div>
+      <div class="spacing-row"><span class="token-name">--balu-spacing-3</span><span class="token-value">24px</span><div class="spacing-bar" style="width:24px"></div></div>
+      <div class="spacing-row"><span class="token-name">--balu-spacing-4</span><span class="token-value">32px</span><div class="spacing-bar" style="width:32px"></div></div>
+      <div class="spacing-row"><span class="token-name">--balu-spacing-5</span><span class="token-value">40px</span><div class="spacing-bar" style="width:40px"></div></div>
+      <div class="spacing-row"><span class="token-name">--balu-spacing-6</span><span class="token-value">48px</span><div class="spacing-bar" style="width:48px"></div></div>
+      <div class="spacing-row"><span class="token-name">--balu-spacing-7</span><span class="token-value">56px</span><div class="spacing-bar" style="width:56px"></div></div>
+      <div class="spacing-row"><span class="token-name">--balu-spacing-8</span><span class="token-value">64px</span><div class="spacing-bar" style="width:64px"></div></div>
+      <div class="spacing-row"><span class="token-name">--balu-spacing-9</span><span class="token-value">72px</span><div class="spacing-bar" style="width:72px"></div></div>
+      <div class="spacing-row"><span class="token-name">--balu-spacing-10</span><span class="token-value">80px</span><div class="spacing-bar" style="width:80px"></div></div>
+      <div class="spacing-row"><span class="token-name">--balu-spacing-11</span><span class="token-value">88px</span><div class="spacing-bar" style="width:88px"></div></div>
+      <div class="spacing-row"><span class="token-name">--balu-spacing-12</span><span class="token-value">96px</span><div class="spacing-bar" style="width:96px"></div></div>
+    </div>
+  </section>
+
+  <div class="footer">Balú · Design Tokens v0.1.0</div>
+</div>
+</body>
+</html>

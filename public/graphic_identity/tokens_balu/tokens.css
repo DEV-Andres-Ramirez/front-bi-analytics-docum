@@ -1,0 +1,240 @@
+/**
+ * ============================================
+ * BALÚ — Design Tokens
+ * Sistema de Diseño Balú · v0.1.0
+ * Fuente de verdad: Figma "Sistema de Diseño - Balú"
+ * Generado desde tokens.json (DTCG)
+ * NO EDITAR A MANO — los cambios se hacen en Figma/tokens.json
+ * ============================================
+ */
+
+:root {
+  /* ==========================================
+     COLOR — Naranja (marca)
+     ========================================== */
+  --balu-naranja-balu: #DF7702;       /* Naranja/Balu — primario */
+  --balu-naranja-hover: #F3B168;      /* Button primary hover */
+  --balu-naranja-pressed: #C05800;    /* Button pressed (texto/borde) */
+  --balu-naranja-tint-200: #FFD9AE;   /* Secondary pressed bg */
+  --balu-naranja-tint-100: #FFEDD8;   /* Tertiary default bg */
+  --balu-naranja-tint-50: #FFF7EF;    /* Label destacado bg */
+
+  /* ==========================================
+     COLOR — Neutros
+     ========================================== */
+  --balu-neutros-blanco: #FFFFFF;
+  --balu-neutros-negro: #000000;
+
+  /* ==========================================
+     COLOR — Gris
+     ========================================== */
+  --balu-gris-fondo: #F8F8F8;
+  --balu-gris-claro: #F5F5F5;
+  --balu-gris-stroke: #E0E0E0;
+  --balu-gris-stroke-oscuro: #838383;
+  --balu-gris-texto: #A2A2A2;
+  --balu-gris-disabled-bg: #E1E1E1;
+  --balu-gris-disabled-text: #A0A0A0;
+
+  /* ==========================================
+     COLOR — Acciones y estados
+     ========================================== */
+  --balu-estado-verde: #0D8C3C;           /* Éxito — borde */
+  --balu-estado-verde-oscuro: #014E19;    /* Éxito — texto */
+  --balu-estado-rojo-oscuro: #BD1C1C;     /* Error */
+  --balu-estado-azul: #2C70D5;            /* Información */
+  --balu-estado-amarillo-oscuro: #9D590C; /* Advertencia */
+  --balu-estado-violeta: #602CA0;
+
+  /* Grey/* (sección de sombras) */
+  --balu-grey-100: #E3E5E7;
+  --balu-grey-200: #C7CCD0;
+  --balu-grey-700: #4D5257;
+
+  /* ==========================================
+     COLOR — Capa semántica (nace de Acciones y estados)
+     Escalas 50–900 · anclas = valores de Figma
+     ========================================== */
+  --balu-success-50: #D4EADC;
+  --balu-success-100: #ACD8BC;
+  --balu-success-200: #84C59C;
+  --balu-success-300: #5DB27C;
+  --balu-success-400: #359F5C;
+  --balu-success-500: #0D8C3C;  /* Figma: Verde */
+  --balu-success-600: #0B7633;
+  --balu-success-700: #096029;
+  --balu-success-800: #014E19;  /* Figma: Verde oscuro */
+  --balu-success-900: #053416;
+  --balu-success: var(--balu-success-500);
+
+  --balu-error-50: #F5DCDC;
+  --balu-error-100: #EDC1C1;
+  --balu-error-200: #E5A5A5;
+  --balu-error-300: #DD8A8A;
+  --balu-error-400: #D56E6E;
+  --balu-error-500: #CD5353;
+  --balu-error-600: #C53737;
+  --balu-error-700: #BD1C1C;  /* Figma: Rojo oscuro */
+  --balu-error-800: #8E1515;
+  --balu-error-900: #5E0E0E;
+  --balu-error: var(--balu-error-700);
+
+  --balu-warning-50: #F1E7DC;
+  --balu-warning-100: #E6D5C2;
+  --balu-warning-200: #DCC4A8;
+  --balu-warning-300: #D1B28E;
+  --balu-warning-400: #C7A074;
+  --balu-warning-500: #BC8E5A;
+  --balu-warning-600: #B27D40;
+  --balu-warning-700: #A76B26;
+  --balu-warning-800: #9D590C;  /* Figma: Amarillo oscuro */
+  --balu-warning-900: #653908;
+  --balu-warning: var(--balu-warning-800);
+
+  --balu-info-50: #DCE8F8;
+  --balu-info-100: #BFD4F2;
+  --balu-info-200: #A2C0EC;
+  --balu-info-300: #84ACE7;
+  --balu-info-400: #6798E1;
+  --balu-info-500: #4984DB;
+  --balu-info-600: #2C70D5;  /* Figma: Azul */
+  --balu-info-700: #245AAC;
+  --balu-info-800: #1B4583;
+  --balu-info-900: #132F5A;
+  --balu-info: var(--balu-info-600);
+
+
+  /* Alias de compatibilidad */
+  --balu-color-primary: var(--balu-naranja-balu);
+  --balu-color-white: var(--balu-neutros-blanco);
+  --balu-color-black: var(--balu-neutros-negro);
+  --balu-color-grey-100: var(--balu-grey-100);
+  --balu-color-grey-200: var(--balu-grey-200);
+  --balu-color-grey-700: var(--balu-grey-700);
+
+  /* ==========================================
+     FONT FAMILIES
+     ========================================== */
+  --balu-font-heading: 'Montserrat', sans-serif;
+  --balu-font-body: 'Montserrat', sans-serif;
+  --balu-font-button: 'Poppins', sans-serif;
+  --balu-font-display: 'Red Hat Display', sans-serif;
+
+  /* ==========================================
+     FONT WEIGHTS
+     ========================================== */
+  --balu-weight-regular: 400;
+  --balu-weight-medium: 500;
+  --balu-weight-semibold: 600;
+  --balu-weight-bold: 700;
+
+  /* ==========================================
+     TIPOGRAFÍA — Títulos (Montserrat Bold)
+     ========================================== */
+  --balu-h1-size: 58px;   --balu-h1-line: 66px;
+  --balu-h2-size: 48px;   --balu-h2-line: 54px;
+  --balu-h3-size: 40px;   --balu-h3-line: 44px;
+  --balu-h4-size: 32px;   --balu-h4-line: 40px;
+  --balu-h5-size: 28px;   --balu-h5-line: 32px;
+
+  /* ==========================================
+     TIPOGRAFÍA — Subtítulos
+     S1: Bold · S2: SemiBold · S3: Bold · S4: SemiBold
+     ========================================== */
+  --balu-s1-size: 24px;   --balu-s1-line: 30px;
+  --balu-s2-size: 24px;   --balu-s2-line: 30px;
+  --balu-s3-size: 20px;   --balu-s3-line: 25px;  --balu-s3-tracking: -0.015em;
+  --balu-s4-size: 20px;   --balu-s4-line: 26px;
+
+  /* ==========================================
+     TIPOGRAFÍA — Cuerpo (Montserrat)
+     Variantes: regular 400 / italic / semibold 600 / bold 700
+     ========================================== */
+  --balu-body-18-size: 18px;  --balu-body-18-line: 26px;
+  --balu-body-16-size: 16px;  --balu-body-16-line: 22px;
+  --balu-body-14-size: 14px;  --balu-body-14-line: 20px;
+  --balu-body-14-line-bold: 18px;
+  --balu-body-12-size: 12px;  --balu-body-12-line: 18px;
+  --balu-body-10-size: 10px;  --balu-body-10-line: 16px;
+  --balu-body-10-line-bold: 14px;
+
+  /* ==========================================
+     TIPOGRAFÍA — Botones (Poppins SemiBold 600)
+     ========================================== */
+  --balu-button-l-size: 18px;  --balu-button-l-line: 26px;
+  --balu-button-m-size: 16px;  --balu-button-m-line: 24px;
+  --balu-button-s-size: 14px;  --balu-button-s-line: 26px;
+
+  /* ==========================================
+     BORDER RADIUS — escala base 8px
+     (normalizados: 10→8, 12→16, 15→16, 20→24, 100→96)
+     ========================================== */
+  --balu-radius-1: 8px;
+  --balu-radius-2: 16px;
+  --balu-radius-3: 24px;
+  --balu-radius-full: 96px;
+
+  /* Por uso */
+  --balu-radius-alert: var(--balu-radius-1);      /* Alertas | Avisos */
+  --balu-radius-table: var(--balu-radius-1);      /* Tablas */
+  --balu-radius-textarea: var(--balu-radius-2);   /* Text area */
+  --balu-radius-popup: var(--balu-radius-2);      /* Pop ups */
+  --balu-radius-card: var(--balu-radius-3);       /* Cards */
+  --balu-radius-button: var(--balu-radius-full);  /* Botones (pill) */
+
+  /* ==========================================
+     SOMBRAS
+     ========================================== */
+  --balu-shadow-xs: 0px 2px 4px 0px rgba(80, 80, 80, 0.10);
+  --balu-shadow-sm: 0px 2px 6px 0px rgba(80, 80, 80, 0.10);
+  --balu-shadow-md: 0px 12px 18px -4px rgba(80, 80, 80, 0.10);
+  --balu-shadow-lg: 0px 24px 54px -12px rgba(80, 80, 80, 0.24);
+  --balu-shadow-xl: 0px 30px 64px 12px rgba(80, 80, 80, 0.14);
+
+  /* ==========================================
+     SPACING — escala base 8px
+     ========================================== */
+  --balu-spacing-1: 8px;
+  --balu-spacing-2: 16px;
+  --balu-spacing-3: 24px;
+  --balu-spacing-4: 32px;
+  --balu-spacing-5: 40px;
+  --balu-spacing-6: 48px;
+  --balu-spacing-7: 56px;
+  --balu-spacing-8: 64px;
+  --balu-spacing-9: 72px;
+  --balu-spacing-10: 80px;
+  --balu-spacing-11: 88px;
+  --balu-spacing-12: 96px;
+}
+
+/* ==============================================
+   CLASES UTILITARIAS TIPOGRÁFICAS (opcionales)
+   El dev puede usarlas directamente o solo las variables
+   ============================================== */
+
+.balu-h1 { font: var(--balu-weight-bold) var(--balu-h1-size)/var(--balu-h1-line) var(--balu-font-heading); }
+.balu-h2 { font: var(--balu-weight-bold) var(--balu-h2-size)/var(--balu-h2-line) var(--balu-font-heading); }
+.balu-h3 { font: var(--balu-weight-bold) var(--balu-h3-size)/var(--balu-h3-line) var(--balu-font-heading); }
+.balu-h4 { font: var(--balu-weight-bold) var(--balu-h4-size)/var(--balu-h4-line) var(--balu-font-heading); }
+.balu-h5 { font: var(--balu-weight-bold) var(--balu-h5-size)/var(--balu-h5-line) var(--balu-font-heading); }
+
+.balu-s1 { font: var(--balu-weight-bold) var(--balu-s1-size)/var(--balu-s1-line) var(--balu-font-heading); }
+.balu-s2 { font: var(--balu-weight-semibold) var(--balu-s2-size)/var(--balu-s2-line) var(--balu-font-heading); }
+.balu-s3 { font: var(--balu-weight-bold) var(--balu-s3-size)/var(--balu-s3-line) var(--balu-font-heading); letter-spacing: var(--balu-s3-tracking); }
+.balu-s4 { font: var(--balu-weight-semibold) var(--balu-s4-size)/var(--balu-s4-line) var(--balu-font-heading); }
+
+.balu-body-18 { font: var(--balu-weight-regular) var(--balu-body-18-size)/var(--balu-body-18-line) var(--balu-font-body); }
+.balu-body-16 { font: var(--balu-weight-regular) var(--balu-body-16-size)/var(--balu-body-16-line) var(--balu-font-body); }
+.balu-body-14 { font: var(--balu-weight-regular) var(--balu-body-14-size)/var(--balu-body-14-line) var(--balu-font-body); }
+.balu-body-12 { font: var(--balu-weight-regular) var(--balu-body-12-size)/var(--balu-body-12-line) var(--balu-font-body); }
+.balu-body-10 { font: var(--balu-weight-regular) var(--balu-body-10-size)/var(--balu-body-10-line) var(--balu-font-body); }
+
+/* Modificadores de peso para cuerpo */
+.balu-italic { font-style: italic; }
+.balu-semibold { font-weight: var(--balu-weight-semibold); }
+.balu-bold { font-weight: var(--balu-weight-bold); }
+
+.balu-button-l { font: var(--balu-weight-semibold) var(--balu-button-l-size)/var(--balu-button-l-line) var(--balu-font-button); }
+.balu-button-m { font: var(--balu-weight-semibold) var(--balu-button-m-size)/var(--balu-button-m-line) var(--balu-font-button); }
+.balu-button-s { font: var(--balu-weight-semibold) var(--balu-button-s-size)/var(--balu-button-s-line) var(--balu-font-button); }

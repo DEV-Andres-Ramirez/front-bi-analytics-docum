@@ -1,26 +1,381 @@
 @import "tailwindcss";
+/* Identidad gráfica Balú (fuente de verdad, no se edita a mano) */
+@import "../../public/graphic_identity/tokens_balu/tokens.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* El tema lo controla data-theme en <html> (script inline en layout.tsx). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ==========================================================================
+   Tokens semánticos — se consumen por rol, nunca por hex.
+   Claro y oscuro son selecciones propias (no una inversión automática).
+   ========================================================================== */
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Superficies */
+  --bg: #f4f5f7;
+  --bg-accent: #fff7ef;
+  --surface: #ffffff;
+  --surface-2: #f8f8f8;
+  --surface-3: #f1f2f4;
+  --overlay: rgb(14 17 22 / 0.42);
+
+  /* Bordes */
+  --border: #e6e7ea;
+  --border-strong: #d3d6db;
+  --hairline: rgb(11 11 11 / 0.08);
+
+  /* Tinta */
+  --text: #14171c;
+  --text-2: #4d5257;
+  --muted: #6b7078;
+  --faint: #a2a2a2;
+
+  /* Marca */
+  --primary: #df7702;
+  --primary-strong: #c05800;
+  --primary-hover: #e88a1a;
+  --primary-soft: #fff7ef;
+  --primary-soft-2: #ffedd8;
+  --primary-ink: #ffffff;
+  --ring: rgb(223 119 2 / 0.45);
+
+  /* Estado (reservado: siempre con ícono + etiqueta) */
+  --good: #0ca30c;
+  --good-ink: #0b7633;
+  --good-soft: #d4eadc;
+  --info: #2c70d5;
+  --info-ink: #245aac;
+  --info-soft: #dce8f8;
+  --warning: #fab219;
+  --warning-ink: #9d590c;
+  --warning-soft: #f1e7dc;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --critical-ink: #bd1c1c;
+  --critical-soft: #f5dcdc;
+  --neutral-mark: #b4b8bf;
+
+  /* Gráficas — paleta categórica validada (orden fijo, CVD ΔE 9.1) */
+  --chart-1: #df7702;
+  --chart-2: #2a78d6;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-6: #008300;
+  --chart-7: #4a3aa7;
+  --chart-8: #e34948;
+  --chart-other: #b4b8bf;
+  --chart-grid: #eceef1;
+  --chart-axis: #d3d6db;
+  --chart-tick: #6b7078;
+
+  /* Rampa secuencial naranja (magnitud: claro → oscuro) */
+  --seq-0: #fff4e6;
+  --seq-1: #ffdcb0;
+  --seq-2: #fbbd72;
+  --seq-3: #f39a33;
+  --seq-4: #df7702;
+  --seq-5: #b35a00;
+  --seq-6: #7a3b00;
+
+  /* Sombras */
+  --shadow-card: 0 1px 2px rgb(20 23 28 / 0.04), 0 8px 24px -12px rgb(20 23 28 / 0.12);
+  --shadow-pop: 0 24px 54px -12px rgb(20 23 28 / 0.24);
+  --glow: 0 0 0 1px rgb(223 119 2 / 0.25), 0 12px 32px -12px rgb(223 119 2 / 0.45);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0e1116;
+  --bg-accent: #1a1510;
+  --surface: #161a21;
+  --surface-2: #1d222b;
+  --surface-3: #242a34;
+  --overlay: rgb(0 0 0 / 0.6);
+
+  --border: #262c36;
+  --border-strong: #353c48;
+  --hairline: rgb(255 255 255 / 0.08);
+
+  --text: #eef0f3;
+  --text-2: #c3c7ce;
+  --muted: #9aa1ab;
+  --faint: #6b7280;
+
+  --primary: #f08a1c;
+  --primary-strong: #f59a2e;
+  --primary-hover: #f59a2e;
+  --primary-soft: #2a1d10;
+  --primary-soft-2: #3a2612;
+  --primary-ink: #1a1204;
+  --ring: rgb(245 154 46 / 0.5);
+
+  --good: #22b35a;
+  --good-ink: #5ed48a;
+  --good-soft: #10291a;
+  --info: #4d8fe6;
+  --info-ink: #8fb8f2;
+  --info-soft: #14233a;
+  --warning: #fab219;
+  --warning-ink: #f6c65c;
+  --warning-soft: #2e2410;
+  --serious: #ec835a;
+  --critical: #e55a5a;
+  --critical-ink: #f08a8a;
+  --critical-soft: #331616;
+  --neutral-mark: #5b6370;
+
+  --chart-1: #c96a00;
+  --chart-2: #3987e5;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-8: #e66767;
+  --chart-other: #5b6370;
+  --chart-grid: #232933;
+  --chart-axis: #353c48;
+  --chart-tick: #9aa1ab;
+
+  /* En oscuro el extremo "cero" se funde con la superficie */
+  --seq-0: #2a2118;
+  --seq-1: #4a2f12;
+  --seq-2: #6e3f0c;
+  --seq-3: #9a5507;
+  --seq-4: #c96a00;
+  --seq-5: #f08a1c;
+  --seq-6: #ffc27a;
+
+  --shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 12px 28px -16px rgb(0 0 0 / 0.7);
+  --shadow-pop: 0 24px 54px -12px rgb(0 0 0 / 0.7);
+  --glow: 0 0 0 1px rgb(245 154 46 / 0.3), 0 12px 32px -12px rgb(245 154 46 / 0.35);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-bg-accent: var(--bg-accent);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-primary: var(--primary);
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-soft-2: var(--primary-soft-2);
+  --color-primary-ink: var(--primary-ink);
+  --color-good: var(--good);
+  --color-good-ink: var(--good-ink);
+  --color-good-soft: var(--good-soft);
+  --color-info: var(--info);
+  --color-info-ink: var(--info-ink);
+  --color-info-soft: var(--info-soft);
+  --color-warning: var(--warning);
+  --color-warning-ink: var(--warning-ink);
+  --color-warning-soft: var(--warning-soft);
+  --color-critical: var(--critical);
+  --color-critical-ink: var(--critical-ink);
+  --color-critical-soft: var(--critical-soft);
+
+  --font-sans: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+  --font-button: var(--font-poppins), var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 20px;
+  --radius-pill: 96px;
+
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+  --shadow-glow: var(--glow);
+
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-float: float 14s ease-in-out infinite;
+  --animate-shake: shake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  --animate-fade-up: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+@keyframes float {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(3%, -4%, 0) scale(1.05); }
+  66% { transform: translate3d(-3%, 3%, 0) scale(0.97); }
+}
+@keyframes shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(3px); }
+  30%, 50%, 70% { transform: translateX(-6px); }
+  40%, 60% { transform: translateX(6px); }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+  ::selection {
+    background: var(--primary-soft-2);
+    color: var(--text);
+  }
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  /* Scrollbars discretos */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 99px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ==========================================================================
+   Utilidades propias
+   ========================================================================== */
+@utility card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+@utility skeleton {
+  background: linear-gradient(90deg, var(--surface-3) 25%, var(--surface-2) 37%, var(--surface-3) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.6s linear infinite;
+  border-radius: 10px;
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility text-balance {
+  text-wrap: balance;
+}
+
+@utility btn-primary {
+  background: linear-gradient(135deg, #e5870f 0%, #c05800 100%);
+  color: #ffffff;
+  font-family: var(--font-button);
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+  box-shadow: 0 8px 20px -10px rgb(192 88 0 / 0.7);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  &:hover:not(:disabled) {
+    filter: brightness(1.06);
+    box-shadow: 0 12px 26px -10px rgb(192 88 0 / 0.8);
+  }
+  &:active:not(:disabled) {
+    transform: translateY(1px) scale(0.99);
+  }
+  &:disabled {
+    filter: grayscale(0.4);
+    opacity: 0.7;
+  }
+  [data-theme="dark"] & {
+    background: linear-gradient(135deg, #f59a2e 0%, #df7702 100%);
+    color: #1a1204;
+  }
+}
+
+/* Fondo decorativo con malla de gradiente animada (Home / login) */
+@utility mesh-bg {
+  background:
+    radial-gradient(60% 60% at 10% 10%, rgb(223 119 2 / 0.16) 0%, transparent 60%),
+    radial-gradient(50% 50% at 90% 20%, rgb(42 120 214 / 0.1) 0%, transparent 60%),
+    radial-gradient(60% 60% at 70% 100%, rgb(27 175 122 / 0.08) 0%, transparent 60%);
+}
+
+/* ==========================================================================
+   View Transitions (navegación entre Home ↔ tableros)
+   ========================================================================== */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.28s;
+}
+::view-transition-group(*) {
+  animation-duration: 0.38s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ==========================================================================
+   Mapbox: el control de atribución hereda el tema
+   ========================================================================== */
+.mapboxgl-ctrl-attrib,
+.mapboxgl-ctrl-logo {
+  opacity: 0.7;
+}
+[data-theme="dark"] .mapboxgl-ctrl-attrib {
+  background: rgb(22 26 33 / 0.8) !important;
+  color: var(--muted);
+}
+[data-theme="dark"] .mapboxgl-ctrl-attrib a {
+  color: var(--muted);
+}
+[data-theme="dark"] .mapboxgl-ctrl-group {
+  background: var(--surface-2);
+}
+[data-theme="dark"] .mapboxgl-ctrl-group button + button {
+  border-top-color: var(--border);
+}
+[data-theme="dark"] .mapboxgl-ctrl-icon {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* ==========================================================================
+   Movimiento reducido
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

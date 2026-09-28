@@ -1,0 +1,103 @@
+import type { DashboardSpec } from "../types";
+import { avg, count, is, share } from "./helpers";
+
+const NOTIFICABLE = is("NOTIFICABLE", "Sí");
+
+export const medicinaLaboralSalidas: DashboardSpec = {
+  slug: "medicina-laboral-salidas",
+  dataset: "ml_salidas",
+  dateField: "FECHA_APROBACION",
+  dateLabel: "Fecha de aprobación",
+  filters: [
+    { field: "FORMA_DE_ENVIO", label: "Forma de envío", kind: "multi", primary: true },
+    { field: "EVENTO_CORREO_ELECTRONICO_CERTIFICADO", label: "Evento correo electrónico", kind: "multi", primary: true },
+    { field: "OFICINA", label: "Oficina", kind: "multi", primary: true },
+    { field: "TRAMITE", label: "Trámite", kind: "multi", primary: true },
+    { field: "ESTADO_GUIA", label: "Estado guía", kind: "multi" },
+    { field: "COPIA", label: "Copia", kind: "multi" },
+    { field: "TIPO_EVENTO", label: "Tipo de evento", kind: "multi" },
+    { field: "PROCESO_ASISTENTE", label: "Proceso asistente", kind: "multi" },
+    { field: "ESTADO_SALIDA", label: "Estado salida", kind: "multi" },
+    { field: "DEPARTAMENTO_DESTINATARIO", label: "Departamento destinatario", kind: "multi" },
+    { field: "CUENTA_ENVIO_CORREO", label: "Cuenta de envío", kind: "multi" },
+    { field: "GESTIONADOR_RESPONSABLE", label: "Gestionador", kind: "multi" },
+    { field: "REVISOR", label: "Revisor", kind: "multi" },
+    { field: "APROBADOR", label: "Aprobador", kind: "multi" },
+    { field: "PREFIJO", label: "Prefijo", kind: "multi" },
+    { field: "FECHA_MAXIMA_RESPUESTA", label: "Fecha máxima de respuesta", kind: "date" },
+    { field: "NUMERO_GUIA_ENVIO", label: "Número de guía", kind: "text" },
+    { field: "ID_ENVIO_CORREO_ELECTRONICO_CERTIFICADO", label: "ID SealMail", kind: "text" },
+    { field: "NUMERO_RADICADO", label: "Radicado", kind: "text" },
+  ],
+  kpis: [
+    { id: "total", label: "Total de salidas", measure: count(), format: "int", polarity: "neutral", hero: true, hint: "Comunicaciones de salida (principal y copias) aprobadas en el periodo." },
+    { id: "entregadas", label: "% Entregadas de notificables", measure: share(is("EVENTO_CORREO_ELECTRONICO_CERTIFICADO", "Acuse de recibo"), NOTIFICABLE), format: "pct", polarity: "up-good", hint: "Acuse de recibo sobre las salidas notificables (acuse, abiertas y fallidas)." },
+    { id: "abiertas", label: "% Abiertas de notificables", measure: share(is("EVENTO_CORREO_ELECTRONICO_CERTIFICADO", "El destinatario abrio la notificacion"), NOTIFICABLE), format: "pct", polarity: "up-good", hint: "Notificaciones que el destinatario abrió sobre las notificables." },
+    { id: "fallidas", label: "% Fallidas de notificables", measure: share(is("EVENTO_CORREO_ELECTRONICO_CERTIFICADO", "No fue posible la entrega al destinatario"), NOTIFICABLE), format: "pct", polarity: "up-bad", hint: "Entregas fallidas sobre las salidas notificables." },
+    { id: "guias", label: "Guías físicas pendientes", measure: count(is("ESTADO_GUIA", "Por enviar Mensajería", "Por recibir en correspondencia", "Por enviar Courier")), format: "int", polarity: "up-bad", hint: "Guías por enviar (mensajería o courier) o por recibir en correspondencia." },
+    { id: "digital", label: "% Envío digital", measure: share(is("FORMA_DE_ENVIO", "Correo electrónico certificado", "Correo electrónico")), format: "pct", polarity: "up-good", hint: "Salidas enviadas por correo electrónico (certificado o simple)." },
+    { id: "aprobacion", label: "Aprobación (promedio días)", measure: avg("DIAS_EN_APROBACION"), format: "days", polarity: "up-bad", hint: "Promedio de días en aprobación." },
+    { id: "sla", label: "% Dentro de SLA", measure: share(is("DENTRO_SLA", "Sí"), is("DENTRO_SLA", "Sí", "No")), format: "pct", polarity: "up-good", provisional: true, hint: "Días en aprobación menores o iguales al tiempo definido del trámite (solo trámites con tiempo definido). Fórmula provisional." },
+  ],
+  sections: [
+    {
+      id: "notificacion",
+      title: "Envío y notificación",
+      widgets: [
+        { id: "medio", type: "donut", title: "Medio de envío", dimension: "FORMA_DE_ENVIO", size: "sm" },
+        { id: "resultado", type: "bar", orientation: "horizontal", title: "Resultado de la notificación", dimension: "EVENTO_CORREO_ELECTRONICO_CERTIFICADO", size: "md" },
+        { id: "guias", type: "bar", orientation: "vertical", title: "Estados de guía", dimension: "ESTADO_GUIA", size: "sm" },
+        {
+          id: "oficinas",
+          type: "bar",
+          orientation: "horizontal",
+          title: "Oficinas asignadas",
+          subtitle: "Cantidad de salidas · la etiqueta muestra el % de notificaciones entregadas",
+          dimension: "OFICINA",
+          secondary: { measure: share(is("EVENTO_CORREO_ELECTRONICO_CERTIFICADO", "Acuse de recibo"), NOTIFICABLE), label: "Entregadas", format: "pct" },
+          size: "md",
+          height: 360,
+        },
+        { id: "copia", type: "donut", title: "Categoría de copia", dimension: "COPIA", size: "sm" },
+        { id: "tramite", type: "bar", orientation: "vertical", title: "Tipo de trámite", dimension: "TRAMITE", size: "sm" },
+      ],
+    },
+    {
+      id: "responsables",
+      title: "Responsables y procesos",
+      widgets: [
+        { id: "gestionadores", type: "bar", orientation: "horizontal", title: "Gestionador responsable", subtitle: "Top 10", dimension: "GESTIONADOR_RESPONSABLE", topN: 10, size: "md" },
+        { id: "revisores", type: "bar", orientation: "horizontal", title: "Revisor responsable", subtitle: "Top 10", dimension: "REVISOR", topN: 10, size: "md" },
+        { id: "procesos", type: "bar", orientation: "horizontal", title: "Procesos (asistente)", dimension: "PROCESO_ASISTENTE", size: "md", height: 360 },
+        { id: "tiempo-definido", type: "histogram", title: "Tiempo definido del trámite", subtitle: "Días definidos para responder", field: "TIEMPO_DEFINIDO_DIAS", unit: "días", bins: [1, 2, 3, 5, 7, 8, 10, 15, 30], size: "md" },
+      ],
+    },
+    {
+      id: "territorio",
+      title: "Tendencia y territorio",
+      widgets: [
+        { id: "serie", type: "timeseries", title: "Salidas aprobadas en el tiempo", subtitle: "La línea tenue es el periodo anterior", size: "full", compare: true },
+        { id: "mapa", type: "map", title: "Salidas por departamento y municipio del destinatario", subtitle: "Doble clic en un departamento para ver sus municipios", geoLabel: "destinatario", breakdown: { field: "FORMA_DE_ENVIO", label: "Forma de envío" }, size: "full", height: 480, note: "El tablero original lo titulaba \"departamento remitente\", pero la vista solo trae la geografía del destinatario." },
+      ],
+    },
+  ],
+  table: {
+    title: "Detalle de salidas de medicina laboral",
+    columns: [
+      { field: "NUMERO_RADICADO", label: "Radicado", format: "mono" },
+      { field: "DESTINATARIO", label: "Destinatario" },
+      { field: "FECHA_APROBACION", label: "Aprobada el", format: "datetime" },
+      { field: "FECHA_MAXIMA_RESPUESTA", label: "Fecha máxima", format: "date", visible: false },
+      { field: "FORMA_DE_ENVIO", label: "Forma de envío" },
+      { field: "EVENTO_CORREO_ELECTRONICO_CERTIFICADO", label: "Evento correo", format: "badge" },
+      { field: "ESTADO_GUIA", label: "Estado guía" },
+      { field: "ID_ENVIO_CORREO_ELECTRONICO_CERTIFICADO", label: "ID SealMail", format: "mono", visible: false },
+      { field: "NUMERO_GUIA_ENVIO", label: "Número de guía", format: "mono", visible: false },
+      { field: "GESTIONADOR_RESPONSABLE", label: "Gestionador" },
+      { field: "REVISOR", label: "Revisor", visible: false },
+      { field: "COPIA", label: "Copia" },
+    ],
+    searchFields: ["NUMERO_RADICADO", "DESTINATARIO", "NUMERO_GUIA_ENVIO", "ID_ENVIO_CORREO_ELECTRONICO_CERTIFICADO"],
+    defaultSort: { field: "FECHA_APROBACION", dir: "desc" },
+  },
+};

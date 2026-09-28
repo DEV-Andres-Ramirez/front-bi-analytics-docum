@@ -1,0 +1,194 @@
+"use client";
+
+import { ArrowDown, ListFilter } from "lucide-react";
+import { motion } from "motion/react";
+import { useDashboard } from "@/components/dashboard/dashboard-context";
+import { DeltaChip } from "@/components/widgets/kit/delta-chip";
+import { StatusIcon } from "@/components/widgets/kit/status-icon";
+import type { KpiResult, Range } from "@/dashboards/dto";
+import type { KpiCellDef, KpiDef, StatusTone } from "@/dashboards/types";
+import { useElementSize } from "@/hooks/use-element-size";
+import { cn } from "@/lib/cn";
+import { TONE_VARS } from "@/lib/charts/semantic";
+import { formatPct, formatValue } from "@/lib/format";
+import { AnimatedFigure, EASE, FigureSkeleton, FitLabel, goToAnchor, HintIcon, KpiCardShell, ProvisionalBadge, textWidth } from "./shared";
+
+type TileDef = Extract<KpiCellDef, { kind: "tile" }>;
+
+/**
+ * KpiTile: un KPI que merece medidor o acción.
+ * gauge: cifra de 30 px (igual que las celdas de grupo: el héroe es la única cifra grande) + medidor 0–100 %
+ *   con marcador del periodo anterior y su rótulo "antes X %" justo debajo del marcador (sin metas inventadas).
+ * status: borde izquierdo de 3 px en el tono + acción (filtro o ancla) alineada a la izquierda; medidor si es
+ *   una tasa. Si la fórmula es provisional, el acento queda solo en la franja (medidor en gris, sin ícono).
+ * compact: fila secundaria de 112 px (etiqueta + cifra con el chip en línea).
+ */
+export function KpiTile({ cell, def, result, range, loading, index }: { cell: TileDef; def: KpiDef; result?: KpiResult; range?: Range; loading: boolean; index: number }) {
+  const tone = cell.tone;
+  const status = cell.variant === "status";
+  const gauge = def.format === "pct" && (cell.variant === "gauge" || status);
+
+  if (cell.variant === "compact") {
+    return (
+      <KpiCardShell index={index} label={def.label} className="overflow-hidden">
+        {tone && <span aria-hidden className="absolute inset-y-0 left-0 w-[3px]" style={{ background: TONE_VARS[tone].solid }} />}
+        <TileLabel def={def} tone={tone} small />
+        <div className="mt-1 flex min-h-7 flex-wrap items-end gap-x-2 gap-y-1">
+          {loading ? (
+            <FigureSkeleton className="h-6 w-20" />
+          ) : (
+            <>
+              <AnimatedFigure value={result?.value} format={def.format} className="text-2xl font-bold leading-none tracking-tight text-text" />
+              <DeltaChip value={result?.value} previous={result?.previous} format={def.format} polarity={def.polarity} prevRange={range} />
+            </>
+          )}
+        </div>
+        {cell.action && <TileAction action={cell.action} className="mt-auto pt-1" />}
+      </KpiCardShell>
+    );
+  }
+
+  // Provisional: el acento crítico baja a la franja; el medidor no se pinta en el tono sólido
+  const muted = Boolean(def.provisional);
+  const gaugeColor = muted ? "var(--neutral-mark)" : tone ? TONE_VARS[tone].solid : "var(--chart-1)";
+  return (
+    <KpiCardShell index={index} label={def.label} className={cn(status && "overflow-hidden")}>
+      {status && tone && <span aria-hidden className="absolute inset-y-0 left-0 w-[3px]" style={{ background: TONE_VARS[tone].solid }} />}
+      <TileLabel def={def} tone={status && !muted ? tone : undefined} badge={false} />
+      <div className="flex h-[54px] items-end">
+        {loading ? <FigureSkeleton className="h-7 w-28" /> : <AnimatedFigure value={result?.value} format={def.format} className="text-[30px] font-bold leading-none tracking-tight text-text" />}
+      </div>
+      <div className="mt-1.5 flex min-h-[22px] flex-wrap items-center justify-start gap-x-2 gap-y-1.5">
+        {loading ? (
+          <FigureSkeleton className="h-[22px] w-24 rounded-full" />
+        ) : (
+          <DeltaChip value={result?.value} previous={result?.previous} format={def.format} polarity={def.polarity} size="md" prevRange={range} showPrevious={!gauge && !def.provisional} />
+        )}
+        {def.provisional && (
+          <span className="flex">
+            <ProvisionalBadge def={def} />
+          </span>
+        )}
+        {cell.action && <TileAction action={cell.action} />}
+      </div>
+      {gauge && <Gauge def={def} result={loading ? undefined : result} color={gaugeColor} scale={!status} />}
+    </KpiCardShell>
+  );
+}
+
+/** Ícono de tono, badge "Provisional" compacto y (?) junto a la etiqueta del tile. */
+const TONE_W = 20;
+const HINT_W = 20;
+const FLASK_W = 20;
+
+function TileLabel({ def, tone, small, badge = true }: { def: KpiDef; tone?: StatusTone; small?: boolean; badge?: boolean }) {
+  const { ref, width, measured } = useElementSize<HTMLDivElement>();
+  const room = measured ? width - HINT_W - (tone ? TONE_W : 0) - (badge && def.provisional ? FLASK_W : 0) : null;
+  return (
+    <div ref={ref} className={cn("flex min-w-0 items-center gap-1.5", small ? "min-h-4" : "min-h-5")}>
+      {tone && <StatusIcon tone={tone} />}
+      <FitLabel def={def} available={room} px={small ? 12.5 : 14} className={small ? "text-[12.5px] leading-4" : "text-sm leading-5"} />
+      {badge && <ProvisionalBadge def={def} compact={small} />}
+      <HintIcon def={def} />
+    </div>
+  );
+}
+
+function TileAction({ action, className }: { action: NonNullable<TileDef["action"]>; className?: string }) {
+  const { filters, toggleValue } = useDashboard();
+  const f = action.filter;
+  const selected = Boolean(f && filters.eq[f.field]?.includes(f.value));
+  const cls = cn(
+    "-mx-1 inline-flex h-6 items-center gap-1 whitespace-nowrap rounded-full px-2 text-xs font-semibold text-primary-text transition hover:bg-primary-soft",
+    selected && "bg-primary-soft ring-1 ring-primary",
+    className,
+  );
+  if (f) {
+    return (
+      <button type="button" aria-pressed={selected} onClick={() => toggleValue(f.field, f.value)} className={cls}>
+        <ListFilter className="size-3.5" aria-hidden />
+        {action.label}
+      </button>
+    );
+  }
+  if (action.anchor) {
+    const anchor = action.anchor;
+    return (
+      <a
+        href={`#${anchor.replace(/^#/, "")}`}
+        onClick={(e) => {
+          e.preventDefault();
+          goToAnchor(anchor);
+        }}
+        className={cls}
+      >
+        {action.label}
+        <ArrowDown className="size-3.5" aria-hidden />
+      </a>
+    );
+  }
+  return null;
+}
+
+/** Rótulos de la escala del medidor ("0 %", "100 %") a 10,5 px. */
+const SCALE_START_W = 22;
+const SCALE_END_W = 34;
+
+/**
+ * Medidor 0–100 % con marcador del periodo anterior. Valores fuera de rango se recortan al borde.
+ * El rótulo "antes X %" va justo debajo del marcador (centrado y acotado a la barra); "0 %" y "100 %"
+ * se ocultan si el rótulo los pisaría.
+ */
+function Gauge({ def, result, color, scale }: { def: KpiDef; result?: KpiResult; color: string; scale: boolean }) {
+  const { ref, width, measured } = useElementSize<HTMLDivElement>();
+  const clamp = (v: number) => Math.max(0, Math.min(1, v));
+  const v = result?.value ?? null;
+  const prev = result?.previous ?? null;
+  const prevText = prev !== null ? `antes ${formatValue(prev, def.format)}` : "";
+  const W = measured ? width : 220;
+  const labelW = textWidth(prevText, 10.5) + 4;
+  const left = prev !== null ? Math.max(0, Math.min(W - labelW, clamp(prev) * W - labelW / 2)) : 0;
+  const showStart = prev === null || left > SCALE_START_W + 6;
+  const showEnd = prev === null || left + labelW < W - SCALE_END_W - 6;
+  return (
+    <div ref={ref} className="mt-auto pt-2.5">
+      <div
+        role="meter"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={v === null ? undefined : Math.round(v * 1000) / 10}
+        aria-valuetext={v === null ? "Sin dato" : `${formatPct(v)}${prev !== null ? `; periodo anterior ${formatPct(prev)}` : ""}`}
+        aria-label={def.label}
+        className="relative h-2 rounded-full bg-surface-3"
+      >
+        {v !== null && (
+          <motion.span
+            className="absolute inset-y-0 left-0 rounded-full"
+            style={{ background: color }}
+            initial={{ width: 0 }}
+            animate={{ width: `${clamp(v) * 100}%` }}
+            transition={{ duration: 0.5, ease: EASE }}
+          />
+        )}
+        {prev !== null && (
+          <span
+            title={`Periodo anterior: ${formatValue(prev, def.format)}`}
+            className="absolute -top-1 h-4 w-[3px] -translate-x-1/2 rounded-full border border-surface bg-text-2"
+            style={{ left: `${clamp(prev) * 100}%` }}
+          />
+        )}
+      </div>
+      {scale && (
+        <div className="tabular relative mt-1 h-3.5 text-[10.5px] leading-[14px] text-muted">
+          {showStart && <span className="absolute left-0 top-0">0 %</span>}
+          {prev !== null && (
+            <span aria-hidden className="absolute top-0 whitespace-nowrap text-center font-medium text-text-2" style={{ left, width: labelW }}>
+              {prevText}
+            </span>
+          )}
+          {showEnd && <span className="absolute right-0 top-0">100 %</span>}
+        </div>
+      )}
+    </div>
+  );
+}

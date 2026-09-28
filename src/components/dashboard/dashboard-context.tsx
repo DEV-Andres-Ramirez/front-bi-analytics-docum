@@ -9,6 +9,8 @@ import { parseFilters, serializeFilters } from "@/lib/filters";
 
 export interface DashboardActions {
   toggleValue: (field: string, value: string) => void;
+  /** Alterna varios pares a la vez (clic en una celda de matriz): si todos estaban activos los quita, si no los agrega. */
+  toggleValues: (pairs: { field: string; value: string }[]) => void;
   setValues: (field: string, values: string[]) => void;
   setText: (field: string, text: string) => void;
   setDates: (field: string, range: { from?: string; to?: string } | null) => void;
@@ -58,6 +60,14 @@ export function useUrlFilters() {
         commit((f) => {
           const arr = f.eq[field] ?? [];
           f.eq[field] = arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
+        }),
+      toggleValues: (pairs) =>
+        commit((f) => {
+          const allOn = pairs.every((p) => f.eq[p.field]?.includes(p.value));
+          for (const { field, value } of pairs) {
+            const arr = f.eq[field] ?? [];
+            f.eq[field] = allOn ? arr.filter((v) => v !== value) : arr.includes(value) ? arr : [...arr, value];
+          }
         }),
       setValues: (field, values) =>
         commit((f) => {

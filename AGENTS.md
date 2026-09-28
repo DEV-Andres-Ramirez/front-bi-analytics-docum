@@ -56,11 +56,14 @@ Lee este documento completo antes de tocar código. Todo el texto de la UI está
 | React | 19.2 | `ViewTransition` de `react` sin configuración. Reglas del React Compiler activas en ESLint (no leer refs en render, no `setState` síncrono en efectos). |
 | Tailwind CSS | v4 | Tokens en `src/app/globals.css` (`@theme inline`, `@custom-variant dark`, `@utility`). |
 | Chart.js + react-chartjs-2 | 4.5 / 5.3 | Registro en `src/lib/charts/register.ts`. Plugins: `chartjs-plugin-datalabels` y `chartjs-chart-sankey`. |
-| Mapbox GL | 3.x | Estilo del cliente `mapbox://styles/andres-ramirez/cmqkorkc6003101s46xcreztw`. |
+| chartjs-chart-treemap | 4.2 | Treemap (import dinámico, se registra dentro de `widgets/treemap.tsx`). |
+| html-to-image | 1.11 | PNG de widgets HTML (rankings, tiras de estado…) desde el menú ⋯. |
+| Mapbox GL | 3.x | Estilo del cliente `mapbox://styles/andres-ramirez/cmqkorkc6003101s46xcreztw` (claro) y `NEXT_PUBLIC_MAPBOX_STYLE_DARK` (oscuro; respaldo `mapbox/dark-v11`). |
 | motion | 13 | Animaciones (`motion/react`). `MotionConfig reducedMotion="user"`. |
 | TanStack Query | 5 | Caché de datos del cliente, con `placeholderData: keepPreviousData`. |
 | jose | 6 | JWT de sesión (HS256). |
 | mapshaper | dev | Solo lo usa `scripts/geo/build-geo.mjs`. |
+| vitest | 5 (dev) | Tests de specs (métricas congeladas + layout), registro semántico, formatos y motor (`pnpm test`). |
 
 Gestor de paquetes: **pnpm**. En `pnpm-workspace.yaml` los builds nativos están deshabilitados (`sharp`, `better-sqlite3`, etc.).
 
@@ -73,6 +76,7 @@ pnpm dev                                  # http://localhost:3000
 pnpm build && pnpm start                  # producción
 pnpm lint                                 # ESLint (debe quedar en 0 problemas)
 npx tsc --noEmit                          # tipos (tras `npx next typegen` si cambian rutas)
+pnpm test                                 # vitest: métricas intactas, layout válido, semántica, formatos, motor
 node scripts/mock/build-profiles.mjs      # regenera perfiles mock (requiere top_secret/db)
 node scripts/geo/build-geo.mjs            # regenera geografía simplificada + catálogo DIVIPOLA
 node scripts/geo/check-dictionary.mjs     # tasa de cruce del diccionario geo (requiere top_secret/db)
@@ -87,53 +91,57 @@ src/
   proxy.ts                         chequeo optimista de sesión → /login (401 en /api)
   app/
     layout.tsx                     fuentes (Montserrat, Poppins), script de tema, <Providers>
-    globals.css                    tokens Balú + tokens semánticos claro/oscuro + utilidades
-    login/                         pantalla de acceso por token
+    globals.css                    tokens Balú + tokens semánticos claro/oscuro + identidad de módulo
+                                   + sistema de filas (.dash-row / .dash-cell / .dash-card)
+    login/                         pantalla de acceso por token (panel de módulos + tarjeta)
     (app)/layout.tsx               verifySession() + <AppShell> (sidebar, topbar, ⌘K)
-    (app)/page.tsx                 Home = catálogo de tableros
+    (app)/page.tsx                 Home = "Centro de mando documental"
     (app)/tableros/[slug]/page.tsx vista de tablero (13 slugs estáticos)
     api/tableros/[slug]/route.ts           agregados del tablero (JSON)
     api/tableros/[slug]/detalle/route.ts   tabla paginada · ?format=csv exporta todo
-    api/catalogo/route.ts                  cifra principal del mes por tablero (Home)
-  config/dashboards.ts             metadatos: slug, título, módulo, ícono, descripción, vistas, KPI principal
+    api/catalogo/route.ts                  cifra titular + KPI de salud del mes por tablero (Home, paleta)
+  config/dashboards.ts             módulos (label, summary) y tableros (heading, summary, headlineKpi,
+                                   healthKpi, features, vistas, ícono)
   dashboards/
-    types.ts                       CONTRATO declarativo: DashboardSpec, KpiDef, WidgetDef, Measure, Predicate
-    dto.ts                         respuestas de la API (KpiResult, CategoryResult, MapResult, …)
+    types.ts                       CONTRATO: DashboardSpec, KpiDef, KpiRowDef, WidgetDef, Viz, VizOptions,
+                                   SectionDef.rows (RowDef, CellRef), SemanticFamily
+    dto.ts                         respuestas de la API (KpiResult, CategoryResult, MapResult, CatalogResponse…)
+    viz.ts                         visualización efectiva por widget (resolveViz) y conjuntos de formas
+    layout.ts                      plantillas, tiers, presupuestos de alto, validateLayout, packRows
+    baseline.json                  línea base congelada de ids y definiciones (NO editar a mano)
+    specs.test.ts                  red de seguridad: métricas intactas + layout válido
     specs/*.ts                     un spec por tablero (+ helpers.ts, entes-common.ts)
   components/
-    shell/                         AppShell, Sidebar, CommandPalette
-    home/                          HomeView, DashboardCard
-    dashboard/                     DashboardView, contexto/URL, filtros, KPI, secciones, widget-card, detail-table
-    widgets/                       bar, donut, timeseries, monthly, pivot-heatmap, bar-table, sankey,
-                                   drilldown, efficiency-table, choropleth-map, widget-renderer, result-table
-    ui/                            popover, sheet, dialog, tooltip, count-up, sparkline, primitives, theme-toggle
+    shell/                         AppShell, Sidebar (riel automático), Topbar, SectionNav, CommandPalette
+    home/                          HomeView, HomeHero, PulseSummary, ModuleNav, ModuleSection, DashboardCard…
+    dashboard/                     DashboardView, DashboardHeader, filtros (priority+), KpiBand (kpi/*),
+                                   section (filas), widget-card (tarjeta v2), detail-table
+    widgets/                       una visualización por archivo (ranking-list, people-leaderboard,
+                                   composition-bar, status-strip, status-board, pipeline-steps, category-tiles,
+                                   entity-tiles, family-split, quality-notice, split-rows, drilldown-bars,
+                                   area-timeseries, column-bars, monthly-bars, histogram, treemap,
+                                   heatmap-matrix, phase-matrix, sankey-v2, pivot-v2, efficiency-matrix,
+                                   resolution-table, map/*), widget-renderer (registro viz → componente),
+                                   result-table ("Ver datos"/CSV), kit/* (gramática común)
+    ui/                            popover, sheet, dialog, tooltip, count-up, primitives, theme-toggle
     brand/logo.tsx                 logo oficial (color o monocromo con máscara CSS)
   lib/
-    charts/                        register, theme (useChartTheme, categoryColors, seqColor), semantic
-    geo/diccionario.ts             resolución BD → códigos DANE (DPTO/MPIOS) + divipola.json
+    charts/                        register, theme, semantic (registro de familias), resize-recovery
+    geo/                           diccionario.ts + divipola.json + bounds.ts (generado)
+    labels.ts                      displayLabel (tipo título es-CO, siglas, NIT), dayShort, initials
     dates.ts format.ts filters.ts theme.ts cn.ts
-  server/
-    env.ts                         variables de entorno validadas
-    auth/                          jwt.ts (jose), dal.ts (verifySession), actions.ts (login/logout), rate-limit.ts
-    data/
-      provider.ts                  DataProvider (mock hoy, BD después)
-      table.ts                     tabla columnar en memoria
-      normalizers.ts               limpieza (canales, "No reporta", categoría SLA de Entes, franja horaria…)
-      engine/                      core (predicados y medidas), filter, aggregate, efficiency, run
-      datasets/*.ts                un dataset canónico por vista (schema, geo, normalize, config mock)
-      mock/                        generator.ts (semilla fija), fake.ts, load.ts, profiles/*.json
-      postgres/README.md           plan de conexión a la BD real
+  server/                          (ver §5)
 scripts/
   mock/                            build-profiles.mjs, config.mjs, csv.mjs
   geo/                             build-geo.mjs, check-dictionary.mjs
+docs/ui-design-system.md           SISTEMA DE DISEÑO (fuente de verdad visual; ver §10)
 public/
   data/colombia-*.geojson          GeoJSON originales (NO se modifican)
-  data/geo/                        generados: departamentos.json + municipios/<DPTO>.json
+  data/geo/                        generados: departamentos.json, municipios/<DPTO>.json,
+                                   colombia-outline.json, mask.json
   graphic_identity/                logo Positiva + tokens del sistema de diseño Balú
 top_secret/                        SOLO LOCAL (en .gitignore): pantallazos, CSV reales, SQL, runbook
 ```
-
----
 
 ## 5. Arquitectura de datos
 
@@ -149,16 +157,19 @@ DashboardView ── TanStack Query ──► GET /api/tableros/[slug]?…
                                           ▼
                                    DashboardResponse { kpis, widgets, options, range, geoNames }
                                           │
-WidgetCard → WidgetRenderer → (BarChart | DonutChart | TimeseriesChart | … | ChoroplethMap)
+KpiBand (spec.kpiLayout) + DashboardSection → DashboardRow (plantilla + tier) → WidgetCard / CompositeCard
+      → WidgetRenderer: effectiveViz(widget, result) → RankingList | StatusStrip | AreaTimeseries | … | HeroMap
 ```
 
 - **Spec declarativo** (`src/dashboards/specs/*.ts`): solo datos (sin funciones). Define filtros, KPIs (medida, formato, polaridad, pista "¿Cómo se calcula?", `provisional`), secciones y widgets, y la tabla de detalle. El cliente lo importa para pintar y el servidor para calcular.
 - **Medidas** (`Measure`): `count`, `countDistinct`, `sum`, `avg`, `ratio` (proporción de filas), `ratioOf` (cociente de dos medidas). Aceptan `where: Predicate`.
 - **KPIs**: valor del rango, valor del periodo anterior de igual duración, `delta` relativo y `spark` por día (semana o mes si el rango es largo). Un KPI puede usar otra fecha (`dateField`, p. ej. "Aprobados en el periodo").
 - **Opciones de filtro facetadas**: cada filtro se calcula con todos los demás aplicados.
-- **Cross-filtering**: un clic en una barra, porción, leyenda o territorio llama `toggleValue(campo, valor)`. Los campos geográficos son `__dpto` y `__mpio` (códigos DANE).
+- **Cross-filtering**: un clic en una fila, tile, segmento, leyenda o territorio llama `toggleValue(campo, valor)` (`toggleValues` para celdas de matriz). Los campos geográficos son `__dpto` y `__mpio` (códigos DANE).
+- **Filtrar es resaltar**: un `bar`/`donut`/`bartable` (1.ª columna)/`map` cuya dimensión está filtrada se calcula sin su propio filtro (`skipFields`) y conserva todas sus categorías; el cliente resalta lo seleccionado y atenúa el resto. Lo neutral ("No reporta", "Sin …") va al final y "Otros" de último. Con `topN` sin "Otros", `CategoryResult.rest` trae cuántas categorías y cuánto quedaron fuera ("Top 15 de 42 · 91 % del total").
 - **Tabla de detalle**: paginación, orden y búsqueda en el servidor; CSV con separador `;` y BOM (Excel es-CO).
-- **Tipos de widget**: `bar` (vertical, horizontal, apilada, con métrica secundaria como etiqueta), `donut` (≤ 6 porciones + "Otros"), `timeseries` (granularidad día/semana/mes en cliente, periodo anterior, `splitBy`), `monthly` (barras mensuales con variación % como etiqueta, `scope: "ytd"`), `pivot` (heatmap con grupos), `bartable`, `map`, `sankey`, `drilldown` (jerarquía navegable), `histogram`, `efficiency` (ranking semanal de PQRD).
+- **Tipos de widget (datos)**: `bar` (con `stackBy`, `secondary`, `topN`/`others`), `donut` (legado: los specs ya no la usan como forma), `timeseries` (`series`, `splitBy`, `compare`), `monthly` (`scope: "ytd"`), `pivot` (`rowOrder`, `stableRows`, `stableColumns`, `fillNumericColumns`), `bartable`, `map`, `sankey`, `drilldown`, `histogram`, `efficiency`. El TIPO define qué se calcula; la **forma** la define `viz` (§10).
+- **Layout declarativo**: cada sección tiene `nav` (eyebrow), `question` (H2) y `rows: RowDef[]` con plantillas cerradas que suman 12 (`"12"`, `"8-4"`, `"4-8"`, `"7-5"`, `"5-7"`, `"6-6"`, `"4-4-4"`, `"3-3-3-3"`, `"6-3-3"`) y un `tier` de alto compartido (`S` 280 · `M` 380 · `L` 480 · `XL` 640 · `auto`). Celdas especiales: `{ stack }`, `{ composite: "heatmap-matrix" | "phase-matrix" }`, `{ tabs }`. La banda de KPIs se declara en `spec.kpiLayout` (héroe, grupos `list/proportion/stepper/alerts/pair` con `embed`/`gauges`, tiles `gauge/status/compact`). `validateLayout()` (dev + vitest) verifica sumas, cobertura, capacidad, P1 única y anti-monotonía.
 
 ### Fechas
 Todas las fechas se manejan como **milisegundos "de pared" de Bogotá** (UTC-5 fijo; los componentes UTC del `Date` son la hora local). Helpers en `src/lib/dates.ts`. El rango por defecto es el mes actual hasta hoy, como en los tableros originales.
@@ -183,7 +194,7 @@ Todas las fechas se manejan como **milisegundos "de pared" de Bogotá** (UTC-5 f
 - **SMART M1**: `pqrd_*` casi siempre vacío (el cruce con PQRD falla) y se muestra como "Sin cruce con PQRD". El macro motivo es 98 % "No Reporta".
 - **SMART M3**: no filtra `momento = 3` y duplica filas por los joins. `nombre_tutela` usa 0 en lugar de 2 para "NO".
 - **Facturas emitidas**: se duplican por el join con la tabla de errores. La resolución `99999999999999` es relleno.
-- **Datos sucios que se normalizan** (`normalizers.ts`): WEB/Web, Mail - AI/Mail-IA, mayúsculas inconsistentes, `\xa0`, "reclasificaciòn", y vacío/null/N/A/NO REPORTA como "No reporta".
+- **Datos sucios que se normalizan** (`normalizers.ts`): WEB/Web, Mail - AI/Mail-IA, mayúsculas inconsistentes, `\xa0`, "reclasificaciòn", vacío/null/N/A/NO REPORTA como "No reporta" y alias (`ALIASES`): tutelas `Estado_del_fallo` "Informativos"→"Informativo"; ML entradas `estado_salida` "Por recibir correspondencia"→"Por recibir en correspondencia" (SQL equivalente en `src/server/data/postgres/README.md`).
 - **`vw_reporte_datastudio_pqrd_eficiencia`** no aparece en los pantallazos. Se ubicó en el tablero PQRD como "Eficiencia semanal por gerencia" y en mock se recalcula desde PQRD (`engine/efficiency.ts`).
 
 ### Pendientes de negocio (fórmulas `provisional: true`, marcadas en la UI)
@@ -224,13 +235,16 @@ Todas las fechas se manejan como **milisegundos "de pared" de Bogotá** (UTC-5 f
   - por código: `padStart` y el departamento se deriva del municipio;
   - por nombre: `norm()` + alias de departamento + alias de municipio acotados por departamento + nombre único nacional;
   - cruce contra los CSV reales: **100 % departamentos, 99,1 % municipios**. El resto son combinaciones inválidas de la fuente (p. ej. AMAZONAS/MEDELLÍN) y se agregan solo al departamento o como "sin ubicación válida".
-- **`ChoroplethMap`**:
-  - coropleta por departamento con rampa secuencial naranja;
-  - hover con desglose (top 4 de una dimensión);
-  - clic selecciona y abre un panel con "Filtrar tablero" y "Ver municipios";
-  - **doble clic** hace zoom al departamento y colorea sus municipios; "Colombia" vuelve;
-  - `cooperativeGestures` (Ctrl + rueda) evita que el mapa atrape el scroll de la página;
-  - el contenedor usa `h-full` porque Mapbox fuerza `position: relative`.
+- **`build-geo.mjs` genera además**: `public/data/geo/colombia-outline.json` (contorno disuelto), `public/data/geo/mask.json` (mundo menos Colombia), punto de etiqueta `l` por departamento (en `divipola.json`) y por municipio, y `src/lib/geo/bounds.ts` (MAINLAND, MAX_BOUNDS, ancla de Bogotá; generado, no editar).
+- **`HeroMap`** (`src/components/widgets/map/*`), protagonista (P1) de los 10 tableros con mapa:
+  - sección propia a 12 columnas y tier XL; lienzo + panel de insights lado a lado desde 800 px internos, apilado debajo;
+  - cámara `fitBounds(MAINLAND)` con `maxBounds`, sin copias del mundo ni rotación; meta de encuadre ≥ 60 % del ancho y ≥ 90 % del alto (lo mide la QA);
+  - máscara del mundo, brillo y contorno de Colombia, etiquetas del top 5 y del mapa base solo de CO;
+  - 5 clases por cuantiles (rampa `--seq-2…6`), "Sin registros" en gris;
+  - panel: título con la geografía explícita, cobertura de ubicación (banner si > 20 % sin ubicación), ranking top 10 sincronizado con el mapa, detalle con desglose y acciones "Filtrar tablero" / "Ver municipios", leyenda de clases;
+  - clic selecciona (inmediato), **doble clic** baja a municipios, Esc limpia, recuadro de San Andrés, PNG compuesto;
+  - tema oscuro con `NEXT_PUBLIC_MAPBOX_STYLE_DARK` (respaldo `mapbox://styles/mapbox/dark-v11`) y re-aplicación idempotente de capas tras `setStyle`;
+  - `cooperativeGestures` (Ctrl + rueda) evita que el mapa atrape el scroll de la página.
 
 ---
 
@@ -246,51 +260,48 @@ Todas las fechas se manejan como **milisegundos "de pared" de Bogotá** (UTC-5 f
 
 ## 10. Sistema visual y UX
 
-- **Identidad Balú** (`public/graphic_identity/tokens_balu/tokens.css`, importado en `globals.css`; no editar a mano).
-  - Primario `#DF7702` (logo `#FF7500`).
-  - Montserrat para texto y cifras, Poppins para botones.
-- **Tokens semánticos** (`--bg`, `--surface*`, `--text*`, `--primary*`, `--good/--warning/--critical/--info`, `--chart-1..8`, `--seq-0..6`):
-  - hay versión clara y oscura (seleccionadas, no invertidas);
-  - el tema vive en `data-theme` de `<html>` (cookie `docum-theme` o preferencia del sistema) y se aplica con un script inline sin flash.
-- **Paleta categórica validada** con el validador de daltonismo (ΔE adyacente 9,1 claro / 8,4 oscuro):
-  - orden fijo: naranja, azul, aqua, amarillo, magenta, verde, violeta, rojo;
-  - "Otros" y "No reporta" van en gris;
-  - nunca se recicla; más de 8 series se agrupan en "Otros".
-- **Colores semánticos** (`src/lib/charts/semantic.ts`) para semáforo, SLA, momento, cumplimiento y sí/no. Siempre van con etiqueta: el color nunca es el único canal.
-- **Reglas de gráficas**:
-  - nunca doble eje (la variación mensual va como etiqueta);
-  - barras de ≤ 24 px con esquina de 4 px;
-  - líneas de 2 px con `monotone` (no bajan de 0);
-  - grilla en hairline;
-  - toda gráfica tiene "Ver datos" (tabla), CSV, PNG y "Ampliar".
-- **Estados**: skeleton en la primera carga; en refetch se mantiene el dato anterior al 60 % de opacidad. Estado vacío explicativo.
-- **Movimiento**:
-  - `ViewTransition` transforma el ícono y el título de la tarjeta del catálogo en el encabezado del tablero;
-  - entradas escalonadas, count-up en KPIs, indicador activo del sidebar con `layoutId`;
-  - las gráficas se montan al entrar al viewport;
-  - todo respeta `prefers-reduced-motion`.
-- **Responsivo**:
-  - sidebar expandido o en riel (≥ 1024 px) y drawer en móvil;
-  - grid de widgets de 12 columnas (xl), 6 (md) y 1 (móvil);
-  - tablas con primera columna fija en escritorio y tarjetas en móvil.
-- **Home**: catálogo con búsqueda, chips por módulo, favoritos y recientes (localStorage), y la cifra del mes por tablero (`/api/catalogo`).
+> Fuente de verdad: **[`docs/ui-design-system.md`](./docs/ui-design-system.md)** (principios, layout, color, leyendas, catálogo de componentes, mapa, Home, shell, KPIs y layout de cada tablero). Nació de una auditoría con 185 capturas y 220 hallazgos. Lo siguiente es el resumen operativo.
+
+- **Identidad Balú** (`public/graphic_identity/tokens_balu/tokens.css`, importado en `globals.css`; no editar a mano). Primario `#DF7702` (logo `#FF7500`). Montserrat para texto y cifras, Poppins para botones.
+- **Tokens** (`globals.css`, claro y oscuro seleccionados por separado; tema en `data-theme` de `<html>` sin flash):
+  - superficies, tinta (`--text`, `--text-2`, `--muted` ≥ 4,5:1), `--primary-text` (naranja legible como texto, AA);
+  - estado `--good/--info/--warning/--serious/--critical/--neutral-mark` con `-ink` y `-soft` (todos AA);
+  - categórica `--chart-1..8` (orden fijo, validada: CVD ΔE 9,1 claro / 8,4 oscuro), secuencial `--seq-0..6`;
+  - **identidad de módulo** `[data-module="<id>"]` → `--mod`, `--mod-2`, `--mod-ink`, `--mod-soft`, `--shadow-mod`, utilidad `mod-tile` (Facturación cobalto, PQRD y Entes turquesa, SMART violeta, Tutelas frambuesa, Medicina cerúleo, Correspondencia púrpura; validada CVD ≥ 8,2). **Solo chrome** (sidebar, Home, paleta, encabezado): nunca dentro de un widget.
+- **Jerarquía**: una sola visual protagonista (P1, `hero: true`, tarjeta `card-hero`) por tablero (el mapa en los 10 con mapa; la serie en Facturas recibidas; la matriz día×hora en Facturas emitidas; la matriz de fases en Eficiencia) y un único KpiHero. Cada sección responde una pregunta (H2 = `question`, eyebrow = `nav`) en orden canónico: KPIs → cumplimiento → territorio → tendencia → composición → rankings/responsables → cruces → detalle.
+- **La forma la elige el tipo de dato** (`viz`): 2–3 partes → `composition` split; 4–7 → `composition` legend; estados → `status-strip`/`status-board`; etapas → `pipeline`; ≤ 10 entidades → `entity-tiles`/`category-tiles`; muchas partes cortas → `treemap`; nominales largas → `ranking`; personas → `people`; ordinales → `column-bars`; dos ordinales → `heatmap`; territorio → `hero-map`; tiempo → `area`/`monthly-delta`. **Sin donas.** Barras horizontales ≤ 40 % de las celdas y ≤ 2 por sección. Texto largo en HTML, nunca en canvas.
+- **Rejilla**: el contenedor es el área útil (`@container page`): 1 / 6 / 12 columnas con umbrales 600 y 840 px. Cada fila suma 12 y todas sus tarjetas miden lo mismo (tier). Ritmo: 48 px entre secciones, 20 de gap, 20 de padding, radio 20, contenido máx. 1600 px.
+- **Semántica** (`src/lib/charts/semantic.ts`): familias EXPLÍCITAS por widget/columna (`semantic`): semaforo, sla, cumplimiento, flujo, momento, estado-queja, notificacion, guia, factura, radian, transmision, alerta, binario, canal-envio, fallo. Estado siempre con ícono + etiqueta. Neutrales en gris, al final, fuera de escala; 15–85 % neutral → chip de calidad; ≥ 85 % → `DataQualityNotice` automático.
+- **Gramática única** (`components/widgets/kit/*`): `ChartLegend`/`ScaleLegend`/`SectionLegend` en la franja de 24 px bajo el título (`LegendSlot`), controles en el header (`HeaderSlot`), `ChartTooltip` (valor primero), `DeltaChip` (`describeDelta`: % en **p.p.**, "Sin base", "Base pequeña"), `MicroTrend` (null es hueco), `StatusIcon`, `QualityChip`, `VizSkeleton` por arquetipo y `VizEmpty` con "Quitar filtros". Etiquetas con `displayLabel` (tipo título es-CO, siglas, NIT aparte). % con 1 decimal; días como "5,4 días"; una sola unidad COP por gráfica (`copUnit`).
+- **Tarjeta v2** (`widget-card.tsx`): header de 44 px (título y subtítulo en 1 línea; controles bajan a su línea en tarjetas < 460 px), franja de leyenda reservada por fila, cuerpo que llena el tier, menú ⋯ con Ampliar, Ver datos, CSV y PNG (canvas o `html-to-image`). Estados: skeleton; refetch al 60 %; vacío; error con reintento.
+- **Movimiento**: `ViewTransition` (ícono y título del catálogo → encabezado del tablero), entradas escalonadas ≤ 500 ms, count-up en KPIs, indicador del sidebar con `layoutId`, montaje al entrar al viewport; todo respeta `prefers-reduced-motion`.
+- **Shell**: sidebar expandido (284 px) o en riel (76 px; automático entre 1024 y 1279 px) y drawer en móvil; topbar con migas, SectionNav (scroll-spy) cuando el H1 sale de pantalla, "Actualizado hace N min", badge único "Datos de prueba", ThemeSwitch y ⌘K (paleta con recientes, módulos y acciones).
+- **Home** ("Centro de mando documental"): saludo según la hora de Bogotá, buscador ("/"), accesos rápidos (favoritos y recientes), **Pulso del mes** (las 3 señales de salud que más empeoraron), navegación por módulo y secciones con su color, tarjetas con cifra del mes, variación, micro-columnas y KPI de salud (`/api/catalogo`).
+- **Validación**: `pnpm test` congela métricas y valida layout; la QA visual usa Chrome headless (capturas 1440/1280/1024/768/390 en claro y oscuro, filas desparejas, textos recortados, scroll horizontal y encuadre del mapa).
 
 ---
 
 ## 11. Recetas
 
-**Agregar un KPI**: en el spec, agrega un `KpiDef` con `measure`, `format`, `polarity` y `hint`. Si la fórmula no está confirmada, márcala con `provisional: true`.
+**Agregar un KPI**: en el spec, agrega un `KpiDef` con `measure`, `format`, `polarity`, `hint` y `short` (≤ 16 caracteres). Si la fórmula no está confirmada, márcala con `provisional: true`. Ubícalo en `spec.kpiLayout` (exactamente una vez).
 
-**Agregar un widget**: agrégalo a una sección del spec. Si el campo no existe en el dataset, agrégalo en `datasets/<id>.ts` (`schema`, `normalize` y, si es mock, `derive`). Luego vuelve a generar el perfil si viene del CSV (`scripts/mock/config.mjs` → `keep`).
+**Agregar un widget**:
+1. agrégalo a `section.widgets` con su tipo de datos (dimensión, medida…); si el campo no existe en el dataset, agrégalo en `datasets/<id>.ts` (`schema`, `normalize` y, si es mock, `derive`) y vuelve a generar el perfil si viene del CSV (`scripts/mock/config.mjs` → `keep`);
+2. elige la forma con `viz` (árbol de §10) y, si aplica, `semantic`, `labelKind`, `vizOptions` y `maxItems`;
+3. colócalo en una fila de `section.rows` con una plantilla que sume 12 y un tier donde quepa;
+4. corre `pnpm test` (layout válido) y revisa claro/oscuro en 1440, 1024 y 390.
 
 **Agregar un tablero**:
-1. metadatos en `src/config/dashboards.ts`;
-2. spec en `src/dashboards/specs/<slug>.ts` y registro en `specs/index.ts`;
+1. metadatos en `src/config/dashboards.ts` (`heading`, `summary`, `headlineKpi`, `healthKpi`, `features`);
+2. spec en `src/dashboards/specs/<slug>.ts` (con `unit`, `kpiLayout` y secciones con `rows`) y registro en `specs/index.ts`;
 3. si usa otra vista, crea el dataset en `src/server/data/datasets/` y regístralo en `datasets/index.ts`;
 4. perfil mock en `scripts/mock/config.mjs`;
-5. corre `npx next typegen`, `npx tsc --noEmit` y `pnpm lint`.
+5. agrega el slug a la línea base (`FREEZE_BASELINE=1 npx vitest run src/test/freeze-baseline.test.ts` SOLO para tableros nuevos; nunca para "arreglar" un test de métricas);
+6. corre `npx next typegen`, `npx tsc --noEmit`, `pnpm lint` y `pnpm test`.
 
-**Nuevo tipo de widget**: define la interfaz en `dashboards/types.ts` y el resultado en `dto.ts`. Luego agrega la agregación en `engine/aggregate.ts`, el `case` en `engine/run.ts`, el componente en `components/widgets/`, el `case` en `widget-renderer.tsx` y la conversión en `result-table.ts`.
+**Nueva visualización**: agrega el nombre a `Viz` (`dashboards/types.ts`) y sus opciones a `VizOptions`; crea el componente en `components/widgets/` con `VizProps` (llena su contenedor; `height` es presupuesto; leyendas con `LegendSlot`; tooltips con `ChartTooltip`); regístralo en `widget-renderer.tsx`; si es horizontal, canvas o usa franja de leyenda, agrégalo al conjunto correspondiente de `dashboards/viz.ts`; si no trunca, agrega su presupuesto a `requiredHeight` en `dashboards/layout.ts`.
+
+**Nuevo tipo de dato de widget**: define la interfaz en `dashboards/types.ts` y el resultado en `dto.ts`; agrega la agregación en `engine/aggregate.ts`, el `case` en `engine/run.ts`, la viz por defecto en `dashboards/viz.ts` y la conversión en `result-table.ts`.
 
 **Conectar la BD real**: implementa `DataProvider` para `DATA_SOURCE=postgres` en `src/server/data/provider.ts` según `src/server/data/postgres/README.md`. Los specs, DTOs y componentes no cambian.
 

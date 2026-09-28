@@ -21,6 +21,7 @@ import type {
   PivotWidget,
   SankeyWidget,
 } from "@/dashboards/types";
+import { isNeutral } from "@/lib/charts/semantic";
 import { DAY_MS, isoToMs } from "@/lib/dates";
 import { dptoName, mpioName } from "@/lib/geo/diccionario";
 import { column, hasColumn, numberAt, type Table } from "../table";
@@ -47,7 +48,10 @@ export function groupMeasure(table: Table, rows: Uint32Array, field: string, mea
   return out;
 }
 
-function orderLabels(entries: [string, number][], sort: BarWidget["sort"] = "desc", order?: string[]): [string, number][] {
+type Sort = NonNullable<BarWidget["sort"]>;
+
+/** Orden base (sin tratar neutrales): valor, etiqueta o natural (orden fijo del spec). */
+function sortEntries(entries: [string, number][], sort: Sort, order?: readonly string[]): [string, number][] {
   if (sort === "natural" && order) {
     const pos = new Map(order.map((v, i) => [v, i]));
     return entries.sort((a, b) => (pos.get(a[0]) ?? 999) - (pos.get(b[0]) ?? 999) || b[1] - a[1]);
@@ -57,22 +61,62 @@ function orderLabels(entries: [string, number][], sort: BarWidget["sort"] = "des
   return entries.sort((a, b) => b[1] - a[1]);
 }
 
-/** Barras (simples o apiladas) y donas. */
-export function categoryResult(table: Table, rows: Uint32Array, w: BarWidget | DonutWidget): CategoryResult {
+/**
+ * Deja lo neutral ("No reporta", "Sin …": isNeutral) al final y "Otros" siempre de último,
+ * conservando el orden relativo del resto. Las etiquetas de `explicit` (orden natural
+ * declarado en el spec) conservan su posición aunque sean neutrales; "Otros", no.
+ */
+export function neutralsLast<T>(items: readonly T[], getLabel: (item: T) => string, explicit?: readonly string[]): T[] {
+  const pinned = new Set(explicit ?? []);
+  const head: T[] = [];
+  const tail: T[] = [];
+  const others: T[] = [];
+  for (const item of items) {
+    const label = getLabel(item);
+    if (label === OTROS) others.push(item);
+    else if (!pinned.has(label) && isNeutral(label)) tail.push(item);
+    else head.push(item);
+  }
+  return [...head, ...tail, ...others];
+}
+
+/** Orden final de categorías: el orden pedido con los neutrales al final (salvo orden natural explícito). */
+export function orderLabels(entries: [string, number][], sort: Sort = "desc", order?: readonly string[]): [string, number][] {
+  return neutralsLast(sortEntries(entries, sort, order), (e) => e[0], sort === "natural" ? order : undefined);
+}
+
+/**
+ * Barras (simples o apiladas) y donas. `selected`: valores de la propia dimensión filtrados en
+ * la URL ("filtrar es resaltar"); siguen visibles aunque queden fuera del topN.
+ */
+export function categoryResult(table: Table, rows: Uint32Array, w: BarWidget | DonutWidget, selected?: readonly string[]): CategoryResult {
   const grouped = groupMeasure(table, rows, w.dimension, w.measure);
-  const sort = "sort" in w && w.sort ? w.sort : w.order ? "natural" : "desc";
-  let entries = orderLabels([...grouped.entries()], sort, w.order);
+  const sort: Sort = "sort" in w && w.sort ? w.sort : w.order ? "natural" : "desc";
+  // El topN se elige con el orden pedido (un "No reporta" grande no se pierde) y luego lo neutral pasa al final.
+  let entries = sortEntries([...grouped.entries()], sort, w.order);
   const additive = !w.measure || w.measure.kind === "count" || w.measure.kind === "sum";
   const limit = w.type === "donut" ? (w.maxSlices ?? 6) : w.topN;
   let folded = 0;
+  let rest: CategoryResult["rest"];
   if (limit && entries.length > limit) {
-    const others = w.type === "donut" || (w as BarWidget).others;
-    const keep = entries.slice(0, others ? limit - 1 : limit);
-    const rest = entries.slice(others ? limit - 1 : limit);
-    folded = rest.length;
-    if (others && additive) keep.push([OTROS, rest.reduce((a, e) => a + e[1], 0)]);
+    const others = w.type === "donut" || Boolean((w as BarWidget).others);
+    const cut = others ? limit - 1 : limit;
+    let keep = entries.slice(0, cut);
+    let dropped = entries.slice(cut);
+    if (selected?.length) {
+      const sel = new Set(selected);
+      if (dropped.some((e) => sel.has(e[0]))) {
+        keep = sortEntries([...keep, ...dropped.filter((e) => sel.has(e[0]))], sort, w.order);
+        dropped = dropped.filter((e) => !sel.has(e[0]));
+      }
+    }
+    folded = dropped.length;
+    const droppedValue = dropped.reduce((a, e) => a + e[1], 0);
+    if (others && additive && dropped.length) keep.push([OTROS, droppedValue]);
+    if (!others && additive && dropped.length) rest = { count: dropped.length, value: droppedValue };
     entries = keep;
   }
+  entries = neutralsLast(entries, (e) => e[0], sort === "natural" ? w.order : undefined);
   const labels = entries.map((e) => e[0]);
   const values = entries.map((e) => e[1]);
   const result: CategoryResult = {
@@ -82,6 +126,7 @@ export function categoryResult(table: Table, rows: Uint32Array, w: BarWidget | D
     total: additive ? [...grouped.values()].reduce((a, b) => a + b, 0) : values.reduce((a, b) => a + b, 0),
     folded,
   };
+  if (rest) result.rest = rest;
 
   if (w.type === "bar" && w.stackBy && hasColumn(table, w.stackBy)) {
     result.stacks = stackedValues(table, rows, w.dimension, w.stackBy, labels, w.measure, w.stackOrder);
@@ -238,8 +283,18 @@ export function pivotResult(table: Table, rows: Uint32Array, w: PivotWidget): Pi
     if (!ct) colTotals.set(c, (ct = make()));
     ct.add(i);
   }
-  const present = [...colTotals.entries()].sort((a, b) => (b[1].value() ?? 0) - (a[1].value() ?? 0)).map((e) => e[0]);
-  const columns = w.columnOrder ? [...w.columnOrder.filter((c) => colTotals.has(c)), ...present.filter((c) => !w.columnOrder!.includes(c))] : present;
+  const colValue = (c: string) => colTotals.get(c)?.value() ?? 0;
+  // Columnas estables: presentes aunque estén en 0 (p. ej. "Vencido"); nunca las excluidas.
+  const keys = new Set(colTotals.keys());
+  for (const c of w.stableColumns ?? []) if (!exclude.has(c)) keys.add(c);
+  let columns: string[];
+  if (w.fillNumericColumns) {
+    columns = fillNumeric([...keys], exclude);
+  } else {
+    const present = [...keys].sort((a, b) => colValue(b) - colValue(a));
+    const ordered = w.columnOrder ? [...w.columnOrder.filter((c) => keys.has(c)), ...present.filter((c) => !w.columnOrder!.includes(c))] : present;
+    columns = neutralsLast(ordered, (c) => c, w.columnOrder);
+  }
 
   const groupTotals = new Map<string, number>();
   const all = [...cells.entries()].map(([rk, row]) => {
@@ -250,7 +305,28 @@ export function pivotResult(table: Table, rows: Uint32Array, w: PivotWidget): Pi
     if (group) groupTotals.set(group, (groupTotals.get(group) ?? 0) + total);
     return { group, label: parts.at(-1)!, values, total };
   });
-  all.sort((a, b) => (a.group && b.group ? (groupTotals.get(b.group)! - groupTotals.get(a.group)!) || a.group.localeCompare(b.group) : 0) || b.total - a.total);
+
+  // Filas estables (un solo nivel): cada etiqueta de rowOrder aparece aunque esté en 0.
+  if (w.stableRows && w.rowOrder && w.rows.length === 1) {
+    const seen = new Set(all.map((r) => r.label));
+    for (const label of w.rowOrder) {
+      if (!seen.has(label)) all.push({ group: undefined, label, values: columns.map(() => 0), total: 0 });
+    }
+  }
+
+  // Orden del primer nivel: rowOrder (fijo) → resto por total, con lo neutral y "Otros" al final.
+  const pos = new Map((w.rowOrder ?? []).map((v, i) => [v, i]));
+  const rank = (label: string) => pos.get(label) ?? (label === OTROS ? 3e6 : isNeutral(label) ? 2e6 : 1e6);
+  const tailRank = (label: string) => (label === OTROS ? 2 : isNeutral(label) ? 1 : 0);
+  all.sort((a, b) => {
+    if (a.group !== undefined && b.group !== undefined) {
+      if (a.group !== b.group) {
+        return rank(a.group) - rank(b.group) || groupTotals.get(b.group)! - groupTotals.get(a.group)! || a.group.localeCompare(b.group, "es");
+      }
+      return tailRank(a.label) - tailRank(b.label) || b.total - a.total;
+    }
+    return rank(a.label) - rank(b.label) || b.total - a.total;
+  });
   const maxRows = w.maxRows ?? 120;
   const rowsOut = all.slice(0, maxRows);
   let max = 0;
@@ -259,10 +335,41 @@ export function pivotResult(table: Table, rows: Uint32Array, w: PivotWidget): Pi
     kind: "pivot",
     columns,
     rows: rowsOut,
-    totals: columns.map((c) => colTotals.get(c)?.value() ?? 0),
+    totals: columns.map(colValue),
     max,
     truncated: Math.max(0, all.length - maxRows),
   };
+}
+
+/**
+ * Columnas numéricas (p. ej. horas 0–23): ordenadas numéricamente y con los huecos del
+ * rango min–max rellenos (solo enteros, sin volver a agregar las excluidas). Lo no numérico
+ * ("No reporta") va al final.
+ */
+export function fillNumeric(labels: readonly string[], exclude: ReadonlySet<string> = new Set()): string[] {
+  const numeric: string[] = [];
+  const other: string[] = [];
+  for (const l of labels) {
+    if (l.trim() !== "" && !isNeutral(l) && Number.isFinite(Number(l))) numeric.push(l);
+    else other.push(l);
+  }
+  if (!numeric.length) return neutralsLast(other, (l) => l);
+  const byValue = new Map(numeric.map((l) => [Number(l), l]));
+  const values = [...byValue.keys()].sort((a, b) => a - b);
+  const min = values[0];
+  const max = values.at(-1)!;
+  const out: string[] = [];
+  if (values.every(Number.isInteger) && max - min <= 1000) {
+    // Conserva el relleno con ceros de la fuente ("07").
+    const width = numeric.some((l) => /^0\d/.test(l)) ? Math.max(...numeric.map((l) => l.length)) : 0;
+    for (let v = min; v <= max; v++) {
+      const label = byValue.get(v) ?? String(v).padStart(width, "0");
+      if (!exclude.has(label)) out.push(label);
+    }
+  } else {
+    for (const v of values) out.push(byValue.get(v)!);
+  }
+  return [...out, ...neutralsLast(other, (l) => l)];
 }
 
 export function barTableResult(table: Table, rows: Uint32Array, w: BarTableWidget): BarTableResult {
@@ -281,7 +388,8 @@ export function barTableResult(table: Table, rows: Uint32Array, w: BarTableWidge
   const all = [...groups.entries()]
     .map(([key, acc]) => ({ cells: key.split("\u0001"), value: acc.value() ?? 0 }))
     .sort((a, b) => b.value - a.value);
-  const out = all.slice(0, w.topN ?? 100);
+  // topN por valor; dentro de lo mostrado, filas con primera celda neutral al final.
+  const out = neutralsLast(all.slice(0, w.topN ?? 100), (r) => r.cells[0]);
   return {
     kind: "bartable",
     rows: out,
@@ -394,7 +502,7 @@ export function drilldownResult(table: Table, rows: Uint32Array, w: DrilldownWid
   const topN = w.topN ?? 10;
   const convert = (node: Node): DrillNode[] => {
     const entries = [...node.children.entries()].sort((a, b) => b[1].value - a[1].value);
-    const keep = entries.slice(0, topN);
+    const keep = neutralsLast(entries.slice(0, topN), (e) => e[0]);
     const rest = entries.slice(topN);
     const out: DrillNode[] = keep.map(([label, n]) => ({
       label,

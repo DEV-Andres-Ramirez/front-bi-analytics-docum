@@ -37,6 +37,11 @@ export interface CategoryResult {
   secondary?: (number | null)[];
   /** Categorías agrupadas en "Otros". */
   folded?: number;
+  /**
+   * Resto fuera del topN cuando no se agrupa en "Otros" y la medida es aditiva:
+   * count = categorías no mostradas, value = su suma (para "Top 15 de 42 · 91 % del total").
+   */
+  rest?: { count: number; value: number };
 }
 
 export interface TimeseriesResult {
@@ -168,6 +173,34 @@ export interface DashboardResponse {
   options: Record<string, FilterOption[]>;
   /** Nombres legibles de los códigos DANE usados en filtros geográficos activos. */
   geoNames: Record<string, string>;
+}
+
+/** Cifra con su comparación (tarjetas del Home, paleta de comandos). */
+export interface CatalogFigure {
+  kpi: string;
+  label: string;
+  short?: string;
+  format: import("./types").ValueFormat;
+  polarity: import("./types").Polarity;
+  value: number | null;
+  previous: number | null;
+  spark: (number | null)[];
+}
+
+export interface CatalogItem {
+  slug: string;
+  /** KPI titular (headlineKpi). */
+  hero: CatalogFigure | null;
+  /** KPI de salud (healthKpi): alimenta la fila de salud y el "Pulso del mes". */
+  health: CatalogFigure | null;
+}
+
+export interface CatalogResponse {
+  /** Mes en curso y periodo anterior de igual duración. */
+  range: Range;
+  updatedAt: string;
+  source: "mock" | "db";
+  items: CatalogItem[];
 }
 
 export interface DetailResponse {

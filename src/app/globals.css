@@ -39,6 +39,8 @@
   --primary-soft: #fff7ef;
   --primary-soft-2: #ffedd8;
   --primary-ink: #ffffff;
+  /* Naranja legible como texto (AA 4,9:1 sobre primary-soft-2): nav activo, enlaces, eyebrows */
+  --primary-text: #a84d00;
   --ring: rgb(223 119 2 / 0.45);
 
   /* Estado (reservado: siempre con ícono + etiqueta) */
@@ -49,13 +51,17 @@
   --info-ink: #245aac;
   --info-soft: #dce8f8;
   --warning: #fab219;
-  --warning-ink: #9d590c;
-  --warning-soft: #f1e7dc;
+  --warning-ink: #8f5000;
+  --warning-soft: #fcefd6;
   --serious: #ec835a;
+  --serious-ink: #a8421b;
+  --serious-soft: #fbe6dc;
   --critical: #d03b3b;
   --critical-ink: #bd1c1c;
-  --critical-soft: #f5dcdc;
+  --critical-soft: #f8e0e0;
   --neutral-mark: #b4b8bf;
+  --neutral-ink: #4d5257;
+  --neutral-soft: #f1f2f4;
 
   /* Gráficas — paleta categórica validada (orden fijo, CVD ΔE 9.1) */
   --chart-1: #df7702;
@@ -80,8 +86,38 @@
   --seq-5: #b35a00;
   --seq-6: #7a3b00;
 
+  /* Identidad de módulo (SOLO chrome: shell, Home, paleta, encabezado). Validada con validate_palette. */
+  --mod-fact: #2563c9;
+  --mod-fact-2: #1b4ea6;
+  --mod-fact-ink: #1b4ea6;
+  --mod-fact-soft: #e9f1fd;
+  --mod-pqrd: #0e9487;
+  --mod-pqrd-2: #0a6e64;
+  --mod-pqrd-ink: #0a6e64;
+  --mod-pqrd-soft: #e1f6f2;
+  --mod-smart: #7b52d9;
+  --mod-smart-2: #5a38b0;
+  --mod-smart-ink: #5a38b0;
+  --mod-smart-soft: #f0ebfc;
+  --mod-tut: #ab2f80;
+  --mod-tut-2: #8a1e64;
+  --mod-tut-ink: #8a1e64;
+  --mod-tut-soft: #fbe9f3;
+  --mod-med: #0b93be;
+  --mod-med-2: #086f91;
+  --mod-med-ink: #086f91;
+  --mod-med-soft: #e2f4fa;
+  --mod-corr: #892498;
+  --mod-corr-2: #6c1a79;
+  --mod-corr-ink: #6c1a79;
+  --mod-corr-soft: #f6e8f8;
+
+  /* Tooltip único */
+  --tooltip-bg: #14171c;
+
   /* Sombras */
   --shadow-card: 0 1px 2px rgb(20 23 28 / 0.04), 0 8px 24px -12px rgb(20 23 28 / 0.12);
+  --shadow-hero: 0 1px 2px rgb(20 23 28 / 0.05), 0 18px 44px -18px rgb(20 23 28 / 0.22);
   --shadow-pop: 0 24px 54px -12px rgb(20 23 28 / 0.24);
   --glow: 0 0 0 1px rgb(223 119 2 / 0.25), 0 12px 32px -12px rgb(223 119 2 / 0.45);
 }
@@ -111,6 +147,7 @@
   --primary-soft: #2a1d10;
   --primary-soft-2: #3a2612;
   --primary-ink: #1a1204;
+  --primary-text: #f7a94f;
   --ring: rgb(245 154 46 / 0.5);
 
   --good: #22b35a;
@@ -123,10 +160,14 @@
   --warning-ink: #f6c65c;
   --warning-soft: #2e2410;
   --serious: #ec835a;
-  --critical: #e55a5a;
+  --serious-ink: #f5a27f;
+  --serious-soft: #331d14;
+  --critical: #d03b3b;
   --critical-ink: #f08a8a;
   --critical-soft: #331616;
   --neutral-mark: #5b6370;
+  --neutral-ink: #c3c7ce;
+  --neutral-soft: #242a34;
 
   --chart-1: #c96a00;
   --chart-2: #3987e5;
@@ -150,7 +191,35 @@
   --seq-5: #f08a1c;
   --seq-6: #ffc27a;
 
+  --mod-fact: #4482eb;
+  --mod-fact-2: #2563c9;
+  --mod-fact-ink: #9cc0f7;
+  --mod-fact-soft: #14223a;
+  --mod-pqrd: #1ca193;
+  --mod-pqrd-2: #0e9487;
+  --mod-pqrd-ink: #78d6c8;
+  --mod-pqrd-soft: #0d2a26;
+  --mod-smart: #8e69ec;
+  --mod-smart-2: #7b52d9;
+  --mod-smart-ink: #c2b1f8;
+  --mod-smart-soft: #231c3c;
+  --mod-tut: #c34e97;
+  --mod-tut-2: #ab2f80;
+  --mod-tut-ink: #f0a6cf;
+  --mod-tut-soft: #34182a;
+  --mod-med: #24a0cc;
+  --mod-med-2: #0b93be;
+  --mod-med-ink: #86cdea;
+  --mod-med-soft: #0b2633;
+  --mod-corr: #9e49b7;
+  --mod-corr-2: #892498;
+  --mod-corr-ink: #dcaaea;
+  --mod-corr-soft: #2c1734;
+
+  --tooltip-bg: #242a34;
+
   --shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 12px 28px -16px rgb(0 0 0 / 0.7);
+  --shadow-hero: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 22px 48px -20px rgb(0 0 0 / 0.85);
   --shadow-pop: 0 24px 54px -12px rgb(0 0 0 / 0.7);
   --glow: 0 0 0 1px rgb(245 154 46 / 0.3), 0 12px 32px -12px rgb(245 154 46 / 0.35);
 }
@@ -173,6 +242,7 @@
   --color-primary-soft: var(--primary-soft);
   --color-primary-soft-2: var(--primary-soft-2);
   --color-primary-ink: var(--primary-ink);
+  --color-primary-text: var(--primary-text);
   --color-good: var(--good);
   --color-good-ink: var(--good-ink);
   --color-good-soft: var(--good-soft);
@@ -185,6 +255,16 @@
   --color-critical: var(--critical);
   --color-critical-ink: var(--critical-ink);
   --color-critical-soft: var(--critical-soft);
+  --color-serious: var(--serious);
+  --color-serious-ink: var(--serious-ink);
+  --color-serious-soft: var(--serious-soft);
+  --color-neutral-mark: var(--neutral-mark);
+  --color-neutral-ink: var(--neutral-ink);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-mod: var(--mod);
+  --color-mod-2: var(--mod-2);
+  --color-mod-ink: var(--mod-ink);
+  --color-mod-soft: var(--mod-soft);
 
   --font-sans: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
   --font-button: var(--font-poppins), var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
@@ -193,6 +273,8 @@
   --radius-pill: 96px;
 
   --shadow-card: var(--shadow-card);
+  --shadow-hero: var(--shadow-hero);
+  --shadow-mod: var(--shadow-mod);
   --shadow-pop: var(--shadow-pop);
   --shadow-glow: var(--glow);
 
@@ -216,6 +298,15 @@
   20%, 80% { transform: translateX(3px); }
   30%, 50%, 70% { transform: translateX(-6px); }
   40%, 60% { transform: translateX(6px); }
+}
+@keyframes grow-y {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+.micro-grow {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: grow-y 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(8px); }
@@ -282,6 +373,18 @@
   box-shadow: var(--shadow-card);
 }
 
+/* Tarjeta protagonista (P1): un paso más profunda y con el acento superior de 2 px en --primary
+   (el mismo del KpiHero), para que la jerarquía P1 → P2 → P3 se lea también en oscuro. */
+@utility card-hero {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: inset 0 2px 0 var(--primary), var(--shadow-hero);
+  [data-theme="dark"] & {
+    border-color: var(--border-strong);
+  }
+}
+
 @utility skeleton {
   background: linear-gradient(90deg, var(--surface-3) 25%, var(--surface-2) 37%, var(--surface-3) 63%);
   background-size: 400% 100%;
@@ -297,17 +400,19 @@
   text-wrap: balance;
 }
 
+/* Claro: blanco sobre #c05800 → #a84d00 (4,5–5,6:1, AA en todo el degradado).
+   El hover oscurece (no aclara) para no bajar de 4,5:1. Oscuro: tinta sobre naranja claro. */
 @utility btn-primary {
-  background: linear-gradient(135deg, #e5870f 0%, #c05800 100%);
+  background: linear-gradient(135deg, #c05800 0%, #a84d00 100%);
   color: #ffffff;
   font-family: var(--font-button);
   font-weight: 600;
   border-radius: var(--radius-pill);
-  box-shadow: 0 8px 20px -10px rgb(192 88 0 / 0.7);
+  box-shadow: 0 8px 20px -10px rgb(168 77 0 / 0.7);
   transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
   &:hover:not(:disabled) {
-    filter: brightness(1.06);
-    box-shadow: 0 12px 26px -10px rgb(192 88 0 / 0.8);
+    filter: brightness(0.94);
+    box-shadow: 0 12px 26px -10px rgb(168 77 0 / 0.8);
   }
   &:active:not(:disabled) {
     transform: translateY(1px) scale(0.99);
@@ -319,6 +424,9 @@
   [data-theme="dark"] & {
     background: linear-gradient(135deg, #f59a2e 0%, #df7702 100%);
     color: #1a1204;
+    &:hover:not(:disabled) {
+      filter: brightness(1.06);
+    }
   }
 }
 
@@ -328,6 +436,242 @@
     radial-gradient(60% 60% at 10% 10%, rgb(223 119 2 / 0.16) 0%, transparent 60%),
     radial-gradient(50% 50% at 90% 20%, rgb(42 120 214 / 0.1) 0%, transparent 60%),
     radial-gradient(60% 60% at 70% 100%, rgb(27 175 122 / 0.08) 0%, transparent 60%);
+}
+
+/* ==========================================================================
+   Identidad de módulo: [data-module] expone --mod / --mod-2 / --mod-ink / --mod-soft
+   (solo chrome; nunca dentro de un widget de tablero)
+   ========================================================================== */
+:root {
+  --mod: var(--primary);
+  --mod-2: var(--primary-strong);
+  --mod-ink: var(--primary-text);
+  --mod-soft: var(--primary-soft);
+  --shadow-mod: 0 18px 40px -18px color-mix(in srgb, var(--mod) 45%, transparent);
+  /* Ritmo */
+  --content-max: 1600px;
+  --topbar-h: 64px;
+  --sticky-h: 64px;
+  --section-gap: 48px;
+  --row-gap: 20px;
+  --card-pad: 20px;
+}
+[data-module="facturacion"] { --mod: var(--mod-fact); --mod-2: var(--mod-fact-2); --mod-ink: var(--mod-fact-ink); --mod-soft: var(--mod-fact-soft); }
+[data-module="pqrd"] { --mod: var(--mod-pqrd); --mod-2: var(--mod-pqrd-2); --mod-ink: var(--mod-pqrd-ink); --mod-soft: var(--mod-pqrd-soft); }
+[data-module="smart"] { --mod: var(--mod-smart); --mod-2: var(--mod-smart-2); --mod-ink: var(--mod-smart-ink); --mod-soft: var(--mod-smart-soft); }
+[data-module="tutelas"] { --mod: var(--mod-tut); --mod-2: var(--mod-tut-2); --mod-ink: var(--mod-tut-ink); --mod-soft: var(--mod-tut-soft); }
+[data-module="medicina"] { --mod: var(--mod-med); --mod-2: var(--mod-med-2); --mod-ink: var(--mod-med-ink); --mod-soft: var(--mod-med-soft); }
+[data-module="correspondencia"] { --mod: var(--mod-corr); --mod-2: var(--mod-corr-2); --mod-ink: var(--mod-corr-ink); --mod-soft: var(--mod-corr-soft); }
+[data-module] { --shadow-mod: 0 18px 40px -18px color-mix(in srgb, var(--mod) 45%, transparent); }
+
+/* Tile con el degradado del módulo (ícono blanco ≥ 3:1) */
+@utility mod-tile {
+  background: linear-gradient(145deg, var(--mod) 0%, var(--mod-2) 100%);
+  color: #ffffff;
+  box-shadow: var(--shadow-mod);
+}
+
+/* ==========================================================================
+   Sistema de filas (layout de tableros)
+   - El contenedor "page" es el área útil (no el viewport): 1 / 6 / 12 columnas
+     con umbrales 600 y 840 px.
+   - Cada fila usa una plantilla cerrada que suma 12 (data-t) y un tier de alto
+     compartido por todas sus celdas (data-tier).
+   - Los spans por celda llegan como --span (12 col) y --span-md (6 col).
+   ========================================================================== */
+.dash-page {
+  container: page / inline-size;
+}
+.dash-row {
+  display: grid;
+  gap: var(--row-gap);
+  grid-template-columns: minmax(0, 1fr);
+  --row-h: auto;
+}
+.dash-cell {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dash-cell > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.dash-stack {
+  display: grid;
+  gap: var(--row-gap);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 0;
+}
+.dash-stack[data-ratio="3:2"] {
+  grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
+}
+
+@container page (max-width: 599.98px) {
+  /* Las container queries solo estilan descendientes: el ritmo móvil se fija en cada pieza */
+  .dash-row,
+  .dash-stack { --row-gap: 16px; }
+  .dash-card { --card-pad: 16px; }
+  .dash-sections { --section-gap: 40px; }
+  .dash-stack { grid-template-rows: auto auto; }
+  /* Canvas: alto propio en móvil (los componentes HTML miden por contenido) */
+  .dash-card[data-viz="area"] .dash-body,
+  .dash-card[data-viz="monthly-delta"] .dash-body { height: 260px; flex: none; }
+  .dash-card[data-viz="column-bars"] .dash-body,
+  .dash-card[data-viz="histogram"] .dash-body { height: 240px; flex: none; }
+  .dash-card[data-viz="treemap"] .dash-body { height: 300px; flex: none; }
+  .dash-card[data-viz="sankey"] .dash-body { height: 380px; flex: none; }
+}
+
+@container page (min-width: 600px) {
+  .dash-row {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-auto-flow: row dense;
+  }
+  .dash-row > .dash-cell {
+    grid-column: span var(--span-md, 6);
+  }
+  .dash-row[data-tier="S"] { --row-h: 280px; }
+  .dash-row[data-tier="M"] { --row-h: 360px; }
+  .dash-row[data-tier="L"] { --row-h: 460px; }
+  .dash-row[data-tier="XL"] { --row-h: 540px; }
+  .dash-row[data-tier="kpi"] { --row-h: auto; }
+  .dash-row:not([data-tier="auto"]):not([data-tier="kpi"]) > .dash-cell {
+    height: var(--row-h);
+  }
+}
+
+@container page (min-width: 840px) {
+  .dash-row {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-auto-flow: row;
+  }
+  .dash-row > .dash-cell {
+    grid-column: span var(--span, 12);
+  }
+  .dash-row[data-tier="S"] { --row-h: 280px; }
+  .dash-row[data-tier="M"] { --row-h: 380px; }
+  .dash-row[data-tier="L"] { --row-h: 480px; }
+  .dash-row[data-tier="XL"] { --row-h: 640px; }
+  .dash-row[data-tier="kpi"] { --row-h: 184px; }
+  .dash-row[data-tier="kpi"][data-compact="1"] { --row-h: 112px; }
+  .dash-row[data-tier="kpi"] > .dash-cell { min-height: var(--row-h); }
+}
+
+/* Tablet: el mapa apilado (lienzo + panel) crece con su contenido en lugar de hacer scroll interno */
+@container page (min-width: 600px) and (max-width: 839.98px) {
+  .dash-row[data-tier="XL"] > .dash-cell:has(> .dash-card[data-viz="hero-map"]) { height: auto; }
+}
+
+/* Tier auto: alto por contenido con máximo y scroll interno (tablas, pivotes) */
+.dash-row[data-tier="auto"] .dash-body {
+  max-height: 640px;
+  overflow: auto;
+}
+
+/* Anatomía de la tarjeta de widget */
+.dash-card {
+  container: card / inline-size;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: var(--card-pad);
+}
+/* Header: título y subtítulo en 1 línea; los controles van a la derecha del título
+   y bajan a su propia línea (debajo) cuando la tarjeta es angosta */
+.dash-card-header > .dash-card-controls { order: 1; }
+.dash-card-header > :not(:first-child):not(.dash-card-controls) { order: 2; }
+.dash-card-title,
+.dash-card-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* P1: título un paso mayor que el de las tarjetas P3 */
+.card-hero .dash-card-title {
+  font-size: 17px;
+  font-weight: 700;
+}
+/* Controles del header sin contenido (ranuras vacías): no ocupan línea ni gap */
+.dash-card-controls:not(:has(> :not(:empty))) {
+  display: none;
+}
+/* Pestañas (Segmented de widgets alternativos): en tarjetas angostas bajan a su propia línea
+   bajo el título y reparten el ancho, sin recortar la última opción */
+@container card (max-width: 600px) {
+  .dash-card-header > .dash-card-controls:has(> .dash-tabs) {
+    order: 3;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    row-gap: 8px;
+  }
+  .dash-tabs {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    width: 100%;
+    overflow: visible;
+    border-radius: 12px;
+  }
+  .dash-tabs > [role="tab"] {
+    white-space: normal;
+    text-align: center;
+    line-height: 1.2;
+    padding-inline: 4px;
+    border-radius: 10px;
+  }
+}
+@container card (max-width: 460px) {
+  .dash-card-header > .dash-card-controls {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+  .dash-card-header > .dash-card-controls > * { max-width: 100%; }
+  .dash-card-title {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+}
+.dash-card .dash-legend {
+  height: 24px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+/* La franja solo alinea gráficas vecinas: vacía y con las celdas apiladas, sobra (móvil y tablet apilada) */
+@container page (max-width: 599.98px) {
+  .dash-card .dash-legend:has(> :first-child:empty):has(> :last-child:empty) {
+    display: none;
+  }
+}
+@container page (min-width: 600px) and (max-width: 839.98px) {
+  .dash-row[data-md-stack="1"] .dash-card .dash-legend:has(> :first-child:empty):has(> :last-child:empty) {
+    display: none;
+  }
+}
+.dash-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+/* Contorno de error de layout en desarrollo */
+.dash-layout-error {
+  outline: 2px dashed var(--critical);
+  outline-offset: 2px;
+}
+
+/* Secciones: el ancla deja espacio para el topbar + FilterBar sticky */
+.dash-section {
+  scroll-margin-top: calc(var(--sticky-h) + 16px);
 }
 
 /* ==========================================================================

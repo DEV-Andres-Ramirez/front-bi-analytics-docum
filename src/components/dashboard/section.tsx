@@ -1,96 +1,143 @@
 "use client";
 
 import { motion } from "motion/react";
-import { useState } from "react";
-import type { SectionDef } from "@/dashboards/types";
+import { useEffect, useMemo } from "react";
+import { SectionLegend } from "@/components/widgets/kit/chart-legend";
+import type { CellRef, RowDef, SectionDef, WidgetDef } from "@/dashboards/types";
+import { cellKey, packRows, rowHasLegendStrip, templateSpans, templateSpansMd, validateLayout } from "@/dashboards/layout";
 import { cn } from "@/lib/cn";
-import { WidgetBody, WidgetCard } from "./widget-card";
+import { useDashboard } from "./dashboard-context";
+import { CompositeCard, WidgetCard } from "./widget-card";
 
-function TabsSection({ section }: { section: SectionDef }) {
-  const [active, setActive] = useState(section.widgets[0]?.id);
-  const current = section.widgets.find((w) => w.id === active) ?? section.widgets[0];
+/**
+ * Sección de tablero: SectionHeader (eyebrow = nav, H2 = question) + filas con plantilla cerrada.
+ * Cada fila suma 12 y sus celdas comparten el alto del tier (globals.css: .dash-row).
+ */
+export function SectionHeader({ section, index }: { section: SectionDef; index: number }) {
+  const eyebrow = section.nav;
+  const heading = section.question ?? section.title;
+  if (!heading && !eyebrow) return null;
   return (
-    <WidgetCard
-      widget={{ ...current, size: "full" }}
-      headerExtra={
-        <div role="tablist" aria-label={section.title} className="hidden shrink-0 rounded-full border border-border bg-surface-2 p-0.5 lg:inline-flex">
-          {section.widgets.map((w) => (
-            <button
-              key={w.id}
-              type="button"
-              role="tab"
-              aria-selected={w.id === current.id}
-              onClick={() => setActive(w.id)}
-              className={cn("relative rounded-full px-3 py-1.5 text-xs font-semibold transition", w.id === current.id ? "text-text" : "text-muted hover:text-text")}
-            >
-              {w.id === current.id && <motion.span layoutId={`tab-${section.id}`} className="absolute inset-0 rounded-full bg-surface shadow-sm" transition={{ type: "spring", stiffness: 500, damping: 40 }} />}
-              <span className="relative">{w.title}</span>
-            </button>
-          ))}
+    <motion.header
+      initial={{ opacity: 0, y: 8 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-40px" }}
+      transition={{ duration: 0.4, delay: Math.min(0.02 * index, 0.12) }}
+      className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between"
+    >
+      <div className="min-w-0">
+        {eyebrow && <p className="mb-1 pl-4 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{eyebrow}</p>}
+        {heading && (
+          <h2 id={`s-${section.id}`} className="flex items-center gap-2.5 text-xl font-bold tracking-tight">
+            <span className="h-5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+            <span className="text-balance">{heading}</span>
+          </h2>
+        )}
+        {section.description && <p className="mt-1 max-w-3xl pl-4 text-sm text-muted">{section.description}</p>}
+      </div>
+      {section.legend && section.legend.length > 0 && (
+        <div className="shrink-0 pl-4 lg:pl-0">
+          <SectionLegend items={section.legend} />
         </div>
-      }
-      key={current.id}
-    />
+      )}
+    </motion.header>
   );
 }
 
-/** Pestañas móviles (el selector del encabezado solo cabe en escritorio). */
-function MobileTabs({ section, onPick, active }: { section: SectionDef; onPick: (id: string) => void; active: string }) {
+function Cell({
+  cell,
+  widgets,
+  span,
+  spanMd,
+  row,
+  strip,
+  sectionNav,
+}: {
+  cell: CellRef;
+  widgets: Map<string, WidgetDef>;
+  span: number;
+  spanMd: number;
+  row: RowDef;
+  strip: boolean;
+  sectionNav?: string;
+}) {
+  const style = { "--span": span, "--span-md": spanMd } as React.CSSProperties;
+  if (typeof cell === "string") {
+    const w = widgets.get(cell);
+    return <div className="dash-cell" style={style}>{w ? <WidgetCard widget={w} span={span} tier={row.tier} legendStrip={strip} sectionNav={sectionNav} /> : <MissingCell id={cell} />}</div>;
+  }
+  if ("stack" in cell) {
+    return (
+      <div className="dash-cell" style={style}>
+        <div className="dash-stack h-full" data-ratio={cell.ratio ?? "1:1"}>
+          {cell.stack.map((id) => {
+            const w = widgets.get(id);
+            return w ? <WidgetCard key={id} widget={w} span={span} tier={row.tier} legendStrip={false} stacked /> : <MissingCell key={id} id={id} />;
+          })}
+        </div>
+      </div>
+    );
+  }
+  if ("composite" in cell) {
+    const ws = cell.widgets.map((id) => widgets.get(id)).filter((w): w is WidgetDef => Boolean(w));
+    return (
+      <div className="dash-cell" style={style}>
+        <CompositeCard cell={cell} widgets={ws} span={span} tier={row.tier} legendStrip={strip} sectionNav={sectionNav} />
+      </div>
+    );
+  }
+  const ws = cell.tabs.map((id) => widgets.get(id)).filter((w): w is WidgetDef => Boolean(w));
+  if (!ws.length) return <MissingCell id={cell.id} />;
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1 lg:hidden">
-      {section.widgets.map((w) => (
-        <button key={w.id} type="button" onClick={() => onPick(w.id)} className={cn("shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ring-1", w.id === active ? "bg-primary text-white ring-primary" : "bg-surface text-text-2 ring-border")}>
-          {w.title}
-        </button>
+    <div className="dash-cell" style={style}>
+      <WidgetCard widget={ws[0]} tabs={ws} tabsTitle={cell.title} tabsSubtitle={cell.subtitle} span={span} tier={row.tier} legendStrip={strip} sectionNav={sectionNav} />
+    </div>
+  );
+}
+
+function MissingCell({ id }: { id: string }) {
+  return <div className="dash-layout-error card grid place-items-center p-4 text-xs text-critical-ink">Widget inexistente: {id}</div>;
+}
+
+export function DashboardRow({ row, widgets, sectionNav }: { row: RowDef; widgets: Map<string, WidgetDef>; sectionNav?: string }) {
+  const spans = templateSpans(row.template);
+  const spansMd = templateSpansMd(row.template);
+  const strip = rowHasLegendStrip(row, widgets);
+  const invalid = spans.length !== row.cells.length;
+  // En tablet (600–839 px) estas celdas se apilan a ancho completo: la franja de leyenda vacía sobra (globals.css)
+  const mdStacked = spansMd.every((s) => s >= 6);
+  return (
+    <div className={cn("dash-row", invalid && "dash-layout-error")} data-t={row.template} data-tier={row.tier} data-md-stack={mdStacked ? "1" : undefined}>
+      {row.cells.map((cell, i) => (
+        <Cell key={cellKey(cell, i)} cell={cell} widgets={widgets} span={spans[i] ?? 12} spanMd={spansMd[i] ?? 6} row={row} strip={strip} sectionNav={sectionNav} />
       ))}
     </div>
   );
 }
 
 export function DashboardSection({ section, index }: { section: SectionDef; index: number }) {
-  const [mobileActive, setMobileActive] = useState(section.widgets[0]?.id ?? "");
+  const widgets = useMemo(() => new Map(section.widgets.map((w) => [w.id, w] as const)), [section.widgets]);
+  const rows = useMemo(() => section.rows ?? packRows(section), [section]);
   return (
-    <section aria-labelledby={`s-${section.id}`} className="scroll-mt-40">
-      {section.title && (
-        <motion.header
-          initial={{ opacity: 0, y: 8 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-40px" }}
-          transition={{ duration: 0.4, delay: 0.02 * index }}
-          className="mb-4 flex flex-col gap-1"
-        >
-          <h2 id={`s-${section.id}`} className="flex items-center gap-2.5 text-lg font-bold tracking-tight">
-            <span className="h-5 w-1.5 rounded-full bg-primary" aria-hidden />
-            {section.title}
-          </h2>
-          {section.description && <p className="max-w-3xl pl-4 text-sm text-muted">{section.description}</p>}
-        </motion.header>
-      )}
-      {section.tabs ? (
-        <div className="space-y-3">
-          <MobileTabs section={section} active={mobileActive} onPick={setMobileActive} />
-          <div className="lg:hidden">
-            {section.widgets
-              .filter((w) => w.id === mobileActive)
-              .map((w) => (
-                <article key={w.id} className="card p-4">
-                  <h3 className="mb-1 text-[15px] font-bold">{w.title}</h3>
-                  {w.subtitle && <p className="mb-3 text-xs text-muted">{w.subtitle}</p>}
-                  <WidgetBody widget={w} height={w.height ?? 380} />
-                </article>
-              ))}
-          </div>
-          <div className="hidden lg:block">
-            <TabsSection section={section} />
-          </div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-6 xl:grid-cols-12">
-          {section.widgets.map((w) => (
-            <WidgetCard key={w.id} widget={w} />
-          ))}
-        </div>
-      )}
+    <section id={section.id} aria-labelledby={section.question || section.title ? `s-${section.id}` : undefined} className="dash-section">
+      <SectionHeader section={section} index={index} />
+      <div className="flex flex-col gap-[var(--row-gap)]">
+        {rows.map((row, i) => (
+          <DashboardRow key={i} row={row} widgets={widgets} sectionNav={section.nav} />
+        ))}
+      </div>
     </section>
   );
+}
+
+/** En desarrollo: valida el layout del tablero una vez y reporta en consola. */
+export function useLayoutCheck() {
+  const { spec } = useDashboard();
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const issues = validateLayout(spec);
+    for (const i of issues) {
+      if (i.level === "error") console.error(`[layout ${spec.slug}] ${i.where}: ${i.message}`);
+    }
+  }, [spec]);
 }

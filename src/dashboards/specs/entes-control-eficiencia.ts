@@ -1,6 +1,9 @@
-import type { DashboardSpec, PivotWidget } from "../types";
+import type { BarWidget, DashboardSpec, Measure, PivotWidget } from "../types";
 import { avg } from "./helpers";
-import { ENTES_FILTERS, ENTES_KPIS, ENTES_TABLE_COLUMNS } from "./entes-common";
+import { ENTES_FILTERS, ENTES_KPIS, ENTES_NOTES, ENTES_TABLE_COLUMNS } from "./entes-common";
+
+/** Columnas SLA estables: "Vencido" se ve aunque esté en 0 (orden de severidad; "No reporta" al final). */
+const SLA_COLUMNS = ["Vencido", "Por vencer", "Preventiva"];
 
 const pivot = (id: string, title: string, field: string, label: string): PivotWidget => ({
   id,
@@ -12,10 +15,34 @@ const pivot = (id: string, title: string, field: string, label: string): PivotWi
     { field, label },
   ],
   columns: { field: "Aux_Categoria", label: "Categoría de vencimiento" },
-  columnOrder: ["Vencido", "Por vencer", "Preventiva", "No reporta"],
+  columnOrder: [...SLA_COLUMNS, "No reporta"],
   columnExclude: ["A tiempo"],
+  stableColumns: SLA_COLUMNS,
   size: "full",
-  height: 460,
+  viz: "role-pivot",
+  vizOptions: { columnFamily: "sla" },
+  semantic: "sla",
+  labelKind: "persona",
+});
+
+/**
+ * Oficinas por días promedio en una fase: columna de la matriz de fases (se dibuja dentro del
+ * composite phase-matrix). Sin topN: superconjunto declarado ("Ver datos" y CSV traen todas las oficinas;
+ * la matriz marca el top 6 de cada fase con su rango).
+ */
+const fase = (id: string, title: string, measure: Measure, extra?: Pick<BarWidget, "provisional" | "note">): BarWidget => ({
+  id,
+  type: "bar",
+  orientation: "horizontal",
+  title,
+  dimension: "Oficina_responsable_de_respuesta",
+  measure,
+  valueFormat: "days",
+  size: "md",
+  viz: "heatmap",
+  labelKind: "oficina",
+  maxItems: 25,
+  ...extra,
 });
 
 export const entesControlEficiencia: DashboardSpec = {
@@ -23,30 +50,79 @@ export const entesControlEficiencia: DashboardSpec = {
   dataset: "entes_control",
   dateField: "Fecha_de_Radicacion",
   dateLabel: "Fecha de radicación",
+  unit: { singular: "radicado", plural: "radicados" },
   filters: ENTES_FILTERS,
-  kpis: ENTES_KPIS,
+  // Mismas definiciones que Entes; aquí el héroe es la asignación (headline del Home).
+  kpis: ENTES_KPIS.map((k) => ({ ...k, hero: k.id === "asignacion" })),
+  // kpiRedesign §6: 3-3-6 · [héroe asignación] [gauge aprobados] [grupo "Contexto"]
+  kpiLayout: [
+    {
+      template: "3-3-6",
+      cells: [
+        { kind: "hero", kpi: "asignacion" },
+        { kind: "tile", kpi: "aprobados", variant: "gauge" },
+        { kind: "group", title: "Contexto", variant: "list", kpis: ["radicados", "quejas", "fuera-horario", "reabiertos"] },
+      ],
+    },
+  ],
   sections: [
     {
-      id: "carga",
-      title: "Carga por responsable",
-      description: "Se excluyen los casos \"A tiempo\" para resaltar los que requieren atención. Haz clic en una oficina para expandir o contraer sus responsables.",
-      tabs: true,
+      id: "cuellos",
+      nav: "Cuellos de botella",
+      question: "¿Qué fase y qué oficina frenan el flujo?",
       widgets: [
-        pivot("pivot-asignador", "Asignador responsable", "Asignador_de_responsable", "Asignador"),
-        pivot("pivot-gestionador", "Gestionador responsable", "Gestionador_Responsable", "Gestionador"),
-        pivot("pivot-revisor", "Revisor responsable", "Responsable_de_Revision", "Revisor"),
-        pivot("pivot-aprobador", "Aprobador responsable", "Responsable_de_Aprobacion", "Aprobador"),
+        fase("fase-asignacion", "Asignación (promedio días)", avg("num_dias_asignacion_gestionador")),
+        fase("fase-gestion", "Gestión a aprobación (promedio días)", avg("dias_gestion_a_aprobacion"), {
+          provisional: true,
+          note: "La vista no expone días de gestión; se usa el tiempo entre el inicio de la gestión y la aprobación.",
+        }),
+        fase("fase-oficina", "Oficina a gestionador (promedio días)", avg("dias_oficina_a_gestionador"), {
+          provisional: true,
+          note: "Reemplaza la gráfica “Revisión -RR” del tablero original, que siempre mostraba 0 porque la vista no tiene días de revisión.",
+        }),
+        fase("fase-aprobacion", "Aprobación (promedio días)", avg("num_dias_aprobacion")),
+      ],
+      rows: [
+        {
+          template: "12",
+          tier: "L",
+          cells: [
+            {
+              composite: "phase-matrix",
+              id: "fases",
+              widgets: ["fase-asignacion", "fase-gestion", "fase-oficina", "fase-aprobacion"],
+              title: "Fases más lentas",
+              subtitle: "Días promedio · top 6 oficinas por fase",
+              hero: true,
+            },
+          ],
+        },
       ],
     },
     {
-      id: "fases",
-      title: "Oficinas con más días por fase",
-      description: "Las 6 oficinas con el promedio de días más alto en cada fase (mayor = más lento).",
+      id: "carga",
+      nav: "Responsables",
+      question: "¿Quién tiene casos que requieren atención?",
+      description: "Se excluyen los casos “A tiempo” para resaltar los que requieren atención.",
       widgets: [
-        { id: "fase-asignacion", type: "bar", orientation: "horizontal", title: "Asignación (promedio días)", dimension: "Oficina_responsable_de_respuesta", measure: avg("num_dias_asignacion_gestionador"), topN: 6, valueFormat: "days", size: "md" },
-        { id: "fase-gestion", type: "bar", orientation: "horizontal", title: "Gestión a aprobación (promedio días)", dimension: "Oficina_responsable_de_respuesta", measure: avg("dias_gestion_a_aprobacion"), topN: 6, valueFormat: "days", size: "md", provisional: true, note: "La vista no expone días de gestión; se usa el tiempo entre el inicio de la gestión y la aprobación." },
-        { id: "fase-oficina", type: "bar", orientation: "horizontal", title: "Oficina a gestionador (promedio días)", dimension: "Oficina_responsable_de_respuesta", measure: avg("dias_oficina_a_gestionador"), topN: 6, valueFormat: "days", size: "md", provisional: true, note: "Reemplaza la gráfica \"Revisión -RR\" del tablero original, que siempre mostraba 0 porque la vista no tiene días de revisión." },
-        { id: "fase-aprobacion", type: "bar", orientation: "horizontal", title: "Aprobación (promedio días)", dimension: "Oficina_responsable_de_respuesta", measure: avg("num_dias_aprobacion"), topN: 6, valueFormat: "days", size: "md" },
+        pivot("pivot-asignador", "Asignador", "Asignador_de_responsable", "Asignador"),
+        pivot("pivot-gestionador", "Gestionador", "Gestionador_Responsable", "Gestionador"),
+        pivot("pivot-revisor", "Revisor", "Responsable_de_Revision", "Revisor"),
+        pivot("pivot-aprobador", "Aprobador", "Responsable_de_Aprobacion", "Aprobador"),
+      ],
+      rows: [
+        {
+          template: "12",
+          tier: "auto",
+          cells: [
+            {
+              tabs: ["pivot-asignador", "pivot-gestionador", "pivot-revisor", "pivot-aprobador"],
+              id: "carga-responsables",
+              title: "Carga por responsable",
+              subtitle: "Oficina › responsable por vencimiento",
+            },
+          ],
+        },
       ],
     },
   ],
@@ -56,4 +132,5 @@ export const entesControlEficiencia: DashboardSpec = {
     searchFields: ["Numero_de_Radicado", "Oficina_responsable_de_respuesta", "Gestionador_Responsable", "Asignador_de_responsable"],
     defaultSort: { field: "Fecha_de_Radicacion", dir: "desc" },
   },
+  notes: ENTES_NOTES,
 };

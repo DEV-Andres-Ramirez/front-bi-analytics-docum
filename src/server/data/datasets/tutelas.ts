@@ -1,7 +1,7 @@
 import "server-only";
 
 import { DAY_MS } from "@/lib/dates";
-import { canal, orNoReporta } from "../normalizers";
+import { canal, diasPlazo, estadoFallo, orNoReporta } from "../normalizers";
 import type { Profile } from "../mock/generator";
 import { radicado } from "../mock/generator";
 import { fakeCourt, fakeDigits } from "../mock/fake";
@@ -51,22 +51,19 @@ export const tutelas: DatasetDef = {
       row.dias_transcurridos = row.Cerrado === "En trámite" ? Math.max(0, Math.floor((ctx.now - ctx.date) / DAY_MS)) : null;
     },
   }),
-  normalize: (r) => {
-    const t = String(r.Tiempo_para_responder ?? "").match(/\d+/)?.[0];
-    return {
-      ...r,
-      canal: canal(r.canal, true),
-      Etapa_procesal: orNoReporta(r.Etapa_procesal),
-      Dependencia: orNoReporta(r.Dependencia),
-      Causal: orNoReporta(r.Causal),
-      Estado_del_fallo: orNoReporta(r.Estado_del_fallo),
-      Tiempo_para_responder: t !== undefined ? `${t} día(s)` : "No reporta",
-      Gestionador: orNoReporta(r.Gestionador),
-      Asignador_de_Responsable: orNoReporta(r.Asignador_de_Responsable),
-      departamento: orNoReporta(r.departamento),
-      municipio: orNoReporta(r.municipio),
-      Departamento_remitente: orNoReporta(r.Departamento_remitente),
-      Municipio_del_remitente: orNoReporta(r.Municipio_del_remitente),
-    };
-  },
+  normalize: (r) => ({
+    ...r,
+    canal: canal(r.canal, true),
+    Etapa_procesal: orNoReporta(r.Etapa_procesal),
+    Dependencia: orNoReporta(r.Dependencia),
+    Causal: orNoReporta(r.Causal),
+    Estado_del_fallo: estadoFallo(r.Estado_del_fallo),
+    Tiempo_para_responder: diasPlazo(r.Tiempo_para_responder),
+    Gestionador: orNoReporta(r.Gestionador),
+    Asignador_de_Responsable: orNoReporta(r.Asignador_de_Responsable),
+    departamento: orNoReporta(r.departamento),
+    municipio: orNoReporta(r.municipio),
+    Departamento_remitente: orNoReporta(r.Departamento_remitente),
+    Municipio_del_remitente: orNoReporta(r.Municipio_del_remitente),
+  }),
 };

@@ -47,6 +47,38 @@ function kpis(table: Table, spec: DashboardSpec, filters: FiltersState, range: R
   });
 }
 
+const GEO_DPTO = "__dpto";
+const GEO_MPIO = "__mpio";
+
+/** Nombre de la serie por defecto: la unidad del tablero en plural ("Radicados"), o "Registros". */
+export function unitLabel(spec: Pick<DashboardSpec, "unit">): string {
+  const plural = spec.unit?.plural?.trim();
+  if (!plural) return "Registros";
+  return plural.charAt(0).toLocaleUpperCase("es-CO") + plural.slice(1);
+}
+
+/**
+ * Campo(s) cuyo filtro NO se aplica a un widget ("filtrar es resaltar"): el widget de origen
+ * conserva todas sus categorías y el cliente resalta lo seleccionado en filters.eq.
+ * - bar (con filtro cruzado) y donut: su dimensión;
+ * - bartable: su primera columna;
+ * - map: __dpto y __mpio.
+ */
+export function ownFilterFields(w: WidgetDef): string[] {
+  switch (w.type) {
+    case "bar":
+      return w.noCrossFilter ? [] : [w.dimension];
+    case "donut":
+      return [w.dimension];
+    case "bartable":
+      return w.columns.length ? [w.columns[0].field] : [];
+    case "map":
+      return [GEO_DPTO, GEO_MPIO];
+    default:
+      return [];
+  }
+}
+
 function timeseries(table: Table, spec: DashboardSpec, filters: FiltersState, w: TimeseriesWidget, range: ReturnType<typeof previousRange>): TimeseriesResult {
   const out: TimeseriesResult = { kind: "timeseries", start: filters.from, series: [] };
   if (w.splitBy && hasColumn(table, w.splitBy)) {
@@ -59,7 +91,7 @@ function timeseries(table: Table, spec: DashboardSpec, filters: FiltersState, w:
     }
     return out;
   }
-  const series = w.series ?? [{ id: "total", label: "Registros" }];
+  const series = w.series ?? [{ id: "total", label: unitLabel(spec) }];
   for (const s of series) {
     const dateField = s.dateField ?? spec.dateField;
     const rows = selectRows(table, filters, { dateField });
@@ -91,13 +123,27 @@ export function runDashboard(table: Table, spec: DashboardSpec, filters: Filters
   const range = { from: filters.from, to: filters.to, ...previousRange(filters.from, filters.to) };
   const rows = selectRows(table, filters, { dateField: spec.dateField });
 
+  // "Filtrar es resaltar": filas sin el filtro de la propia dimensión, solo si ese filtro está
+  // activo (sin costo extra en el caso común). Se reutilizan entre widgets con la misma dimensión.
+  const skipped = new Map<string, Uint32Array>();
+  const rowsFor = (w: WidgetDef): Uint32Array => {
+    const active = ownFilterFields(w).filter((f) => (filters.eq[f]?.length ?? 0) > 0 && hasColumn(table, f));
+    if (!active.length) return rows;
+    const key = active.join("\u0001");
+    let hit = skipped.get(key);
+    if (!hit) skipped.set(key, (hit = selectRows(table, filters, { dateField: spec.dateField, skipFields: active })));
+    return hit;
+  };
+
   const widgets: Record<string, WidgetResult> = {};
   for (const w of allWidgets(spec)) {
     switch (w.type) {
       case "bar":
-      case "donut":
-        widgets[w.id] = categoryResult(table, rows, w);
+      case "donut": {
+        const own = rowsFor(w);
+        widgets[w.id] = categoryResult(table, own, w, own === rows ? undefined : filters.eq[w.dimension]);
         break;
+      }
       case "timeseries":
         widgets[w.id] = timeseries(table, spec, filters, w, range);
         break;
@@ -108,10 +154,10 @@ export function runDashboard(table: Table, spec: DashboardSpec, filters: Filters
         widgets[w.id] = pivotResult(table, rows, w);
         break;
       case "bartable":
-        widgets[w.id] = barTableResult(table, rows, w);
+        widgets[w.id] = barTableResult(table, rowsFor(w), w);
         break;
       case "map":
-        widgets[w.id] = mapResult(table, rows, w);
+        widgets[w.id] = mapResult(table, rowsFor(w), w);
         break;
       case "sankey":
         widgets[w.id] = sankeyResult(table, rows, w);
@@ -134,7 +180,7 @@ export function runDashboard(table: Table, spec: DashboardSpec, filters: Filters
   const options: DashboardResponse["options"] = {};
   for (const f of spec.filters) {
     if (f.kind !== "multi" || !hasColumn(table, f.field)) continue;
-    const facet = selectRows(table, filters, { dateField: spec.dateField, skipField: f.field });
+    const facet = selectRows(table, filters, { dateField: spec.dateField, skipFields: [f.field] });
     options[f.field] = [...groupMeasure(table, facet, f.field).entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 400)

@@ -54,6 +54,10 @@ export const mlSalidas: DatasetDef = {
     profile: profile as unknown as Profile,
     seed: 1010,
     perDay: 40,
+    // El CSV fuente del perfil es un corte de un solo jueves (weekday [0,0,0,1000,0,0,0]) con
+    // aprobaciones entre las 17 y las 18 h: se reemplazan por una jornada hábil típica de ML.
+    weekday: [196, 208, 205, 199, 187, 6, 1],
+    hour: [0, 0, 0, 0, 0, 1, 12, 78, 104, 112, 118, 106, 64, 48, 98, 114, 102, 71, 22, 8, 3, 1, 0, 0],
     overrides: {
       TRAMITE: { "Medicina laboral": 17122, "Comunicaciones ML": 6875 },
       OFICINA: {

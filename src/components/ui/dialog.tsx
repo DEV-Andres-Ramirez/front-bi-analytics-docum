@@ -13,10 +13,12 @@ interface Props {
   children: ReactNode;
   className?: string;
   hideHeader?: boolean;
+  /** Nombre accesible cuando no hay encabezado visible. */
+  label?: string;
 }
 
 /** Modal centrado (widget ampliado, paleta de comandos). */
-export function Dialog({ open, onClose, title, children, className, hideHeader }: Props) {
+export function Dialog({ open, onClose, title, children, className, hideHeader, label }: Props) {
   const id = useId();
   useEffect(() => {
     if (!open) return;
@@ -45,7 +47,8 @@ export function Dialog({ open, onClose, title, children, className, hideHeader }
             <motion.div
               role="dialog"
               aria-modal="true"
-              aria-labelledby={title ? `${id}-title` : undefined}
+              aria-labelledby={title && !hideHeader ? `${id}-title` : undefined}
+              aria-label={hideHeader ? label : undefined}
               initial={{ opacity: 0, y: 16, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 12, scale: 0.98 }}

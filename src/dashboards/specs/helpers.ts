@@ -17,5 +17,16 @@ export const SEMAFORO_ORDER = [
   "5. Abierto Vencido",
   "6. Sin Clasificar",
 ];
+/**
+ * Etiquetas del semáforo dentro de los grupos Abiertos | Cerrados de StatusStrip: el prefijo "Abierto"/"Cerrado"
+ * sobra (lo dice el grupo) y hacía envolver las tiles a 1024 px. Solo presentación (vizOptions.overrides).
+ */
+export const SEMAFORO_TILE_LABELS: Record<string, { label: string }> = {
+  "1. Cerrado a Tiempo": { label: "A tiempo" },
+  "2. Abierto En Término": { label: "En término" },
+  "3. Abierto Próximo a Vencer": { label: "Próximo a vencer" },
+  "4. Cerrado Vencido": { label: "Vencido" },
+  "5. Abierto Vencido": { label: "Vencido" },
+};
 export const SLA_ORDER = ["A tiempo", "Preventiva", "Por vencer", "Vencido", "Sin categoría", "No reporta"];
 export const DIAS_ORDER = ["1. Lunes", "2. Martes", "3. Miércoles", "4. Jueves", "5. Viernes", "6. Sábado", "7. Domingo"];

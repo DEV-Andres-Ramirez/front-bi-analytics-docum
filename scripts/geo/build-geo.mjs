@@ -6,13 +6,22 @@
  *  - Corrige el mojibake "¥" → "Ñ" (20 municipios) y el código falso 88000 → 88564.
  *  - Simplifica preservando topología (mapshaper) y redondea a 5 decimales (~1 m).
  *  - Deja solo propiedades de código y nombre.
- *  - Parte los municipios por departamento (carga perezosa en el drill-down).
- *  - Genera el catálogo DIVIPOLA (nombre oficial, bbox y centroide por código).
+ *  - Parte los municipios por departamento (carga perezosa en el drill-down), con un
+ *    punto de etiqueta interior `l` por municipio.
+ *  - Genera el catálogo DIVIPOLA (nombre oficial, bbox, centroide y punto de etiqueta `l`
+ *    por departamento).
+ *  - HeroMap: contorno de Colombia (disolución de los departamentos simplificados, así
+ *    coincide con los rellenos), máscara "mundo menos Colombia" y src/lib/geo/bounds.ts
+ *    (encuadre, límites, ancla de Bogotá, bbox/etiqueta por departamento y la isla de
+ *    San Andrés para el recuadro).
  *
  * Salidas:
  *   public/data/geo/departamentos.json
  *   public/data/geo/municipios/<DPTO>.json
+ *   public/data/geo/colombia-outline.json
+ *   public/data/geo/mask.json
  *   src/lib/geo/divipola.json
+ *   src/lib/geo/bounds.ts
  *
  * Uso: node scripts/geo/build-geo.mjs
  */
@@ -114,10 +123,49 @@ async function simplify(fc, pct, extra = "") {
   return JSON.parse(out["out.json"]);
 }
 
+function round4(x) {
+  return Math.round(x * 1e4) / 1e4;
+}
+
+/** Área con signo (fórmula del cordón): > 0 antihorario, < 0 horario (en lon/lat). */
+function ringArea(ring) {
+  let a = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) a += (ring[j][0] - ring[i][0]) * (ring[j][1] + ring[i][1]);
+  return a / 2;
+}
+
+/** Punto interior por feature (mapshaper -points inner), por código. Con varias partes gana la primera. */
+async function innerPoints(fc) {
+  const out = await mapshaper.applyCommands(`-i in.json -points inner -o out.json format=geojson precision=0.0001`, { "in.json": JSON.stringify(fc) });
+  const map = new Map();
+  for (const f of JSON.parse(out["out.json"]).features) {
+    if (!f.geometry || map.has(f.properties.code)) continue;
+    map.set(f.properties.code, f.geometry.coordinates.map(round4));
+  }
+  return map;
+}
+
+// Isla de San Andrés (parte mayor del 88) antes de simplificar: la simplificación a 9 %
+// la deja en un puñado de vértices y descarta Providencia; el recuadro necesita su silueta.
+const sanAndresRing = await (async () => {
+  const f = dptos.features.find((x) => x.properties.code === "88");
+  const polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates;
+  const largest = polys.reduce((a, b) => (Math.abs(ringArea(b[0])) > Math.abs(ringArea(a[0])) ? b : a));
+  const fc = { type: "FeatureCollection", features: [{ type: "Feature", properties: { code: "88" }, geometry: { type: "Polygon", coordinates: [largest[0]] } }] };
+  const out = await simplify(fc, 2);
+  return out.features[0].geometry.coordinates[0].map(([x, y]) => [round4(x), round4(y)]);
+})();
+
 const dptosOut = await simplify(dptos, 9);
 writeFileSync(join(OUT, "departamentos.json"), JSON.stringify(dptosOut));
 
 const mpiosOut = await simplify(mpios, 18);
+// Punto de etiqueta interior por municipio (etiquetas de valor en el drill-down)
+const mpioLabels = await innerPoints(mpiosOut);
+for (const f of mpiosOut.features) {
+  const l = mpioLabels.get(f.properties.code);
+  if (l) f.properties.l = l;
+}
 const byDpto = {};
 for (const f of mpiosOut.features) (byDpto[f.properties.dpto] ??= []).push(f);
 for (const [dpto, features] of Object.entries(byDpto)) {
@@ -138,10 +186,16 @@ function bboxOf(features) {
 }
 const center = (b) => [Math.round(((b[0] + b[2]) / 2) * 1e4) / 1e4, Math.round(((b[1] + b[3]) / 2) * 1e4) / 1e4];
 
+/** Bogotá D.C. se rotula en el casco urbano (su polígono llega hasta Sumapaz). */
+const BOGOTA_ANCHOR = [-74.08, 4.65];
+const dptoLabels = await innerPoints(dptosOut);
+dptoLabels.set("11", BOGOTA_ANCHOR);
+
 const catalog = { dptos: {}, mpios: {} };
 for (const f of dptosOut.features) {
   const b = bboxOf([f]);
-  catalog.dptos[f.properties.code] = { n: f.properties.name, b, c: center(b) };
+  const code = f.properties.code;
+  catalog.dptos[code] = { n: f.properties.name, b, c: center(b), l: dptoLabels.get(code) ?? center(b) };
 }
 const mpioFeatures = {};
 for (const f of mpiosOut.features) (mpioFeatures[f.properties.code] ??= []).push(f);
@@ -152,7 +206,71 @@ for (const [code, entry] of Object.entries(catalogMpios)) {
 }
 writeFileSync(CATALOG, JSON.stringify(catalog));
 
+// ─── 4. HeroMap: contorno, máscara y bounds.ts ───────────────────────────────
+// El contorno sale de disolver los departamentos YA simplificados: comparte vértices
+// con los rellenos, así la máscara y la línea de borde no dejan costuras.
+const dissolved = JSON.parse(
+  (await mapshaper.applyCommands(`-i in.json -dissolve -o out.json format=geojson precision=0.00001`, { "in.json": JSON.stringify(dptosOut) }))["out.json"],
+);
+const outlineGeom = dissolved.type === "GeometryCollection" ? dissolved.geometries[0] : dissolved.type === "FeatureCollection" ? dissolved.features[0].geometry : dissolved;
+// Solo anillos exteriores: la disolución deja astillas internas (huecos de 4–8 vértices entre
+// departamentos simplificados) que el borde dibujaría como anillos sueltos dentro del país.
+const outlinePolys = (outlineGeom.type === "Polygon" ? [outlineGeom.coordinates] : outlineGeom.coordinates).map((p) => [p[0]]);
+const outline = {
+  type: "FeatureCollection",
+  features: [{ type: "Feature", properties: { code: "CO", name: "Colombia" }, geometry: { type: "MultiPolygon", coordinates: outlinePolys } }],
+};
+writeFileSync(join(OUT, "colombia-outline.json"), JSON.stringify(outline));
+
+// Máscara: rectángulo del mundo (antihorario) con un agujero (horario) por cada parte de Colombia
+const ccw = (ring) => (ringArea(ring) >= 0 ? ring : [...ring].reverse());
+const cw = (ring) => (ringArea(ring) <= 0 ? ring : [...ring].reverse());
+const world = ccw([[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]]);
+const mask = {
+  type: "FeatureCollection",
+  features: [{ type: "Feature", properties: { kind: "mask" }, geometry: { type: "Polygon", coordinates: [world, ...outlinePolys.map((p) => cw(p[0]))] } }],
+};
+writeFileSync(join(OUT, "mask.json"), JSON.stringify(mask));
+
+// bounds.ts: constantes de cámara y geografía liviana para el cliente (sin importar divipola.json)
+const fmt = (a) => JSON.stringify(a).replace(/,/g, ", ");
+const codes = Object.keys(catalog.dptos).sort();
+const bounds = `/**
+ * Geografía liviana para HeroMap (cámara, etiquetas y recuadro de San Andrés).
+ * GENERADO por scripts/geo/build-geo.mjs: no editar a mano.
+ */
+
+/** [oeste, sur, este, norte] en grados. */
+export type BBox = [number, number, number, number];
+export type LngLat = [number, number];
+
+/** Colombia continental (sin el archipiélago): encuadre por defecto. En Mercator, ancho/alto ≈ 0,73. */
+export const MAINLAND: BBox = [-79.1, -4.3, -66.8, 12.5];
+/** Límite de paneo (deja ver San Andrés al desplazarse). */
+export const MAX_BOUNDS: BBox = [-85, -8, -61, 16];
+/** Bogotá D.C. se rotula en el casco urbano (su polígono llega hasta Sumapaz). */
+export const BOGOTA_ANCHOR: LngLat = ${fmt(BOGOTA_ANCHOR)};
+/** Código DANE del archipiélago (recuadro). */
+export const SAN_ANDRES_CODE = "88";
+
+/** Caja por departamento (código DANE de 2 dígitos). */
+export const DPTO_BBOX: Record<string, BBox> = {
+${codes.map((c) => `  "${c}": ${fmt(catalog.dptos[c].b)},`).join("\n")}
+};
+
+/** Punto de etiqueta interior por departamento (mapshaper -points inner; Bogotá anclada). */
+export const DPTO_LABEL: Record<string, LngLat> = {
+${codes.map((c) => `  "${c}": ${fmt(catalog.dptos[c].l)},`).join("\n")}
+};
+
+/** Isla de San Andrés (parte mayor del departamento 88, simplificada) para el recuadro. */
+export const SAN_ANDRES_RING: LngLat[] = ${fmt(sanAndresRing)};
+`;
+writeFileSync(join(ROOT, "src", "lib", "geo", "bounds.ts"), bounds);
+
 const size = (p) => (readFileSync(p).length / 1024).toFixed(0) + " KB";
 console.log(`✔ departamentos.json ${size(join(OUT, "departamentos.json"))} (${dptosOut.features.length} features)`);
 console.log(`✔ municipios/*.json ${Object.keys(byDpto).length} archivos, ${mpiosOut.features.length} features`);
+console.log(`✔ colombia-outline.json ${size(join(OUT, "colombia-outline.json"))} · mask.json ${size(join(OUT, "mask.json"))} (${outlinePolys.length} partes)`);
+console.log(`✔ bounds.ts ${codes.length} departamentos · isla de San Andrés con ${sanAndresRing.length} vértices`);
 console.log(`✔ divipola.json ${size(CATALOG)} · ${Object.keys(catalog.dptos).length} dptos · ${Object.keys(catalog.mpios).length} municipios · ${Object.keys(observed).length} nombres oficiales observados`);

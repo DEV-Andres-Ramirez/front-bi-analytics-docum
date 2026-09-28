@@ -1,6 +1,6 @@
 import "server-only";
 
-import { canal, orNoReporta } from "../normalizers";
+import { canal, estadoSalidaML, orNoReporta } from "../normalizers";
 import type { Profile } from "../mock/generator";
 import { radicado } from "../mock/generator";
 import profile from "../mock/profiles/ml_entradas.json";
@@ -86,7 +86,7 @@ export const mlEntradas: DatasetDef = {
       tiempo_en_gestion: Number.isFinite(teg) ? teg : null,
       prefijo: orNoReporta(r.prefijo),
       medio_envio: orNoReporta(r.medio_envio),
-      estado_salida: orNoReporta(r.estado_salida),
+      estado_salida: estadoSalidaML(r.estado_salida),
       tipo_solicitud: orNoReporta(r.tipo_solicitud),
       asignador_responsable: orNoReporta(r.asignador_responsable),
       gestionador_responsable: orNoReporta(r.gestionador_responsable),

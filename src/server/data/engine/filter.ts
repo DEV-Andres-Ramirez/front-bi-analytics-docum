@@ -9,7 +9,12 @@ export interface SelectOptions {
   dateField: string;
   from?: string;
   to?: string;
-  /** No aplicar el filtro de este campo (opciones facetadas). */
+  /**
+   * No aplicar los filtros (eq, text y dates) de estos campos: opciones facetadas y
+   * "filtrar es resaltar" (un widget de categoría o mapa se calcula sin su propia dimensión).
+   */
+  skipFields?: readonly string[];
+  /** @deprecated usar skipFields. */
   skipField?: string;
   /** Ignorar el rango principal (p. ej. gráficas "año en curso"). */
   ignoreRange?: boolean;
@@ -19,6 +24,8 @@ export interface SelectOptions {
 /** Devuelve los índices de fila que cumplen los filtros. */
 export function selectRows(table: Table, filters: FiltersState, opts: SelectOptions): Uint32Array {
   const tests: RowTest[] = [];
+  const skip = new Set(opts.skipFields ?? []);
+  if (opts.skipField) skip.add(opts.skipField);
 
   if (!opts.ignoreRange && hasColumn(table, opts.dateField)) {
     const col = column(table, opts.dateField);
@@ -31,7 +38,7 @@ export function selectRows(table: Table, filters: FiltersState, opts: SelectOpti
   }
 
   for (const [field, values] of Object.entries(filters.eq)) {
-    if (field === opts.skipField || !values.length || !hasColumn(table, field)) continue;
+    if (skip.has(field) || !values.length || !hasColumn(table, field)) continue;
     const col = column(table, field);
     if (col.kind === "cat") {
       const codes = new Set(values.map((v) => col.index.get(v)).filter((c): c is number => c !== undefined));
@@ -44,14 +51,14 @@ export function selectRows(table: Table, filters: FiltersState, opts: SelectOpti
   }
 
   for (const [field, query] of Object.entries(filters.text)) {
-    if (field === opts.skipField || !hasColumn(table, field)) continue;
+    if (skip.has(field) || !hasColumn(table, field)) continue;
     const col = column(table, field);
     const q = query.toLocaleLowerCase("es-CO");
     tests.push((i) => stringAt(col, i).toLocaleLowerCase("es-CO").includes(q));
   }
 
   for (const [field, range] of Object.entries(filters.dates)) {
-    if (field === opts.skipField || !hasColumn(table, field)) continue;
+    if (skip.has(field) || !hasColumn(table, field)) continue;
     const col = column(table, field);
     if (col.kind !== "date") continue;
     const lo = range.from ? isoToMs(range.from) : -Infinity;

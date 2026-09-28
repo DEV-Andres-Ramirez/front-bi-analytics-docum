@@ -30,6 +30,8 @@ export interface GenContext {
   date: number;
   /** Edad del registro en días respecto a hoy. */
   ageDays: number;
+  /** Fila generada justo antes (ya derivada), o null en la primera. Sirve para duplicados coherentes. */
+  prev: MockRow | null;
   now: number;
   pick: <T>(items: readonly T[]) => T;
   weighted: (entries: Record<string, number>) => string;
@@ -43,6 +45,13 @@ export interface MockConfig {
   perDay: number;
   /** Fecha inicial (YYYY-MM-DD). */
   start?: string;
+  /**
+   * Reemplaza el histograma de día de semana del perfil (lunes → domingo). Para perfiles
+   * extraídos de un solo día, que concentrarían todo el volumen en ese día.
+   */
+  weekday?: number[];
+  /** Reemplaza el histograma de hora (0 → 23) del perfil, por la misma razón. */
+  hour?: number[];
   /** Reajusta los pesos de las tuplas para que el marginal de un campo siga estas proporciones. */
   reweight?: Record<string, Record<string, number>>;
   /** Reemplaza un campo por un muestreo independiente con estas proporciones. */
@@ -186,11 +195,11 @@ export function generate(config: MockConfig): MockRow[] {
     : null;
   const hourSampler = new Sampler(
     Array.from({ length: 24 }, (_, h) => h),
-    profile.hour.map((w) => w + 0.3),
+    (config.hour ?? profile.hour).map((w) => w + 0.3),
   );
 
   // ─── Volumen por día ──────────────────────────────────────────────────────
-  const wk = profile.weekday.map((w) => w + 1);
+  const wk = (config.weekday ?? profile.weekday).map((w) => w + 1);
   const weekdayMean = wk.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
   const totalDays = Math.round((today - start) / DAY_MS);
 
@@ -253,7 +262,7 @@ export function generate(config: MockConfig): MockRow[] {
         profile.geo.columns.forEach((c, gi) => (row[c] = g ? String(g[gi]) : ""));
       }
       row.__date = date;
-      config.derive?.(row, { ...ctxBase, index: rows.length, date, ageDays });
+      config.derive?.(row, { ...ctxBase, index: rows.length, date, ageDays, prev: rows.at(-1) ?? null });
       rows.push(row);
     }
   }

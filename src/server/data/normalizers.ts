@@ -44,6 +44,45 @@ export function canal(value: unknown, mergeEmail = false): string {
   return v;
 }
 
+/**
+ * Alias de datos: variantes de escritura de un mismo valor en la fuente (igual que WEB/Web).
+ * Clave en minúsculas (es-CO) sobre el texto limpio → valor canónico. Se documentan en
+ * AGENTS.md §6 y, con su SQL equivalente, en src/server/data/postgres/README.md.
+ */
+export const ALIASES = {
+  /** Tutelas · Estado_del_fallo: "Informativos" → "Informativo". */
+  estadoFallo: { informativos: "Informativo" },
+  /** Medicina Laboral entradas · estado_salida: "Por recibir correspondencia" → "Por recibir en correspondencia". */
+  estadoSalidaML: { "por recibir correspondencia": "Por recibir en correspondencia" },
+} as const satisfies Record<string, Record<string, string>>;
+
+/** orNoReporta + alias (comparación sin distinguir mayúsculas). */
+export function withAlias(value: unknown, aliases: Readonly<Record<string, string>>): string {
+  const v = orNoReporta(value);
+  return aliases[v.toLocaleLowerCase("es-CO")] ?? v;
+}
+
+/** Tutelas: estado del fallo con "Informativos" unificado en "Informativo". */
+export function estadoFallo(value: unknown): string {
+  return withAlias(value, ALIASES.estadoFallo);
+}
+
+/** ML entradas: estado de la salida con "Por recibir correspondencia" unificado en "Por recibir en correspondencia". */
+export function estadoSalidaML(value: unknown): string {
+  return withAlias(value, ALIASES.estadoSalidaML);
+}
+
+/**
+ * Plazo en días con plural correcto: "2 dia(s)" / "0 dias" / "1 dia(s)" → "2 días" / "0 días" / "1 día".
+ * Sin número → "No reporta". (Tutelas · Tiempo_para_responder.)
+ */
+export function diasPlazo(value: unknown): string {
+  const n = cleanText(value).match(/\d+/)?.[0];
+  if (n === undefined) return NO_REPORTA;
+  const dias = Number(n);
+  return `${dias} ${dias === 1 ? "día" : "días"}`;
+}
+
 /** Categoría SLA de Entes: corrige el bug de la vista ("En término" y "5 Horas" nunca se mapean). */
 export function entesAuxCategoria(value: unknown): string {
   const v = orNoReporta(value);

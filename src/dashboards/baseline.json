@@ -1,0 +1,697 @@
+{
+  "facturas-recibidas": {
+    "kpis": [
+      "facturas",
+      "valor",
+      "proveedores",
+      "ticket"
+    ],
+    "widgets": [
+      "serie",
+      "mensual-cantidad",
+      "mensual-valor",
+      "top-proveedores",
+      "eventos",
+      "eventos-serie",
+      "dias"
+    ],
+    "columns": [
+      "id",
+      "ofe",
+      "proveedor",
+      "proveedor_nombre",
+      "Aux_Numero_Factura",
+      "consecutivo",
+      "cufe",
+      "dia_semana",
+      "fecha",
+      "Solo_hora",
+      "valor",
+      "Hom_ultimo_Evento"
+    ],
+    "kpiSig": {
+      "facturas": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "valor": "{\"measure\":{\"kind\":\"sum\",\"field\":\"valor\"},\"format\":\"cop\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "proveedores": "{\"measure\":{\"kind\":\"countDistinct\",\"field\":\"proveedor\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "ticket": "{\"measure\":{\"kind\":\"avg\",\"field\":\"valor\"},\"format\":\"cop\",\"polarity\":\"neutral\",\"dateField\":null}"
+    },
+    "widgetSig": {
+      "serie": "{\"compare\":true}",
+      "mensual-cantidad": "{\"scope\":\"ytd\"}",
+      "mensual-valor": "{\"measure\":{\"kind\":\"sum\",\"field\":\"valor\"},\"scope\":\"ytd\"}",
+      "top-proveedores": "{\"dimension\":\"proveedor_nombre\"}",
+      "eventos": "{\"dimension\":\"Hom_ultimo_Evento\"}",
+      "eventos-serie": "{\"splitBy\":\"Hom_ultimo_Evento\"}",
+      "dias": "{\"dimension\":\"dia_semana\"}"
+    }
+  },
+  "facturas-emitidas": {
+    "kpis": [
+      "facturas",
+      "valor",
+      "adquirientes",
+      "inconsistentes"
+    ],
+    "widgets": [
+      "mensual-cantidad",
+      "mensual-valor",
+      "top-adquirientes",
+      "estado-tipo",
+      "dias",
+      "horas",
+      "resoluciones"
+    ],
+    "columns": [
+      "id",
+      "nit_oferente",
+      "nit_adquiriente",
+      "adquiriente_nombre",
+      "AUX_Numero_Factura",
+      "forma_pago",
+      "medio_pago",
+      "dia_semana",
+      "fecha_expedicion",
+      "valor_neto",
+      "estado",
+      "mensaje"
+    ],
+    "kpiSig": {
+      "facturas": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "valor": "{\"measure\":{\"kind\":\"sum\",\"field\":\"valor_neto\"},\"format\":\"cop\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "adquirientes": "{\"measure\":{\"kind\":\"countDistinct\",\"field\":\"nit_adquiriente\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "inconsistentes": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"estado\",\"in\":[\"INCONSISTENTE\"]}},\"format\":\"pct\",\"polarity\":\"up-bad\",\"dateField\":null}"
+    },
+    "widgetSig": {
+      "mensual-cantidad": "{\"scope\":\"ytd\"}",
+      "mensual-valor": "{\"measure\":{\"kind\":\"sum\",\"field\":\"valor_neto\"},\"scope\":\"ytd\"}",
+      "top-adquirientes": "{\"columns\":[{\"field\":\"adquiriente_nombre\",\"label\":\"Adquiriente\"}]}",
+      "estado-tipo": "{\"columns\":[{\"field\":\"estado\",\"label\":\"Estado\"},{\"field\":\"tipo_documento\",\"label\":\"Tipo\"}]}",
+      "dias": "{\"dimension\":\"dia_semana\"}",
+      "horas": "{\"dimension\":\"Solo_Hora\"}",
+      "resoluciones": "{\"measure\":{\"kind\":\"sum\",\"field\":\"valor_neto\"},\"columns\":[{\"field\":\"estado\",\"label\":\"Estado\"},{\"field\":\"nro_resolucion\",\"label\":\"Resolución\"},{\"field\":\"fecha_inicio\",\"label\":\"Fecha inicial\"},{\"field\":\"fecha_fin\",\"label\":\"Fecha final\"},{\"field\":\"consecutivo_inicial\",\"label\":\"Consecutivo inicial\"},{\"field\":\"consecutivo_final\",\"label\":\"Consecutivo final\"},{\"field\":\"tipo_documento\",\"label\":\"Documento\"}]}"
+    }
+  },
+  "pqrd": {
+    "kpis": [
+      "radicados",
+      "asignacion",
+      "aprobacion",
+      "sla",
+      "gestion",
+      "ciclo"
+    ],
+    "widgets": [
+      "semaforo",
+      "estados",
+      "tipologia",
+      "serie",
+      "canales",
+      "oficinas",
+      "mapa",
+      "eficiencia"
+    ],
+    "columns": [
+      "numero_de_radicado",
+      "observaciones",
+      "nombre_tipo_solicitud",
+      "tipologia_de_pqrd",
+      "fecha_de_radicado",
+      "fecha_maxima_de_respuesta",
+      "tiempo_por_vencer",
+      "canal_de_radicacion",
+      "oficina_responsable_de_respuesta",
+      "estado",
+      "semaforo_riesgo",
+      "rango_ciclo",
+      "gestionador_responsable"
+    ],
+    "kpiSig": {
+      "radicados": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "asignacion": "{\"measure\":{\"kind\":\"avg\",\"field\":\"num_dias_asignacion_gestionador\"},\"format\":\"days\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "aprobacion": "{\"measure\":{\"kind\":\"avg\",\"field\":\"num_dias_aprobacion\"},\"format\":\"days\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "sla": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"cumplimiento_sla\",\"in\":[\"En Término\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "gestion": "{\"measure\":{\"kind\":\"avg\",\"field\":\"num_dias_gestion_total\"},\"format\":\"days\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "ciclo": "{\"measure\":{\"kind\":\"avg\",\"field\":\"dias_ciclo_total\"},\"format\":\"days\",\"polarity\":\"up-bad\",\"dateField\":null}"
+    },
+    "widgetSig": {
+      "semaforo": "{\"dimension\":\"semaforo_riesgo\"}",
+      "estados": "{\"dimension\":\"estado\"}",
+      "tipologia": "{\"dimension\":\"tipologia_de_pqrd\"}",
+      "serie": "{\"compare\":true}",
+      "canales": "{\"dimension\":\"canal_de_radicacion\"}",
+      "oficinas": "{\"dimension\":\"oficina_responsable_de_respuesta\"}",
+      "mapa": "{\"breakdown\":{\"field\":\"canal_de_radicacion\",\"label\":\"Canal\"}}",
+      "eficiencia": "{}"
+    }
+  },
+  "entes-control": {
+    "kpis": [
+      "radicados",
+      "aprobados",
+      "quejas",
+      "asignacion",
+      "fuera-horario",
+      "reabiertos"
+    ],
+    "widgets": [
+      "semaforo",
+      "entes",
+      "tipo",
+      "estado",
+      "canal",
+      "serie",
+      "oficinas",
+      "mapa"
+    ],
+    "columns": [
+      "Numero_de_Radicado",
+      "Fecha_de_Radicacion",
+      "Fecha_Maxima_de_Respuesta",
+      "ente_control",
+      "Canal_de_Radicacion",
+      "Tipo_de_Requerimiento",
+      "Estado",
+      "Oficina_responsable_de_respuesta",
+      "Gestionador_Responsable",
+      "Tiempo_por_Vencer",
+      "Aux_Categoria",
+      "semaforo_riesgo",
+      "rango_ciclo"
+    ],
+    "kpiSig": {
+      "radicados": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "aprobados": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"Estado\",\"in\":[\"Aprobado\",\"Reclasificación Aprobada\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "quejas": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"Tipo_de_Requerimiento\",\"in\":[\"Queja o reclamo\"]}},\"format\":\"pct\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "asignacion": "{\"measure\":{\"kind\":\"avg\",\"field\":\"num_dias_asignacion_gestionador\"},\"format\":\"days\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "fuera-horario": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"tipo_horario_radicacion\",\"in\":[\"Fuera de horario\",\"Fin de semana\"]}},\"format\":\"pct\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "reabiertos": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"marca_tramite\",\"in\":[\"Reabierto\"]}},\"format\":\"pct\",\"polarity\":\"up-bad\",\"dateField\":null}"
+    },
+    "widgetSig": {
+      "semaforo": "{\"dimension\":\"semaforo_riesgo\"}",
+      "entes": "{\"dimension\":\"ente_control\"}",
+      "tipo": "{\"dimension\":\"Tipo_de_Requerimiento\"}",
+      "estado": "{\"dimension\":\"Estado\"}",
+      "canal": "{\"dimension\":\"Canal_de_Radicacion\"}",
+      "serie": "{\"compare\":true}",
+      "oficinas": "{\"dimension\":\"Oficina_responsable_de_respuesta\"}",
+      "mapa": "{\"breakdown\":{\"field\":\"ente_control\",\"label\":\"Ente de control\"}}"
+    }
+  },
+  "entes-control-eficiencia": {
+    "kpis": [
+      "radicados",
+      "aprobados",
+      "quejas",
+      "asignacion",
+      "fuera-horario",
+      "reabiertos"
+    ],
+    "widgets": [
+      "pivot-asignador",
+      "pivot-gestionador",
+      "pivot-revisor",
+      "pivot-aprobador",
+      "fase-asignacion",
+      "fase-gestion",
+      "fase-oficina",
+      "fase-aprobacion"
+    ],
+    "columns": [
+      "Numero_de_Radicado",
+      "Fecha_de_Radicacion",
+      "Fecha_Maxima_de_Respuesta",
+      "ente_control",
+      "Canal_de_Radicacion",
+      "Tipo_de_Requerimiento",
+      "Estado",
+      "Oficina_responsable_de_respuesta",
+      "Gestionador_Responsable",
+      "Tiempo_por_Vencer",
+      "Aux_Categoria",
+      "semaforo_riesgo",
+      "rango_ciclo"
+    ],
+    "kpiSig": {
+      "radicados": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "aprobados": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"Estado\",\"in\":[\"Aprobado\",\"Reclasificación Aprobada\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "quejas": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"Tipo_de_Requerimiento\",\"in\":[\"Queja o reclamo\"]}},\"format\":\"pct\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "asignacion": "{\"measure\":{\"kind\":\"avg\",\"field\":\"num_dias_asignacion_gestionador\"},\"format\":\"days\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "fuera-horario": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"tipo_horario_radicacion\",\"in\":[\"Fuera de horario\",\"Fin de semana\"]}},\"format\":\"pct\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "reabiertos": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"marca_tramite\",\"in\":[\"Reabierto\"]}},\"format\":\"pct\",\"polarity\":\"up-bad\",\"dateField\":null}"
+    },
+    "widgetSig": {
+      "pivot-asignador": "{\"rows\":[{\"field\":\"Oficina_responsable_de_respuesta\",\"label\":\"Oficina responsable\"},{\"field\":\"Asignador_de_responsable\",\"label\":\"Asignador\"}],\"columns\":{\"field\":\"Aux_Categoria\",\"label\":\"Categoría de vencimiento\"},\"columnExclude\":[\"A tiempo\"]}",
+      "pivot-gestionador": "{\"rows\":[{\"field\":\"Oficina_responsable_de_respuesta\",\"label\":\"Oficina responsable\"},{\"field\":\"Gestionador_Responsable\",\"label\":\"Gestionador\"}],\"columns\":{\"field\":\"Aux_Categoria\",\"label\":\"Categoría de vencimiento\"},\"columnExclude\":[\"A tiempo\"]}",
+      "pivot-revisor": "{\"rows\":[{\"field\":\"Oficina_responsable_de_respuesta\",\"label\":\"Oficina responsable\"},{\"field\":\"Responsable_de_Revision\",\"label\":\"Revisor\"}],\"columns\":{\"field\":\"Aux_Categoria\",\"label\":\"Categoría de vencimiento\"},\"columnExclude\":[\"A tiempo\"]}",
+      "pivot-aprobador": "{\"rows\":[{\"field\":\"Oficina_responsable_de_respuesta\",\"label\":\"Oficina responsable\"},{\"field\":\"Responsable_de_Aprobacion\",\"label\":\"Aprobador\"}],\"columns\":{\"field\":\"Aux_Categoria\",\"label\":\"Categoría de vencimiento\"},\"columnExclude\":[\"A tiempo\"]}",
+      "fase-asignacion": "{\"dimension\":\"Oficina_responsable_de_respuesta\",\"measure\":{\"kind\":\"avg\",\"field\":\"num_dias_asignacion_gestionador\"}}",
+      "fase-gestion": "{\"dimension\":\"Oficina_responsable_de_respuesta\",\"measure\":{\"kind\":\"avg\",\"field\":\"dias_gestion_a_aprobacion\"}}",
+      "fase-oficina": "{\"dimension\":\"Oficina_responsable_de_respuesta\",\"measure\":{\"kind\":\"avg\",\"field\":\"dias_oficina_a_gestionador\"}}",
+      "fase-aprobacion": "{\"dimension\":\"Oficina_responsable_de_respuesta\",\"measure\":{\"kind\":\"avg\",\"field\":\"num_dias_aprobacion\"}}"
+    }
+  },
+  "smart-momento-1": {
+    "kpis": [
+      "radicados",
+      "tutela",
+      "cruce",
+      "departamentos"
+    ],
+    "widgets": [
+      "semaforo",
+      "genero",
+      "canales",
+      "productos",
+      "macro-motivos",
+      "serie",
+      "mapa"
+    ],
+    "columns": [
+      "fecha_registro_m1",
+      "radicado",
+      "codigo_queja_reclamo",
+      "nombre_sexo",
+      "nombre_tutela",
+      "nombre_producto",
+      "nombre_canal",
+      "nombre_macro_motivo",
+      "nombre_departamento",
+      "nombre_municipio",
+      "nombre_condicion_especial",
+      "nombre_ente_control",
+      "nombre_tipo_persona",
+      "nombre_anexos_queja_reclamo"
+    ],
+    "kpiSig": {
+      "radicados": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "tutela": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"nombre_tutela\",\"in\":[\"SÍ\"]}},\"format\":\"pct\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "cruce": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"pqrd_estado\",\"notIn\":[\"Sin cruce con PQRD\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "departamentos": "{\"measure\":{\"kind\":\"countDistinct\",\"field\":\"__dpto\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}"
+    },
+    "widgetSig": {
+      "semaforo": "{\"dimension\":\"pqrd_semaforo_riesgo\"}",
+      "genero": "{\"dimension\":\"nombre_sexo\"}",
+      "canales": "{\"dimension\":\"nombre_canal\"}",
+      "productos": "{\"dimension\":\"nombre_producto\"}",
+      "macro-motivos": "{\"columns\":[{\"field\":\"nombre_macro_motivo\",\"label\":\"Macro motivo\"}]}",
+      "serie": "{\"compare\":true}",
+      "mapa": "{\"breakdown\":{\"field\":\"nombre_canal\",\"label\":\"Canal\"}}"
+    }
+  },
+  "smart-momento-2": {
+    "kpis": [
+      "total",
+      "transmitido",
+      "anexos",
+      "juridica"
+    ],
+    "widgets": [
+      "motivos",
+      "persona",
+      "producto",
+      "punto",
+      "canal",
+      "serie",
+      "mapa"
+    ],
+    "columns": [
+      "fecha_registro_m2",
+      "codigo_queja_reclamo",
+      "nombre_motivo",
+      "nombre_canal",
+      "nombre_departamento",
+      "nombre_municipio",
+      "nombre_producto",
+      "caso_trasmitido_superfinanciera",
+      "nombre_punto_recepcion"
+    ],
+    "kpiSig": {
+      "total": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "transmitido": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"caso_trasmitido_superfinanciera\",\"in\":[\"TRANSMITIDO\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "anexos": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"nombre_anexos_queja_reclamo\",\"in\":[\"Sí\"]}},\"format\":\"pct\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "juridica": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"nombre_tipo_persona\",\"in\":[\"Jurídica\"]}},\"format\":\"pct\",\"polarity\":\"neutral\",\"dateField\":null}"
+    },
+    "widgetSig": {
+      "motivos": "{\"dimension\":\"nombre_motivo\"}",
+      "persona": "{\"dimension\":\"nombre_tipo_persona\"}",
+      "producto": "{\"dimension\":\"nombre_producto\"}",
+      "punto": "{\"dimension\":\"nombre_punto_recepcion\"}",
+      "canal": "{\"dimension\":\"nombre_canal\"}",
+      "serie": "{\"compare\":true}",
+      "mapa": "{\"breakdown\":{\"field\":\"nombre_motivo\",\"label\":\"Motivo\"}}"
+    }
+  },
+  "smart-momento-3": {
+    "kpis": [
+      "total",
+      "cierre",
+      "gestion",
+      "por-vencer",
+      "vencidos",
+      "alertas"
+    ],
+    "widgets": [
+      "momento",
+      "semaforo",
+      "sla",
+      "canal-momento",
+      "estado-momento",
+      "queja-momento",
+      "serie",
+      "drill",
+      "sankey",
+      "mapa",
+      "pivot-estado",
+      "pivot-oficina",
+      "pivot-tipo"
+    ],
+    "columns": [
+      "fecha_registro_m3",
+      "radicado",
+      "codigo_queja_reclamo",
+      "observaciones",
+      "pqrd_nombre_tipo_solicitud",
+      "pqrd_canal_radicacion",
+      "pqrd_oficina_responsable",
+      "pqrd_estado",
+      "fecha_aprobacion",
+      "pqrd_tiempo_por_vencer",
+      "pqrd_semaforo_riesgo",
+      "pqrd_rango_ciclo",
+      "Alerta3"
+    ],
+    "kpiSig": {
+      "total": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "cierre": "{\"measure\":{\"kind\":\"count\",\"where\":{\"field\":\"momento\",\"in\":[\"CIERRE\"]}},\"format\":\"int\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "gestion": "{\"measure\":{\"kind\":\"count\",\"where\":{\"field\":\"momento\",\"in\":[\"GESTIÓN\"]}},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "por-vencer": "{\"measure\":{\"kind\":\"count\",\"where\":{\"field\":\"Aux_Categoria\",\"in\":[\"Por vencer\"]}},\"format\":\"int\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "vencidos": "{\"measure\":{\"kind\":\"count\",\"where\":{\"field\":\"Aux_Categoria\",\"in\":[\"Vencido\"]}},\"format\":\"int\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "alertas": "{\"measure\":{\"kind\":\"count\",\"where\":{\"field\":\"Alerta3\",\"in\":[\"Sí\"]}},\"format\":\"int\",\"polarity\":\"up-bad\",\"dateField\":null}"
+    },
+    "widgetSig": {
+      "momento": "{\"dimension\":\"momento\"}",
+      "semaforo": "{\"dimension\":\"pqrd_semaforo_riesgo\"}",
+      "sla": "{\"dimension\":\"Aux_Categoria\"}",
+      "canal-momento": "{\"dimension\":\"pqrd_canal_radicacion\",\"stackBy\":\"momento\"}",
+      "estado-momento": "{\"dimension\":\"pqrd_estado\",\"stackBy\":\"momento\"}",
+      "queja-momento": "{\"dimension\":\"nombre_estado_queja_reclamo\",\"stackBy\":\"momento\"}",
+      "serie": "{\"compare\":true}",
+      "drill": "{\"levels\":[{\"field\":\"pqrd_oficina_responsable\",\"label\":\"Oficina\"},{\"field\":\"pqrd_nombre_tipo_solicitud\",\"label\":\"Tipo de solicitud\"},{\"field\":\"nombre_motivo\",\"label\":\"Motivo\"},{\"field\":\"nombre_producto\",\"label\":\"Producto\"},{\"field\":\"pqrd_resultado_favorabilidad\",\"label\":\"Favorabilidad\"}],\"stackBy\":\"momento\"}",
+      "sankey": "{\"from\":{\"field\":\"pqrd_tipologia\",\"label\":\"Tipología\"},\"to\":{\"field\":\"momento\",\"label\":\"Momento\"}}",
+      "mapa": "{\"breakdown\":{\"field\":\"nombre_canal\",\"label\":\"Canal\"}}",
+      "pivot-estado": "{\"rows\":[{\"field\":\"pqrd_estado\",\"label\":\"Estado\"}],\"columns\":{\"field\":\"Aux_Categoria\",\"label\":\"Categoría SLA\"},\"where\":{\"field\":\"pqrd_estado\",\"notIn\":[\"Aprobado\"]}}",
+      "pivot-oficina": "{\"rows\":[{\"field\":\"pqrd_oficina_responsable\",\"label\":\"Oficina\"}],\"columns\":{\"field\":\"Aux_Categoria\",\"label\":\"Categoría SLA\"}}",
+      "pivot-tipo": "{\"rows\":[{\"field\":\"pqrd_nombre_tipo_solicitud\",\"label\":\"Tipo de solicitud\"}],\"columns\":{\"field\":\"Aux_Categoria\",\"label\":\"Categoría SLA\"}}"
+    }
+  },
+  "tutelas": {
+    "kpis": [
+      "tutelas",
+      "en-termino",
+      "fuera-termino",
+      "en-tramite",
+      "pct-tramite",
+      "desacato"
+    ],
+    "widgets": [
+      "canal",
+      "estado",
+      "etapas",
+      "fallos",
+      "causales",
+      "dependencia",
+      "gestionadores",
+      "serie",
+      "departamentos",
+      "mapa"
+    ],
+    "columns": [
+      "Radicado",
+      "fecharadicacion",
+      "dias_transcurridos",
+      "Tiempo_para_responder",
+      "Cerrado",
+      "Etapa_procesal",
+      "Estado_del_fallo",
+      "Departamento_remitente",
+      "Dependencia",
+      "Gestionador",
+      "Causal",
+      "Numero_de_radicado_juzgado",
+      "canal"
+    ],
+    "kpiSig": {
+      "tutelas": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "en-termino": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"Cerrado\",\"in\":[\"En término\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "fuera-termino": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"Cerrado\",\"in\":[\"Fuera de término\"]}},\"format\":\"pct\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "en-tramite": "{\"measure\":{\"kind\":\"count\",\"where\":{\"field\":\"Cerrado\",\"in\":[\"En trámite\"]}},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "pct-tramite": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"Cerrado\",\"in\":[\"En trámite\"]}},\"format\":\"pct\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "desacato": "{\"measure\":{\"kind\":\"ratioOf\",\"num\":{\"kind\":\"count\",\"where\":{\"field\":\"Etapa_procesal\",\"in\":[\"Desacato\"]}},\"den\":{\"kind\":\"count\",\"where\":{\"field\":\"Etapa_procesal\",\"in\":[\"Fallo de primera instancia\"]}}},\"format\":\"pct\",\"polarity\":\"up-bad\",\"dateField\":null}"
+    },
+    "widgetSig": {
+      "canal": "{\"dimension\":\"canal\"}",
+      "estado": "{\"dimension\":\"estado\"}",
+      "etapas": "{\"dimension\":\"Etapa_procesal\"}",
+      "fallos": "{\"dimension\":\"Estado_del_fallo\"}",
+      "causales": "{\"dimension\":\"Causal\"}",
+      "dependencia": "{\"dimension\":\"Dependencia\"}",
+      "gestionadores": "{\"dimension\":\"Gestionador\"}",
+      "serie": "{\"compare\":true}",
+      "departamentos": "{\"dimension\":\"Departamento_remitente\"}",
+      "mapa": "{\"breakdown\":{\"field\":\"Etapa_procesal\",\"label\":\"Etapa procesal\"}}"
+    }
+  },
+  "medicina-laboral-entradas": {
+    "kpis": [
+      "radicados",
+      "aprobados",
+      "vencidos",
+      "tiempo-gestion"
+    ],
+    "widgets": [
+      "gestionadores",
+      "revisores",
+      "tiempo-vencer",
+      "tiempo-gestion",
+      "tipo-tramite",
+      "estados",
+      "canal",
+      "oficinas",
+      "tipo-solicitud",
+      "serie",
+      "mapa"
+    ],
+    "columns": [
+      "numero_radicado",
+      "gestionador_responsable",
+      "estado",
+      "fecha_max_respuesta",
+      "tiempo_por_vencer",
+      "Fecha_de_radicacion",
+      "canal_radicacion",
+      "oficina_solicitud",
+      "proceso_asistente",
+      "subproceso",
+      "tipo_solicitud",
+      "tiempo_en_gestion",
+      "responsable_aprobacion",
+      "revisor",
+      "radicado_salida",
+      "medio_envio",
+      "estado_salida",
+      "con_copia"
+    ],
+    "kpiSig": {
+      "radicados": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "aprobados": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"up-good\",\"dateField\":\"fecha_aprobacion\"}",
+      "vencidos": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"tiempo_por_vencer\",\"in\":[\"Vencido\",\"Fuera de Término\"]}},\"format\":\"pct\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "tiempo-gestion": "{\"measure\":{\"kind\":\"avg\",\"field\":\"tiempo_en_gestion\"},\"format\":\"days\",\"polarity\":\"up-bad\",\"dateField\":null}"
+    },
+    "widgetSig": {
+      "gestionadores": "{\"dimension\":\"gestionador_responsable\"}",
+      "revisores": "{\"dimension\":\"revisor\"}",
+      "tiempo-vencer": "{\"dimension\":\"tiempo_por_vencer\"}",
+      "tiempo-gestion": "{\"field\":\"tiempo_en_gestion\",\"bins\":[1,2,3,4,5,6,7,8,10,15,30]}",
+      "tipo-tramite": "{\"dimension\":\"tipo_tramite\"}",
+      "estados": "{\"dimension\":\"estado\"}",
+      "canal": "{\"dimension\":\"canal_radicacion\"}",
+      "oficinas": "{\"dimension\":\"oficina_solicitud\"}",
+      "tipo-solicitud": "{\"dimension\":\"tipo_solicitud\"}",
+      "serie": "{\"series\":[{\"id\":\"radicados\",\"label\":\"Radicados\"},{\"id\":\"aprobados\",\"label\":\"Radicados aprobados\",\"dateField\":\"fecha_aprobacion\"}]}",
+      "mapa": "{\"breakdown\":{\"field\":\"tipo_tramite\",\"label\":\"Tipo de trámite\"}}"
+    }
+  },
+  "medicina-laboral-salidas": {
+    "kpis": [
+      "total",
+      "entregadas",
+      "abiertas",
+      "fallidas",
+      "guias",
+      "digital",
+      "aprobacion",
+      "sla"
+    ],
+    "widgets": [
+      "medio",
+      "resultado",
+      "guias",
+      "oficinas",
+      "copia",
+      "tramite",
+      "gestionadores",
+      "revisores",
+      "procesos",
+      "tiempo-definido",
+      "serie",
+      "mapa"
+    ],
+    "columns": [
+      "NUMERO_RADICADO",
+      "DESTINATARIO",
+      "FECHA_APROBACION",
+      "FECHA_MAXIMA_RESPUESTA",
+      "FORMA_DE_ENVIO",
+      "EVENTO_CORREO_ELECTRONICO_CERTIFICADO",
+      "ESTADO_GUIA",
+      "ID_ENVIO_CORREO_ELECTRONICO_CERTIFICADO",
+      "NUMERO_GUIA_ENVIO",
+      "GESTIONADOR_RESPONSABLE",
+      "REVISOR",
+      "COPIA"
+    ],
+    "kpiSig": {
+      "total": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "entregadas": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"EVENTO_CORREO_ELECTRONICO_CERTIFICADO\",\"in\":[\"Acuse de recibo\"]},\"den\":{\"field\":\"NOTIFICABLE\",\"in\":[\"Sí\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "abiertas": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"EVENTO_CORREO_ELECTRONICO_CERTIFICADO\",\"in\":[\"El destinatario abrio la notificacion\"]},\"den\":{\"field\":\"NOTIFICABLE\",\"in\":[\"Sí\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "fallidas": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"EVENTO_CORREO_ELECTRONICO_CERTIFICADO\",\"in\":[\"No fue posible la entrega al destinatario\"]},\"den\":{\"field\":\"NOTIFICABLE\",\"in\":[\"Sí\"]}},\"format\":\"pct\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "guias": "{\"measure\":{\"kind\":\"count\",\"where\":{\"field\":\"ESTADO_GUIA\",\"in\":[\"Por enviar Mensajería\",\"Por recibir en correspondencia\",\"Por enviar Courier\"]}},\"format\":\"int\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "digital": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"FORMA_DE_ENVIO\",\"in\":[\"Correo electrónico certificado\",\"Correo electrónico\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "aprobacion": "{\"measure\":{\"kind\":\"avg\",\"field\":\"DIAS_EN_APROBACION\"},\"format\":\"days\",\"polarity\":\"up-bad\",\"dateField\":null}",
+      "sla": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"DENTRO_SLA\",\"in\":[\"Sí\"]},\"den\":{\"field\":\"DENTRO_SLA\",\"in\":[\"Sí\",\"No\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}"
+    },
+    "widgetSig": {
+      "medio": "{\"dimension\":\"FORMA_DE_ENVIO\"}",
+      "resultado": "{\"dimension\":\"EVENTO_CORREO_ELECTRONICO_CERTIFICADO\"}",
+      "guias": "{\"dimension\":\"ESTADO_GUIA\"}",
+      "oficinas": "{\"dimension\":\"OFICINA\",\"secondary\":{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"EVENTO_CORREO_ELECTRONICO_CERTIFICADO\",\"in\":[\"Acuse de recibo\"]},\"den\":{\"field\":\"NOTIFICABLE\",\"in\":[\"Sí\"]}},\"label\":\"Entregadas\",\"format\":\"pct\"}}",
+      "copia": "{\"dimension\":\"COPIA\"}",
+      "tramite": "{\"dimension\":\"TRAMITE\"}",
+      "gestionadores": "{\"dimension\":\"GESTIONADOR_RESPONSABLE\"}",
+      "revisores": "{\"dimension\":\"REVISOR\"}",
+      "procesos": "{\"dimension\":\"PROCESO_ASISTENTE\"}",
+      "tiempo-definido": "{\"field\":\"TIEMPO_DEFINIDO_DIAS\",\"bins\":[1,2,3,5,7,8,10,15,30]}",
+      "serie": "{\"compare\":true}",
+      "mapa": "{\"breakdown\":{\"field\":\"FORMA_DE_ENVIO\",\"label\":\"Forma de envío\"}}"
+    }
+  },
+  "correspondencia-entradas": {
+    "kpis": [
+      "radicados",
+      "aprobados",
+      "pct-aprobados",
+      "pendientes"
+    ],
+    "widgets": [
+      "tipo-tramite",
+      "canal",
+      "medio",
+      "oficinas",
+      "estados",
+      "serie",
+      "pivot",
+      "mapa"
+    ],
+    "columns": [
+      "Numero_radicado",
+      "Fecha_radicacion",
+      "Tipo_de_tramite",
+      "Estado",
+      "Oficina_asignada",
+      "Canal_radicacion",
+      "Departamento_remitente",
+      "Municipio_remitente",
+      "Usuario_gestion",
+      "Radicado_de_salida",
+      "Estado_de_guia"
+    ],
+    "kpiSig": {
+      "radicados": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "aprobados": "{\"measure\":{\"kind\":\"count\",\"where\":{\"field\":\"Estado\",\"in\":[\"Aprobado\"]}},\"format\":\"int\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "pct-aprobados": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"Estado\",\"in\":[\"Aprobado\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "pendientes": "{\"measure\":{\"kind\":\"count\",\"where\":{\"field\":\"Estado\",\"in\":[\"Para gestión\",\"Por asignar\",\"Por aprobar\",\"En edición\",\"Por revisar\",\"Por recibir correspondencia\",\"En asignación\"]}},\"format\":\"int\",\"polarity\":\"up-bad\",\"dateField\":null}"
+    },
+    "widgetSig": {
+      "tipo-tramite": "{\"dimension\":\"Tipo_de_tramite\"}",
+      "canal": "{\"dimension\":\"Canal_radicacion\"}",
+      "medio": "{\"dimension\":\"Medio_de_envio\"}",
+      "oficinas": "{\"dimension\":\"Oficina_asignada\"}",
+      "estados": "{\"dimension\":\"Estado\"}",
+      "serie": "{\"compare\":true}",
+      "pivot": "{\"rows\":[{\"field\":\"Oficina_asignada\",\"label\":\"Oficina asignada\"}],\"columns\":{\"field\":\"Estado\",\"label\":\"Estado\"}}",
+      "mapa": "{\"breakdown\":{\"field\":\"Tipo_de_tramite\",\"label\":\"Tipo de trámite\"}}"
+    }
+  },
+  "correspondencia-salidas": {
+    "kpis": [
+      "total",
+      "unicos",
+      "aprobado",
+      "enviado",
+      "digital",
+      "sealmail",
+      "con-correo",
+      "municipios",
+      "folios",
+      "devoluciones"
+    ],
+    "widgets": [
+      "serie",
+      "tramite",
+      "sealmail",
+      "canal",
+      "estado",
+      "anexos",
+      "aprobadores",
+      "mapa"
+    ],
+    "columns": [
+      "Numero_radicado",
+      "Radicado_entrada",
+      "Asunto",
+      "Fecha_radicacion",
+      "Tramite",
+      "Estado",
+      "Aprobador",
+      "Destinatario",
+      "Departamento_destinatario",
+      "Municipio_destinatario",
+      "ID_envio_sealmail",
+      "Cantidad_de_folios",
+      "Anexos",
+      "Tiene_correo_destinatario"
+    ],
+    "kpiSig": {
+      "total": "{\"measure\":{\"kind\":\"count\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "unicos": "{\"measure\":{\"kind\":\"countDistinct\",\"field\":\"Numero_radicado\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "aprobado": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"Estado\",\"in\":[\"Aprobado\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "enviado": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"Estado\",\"in\":[\"Enviado\"]}},\"format\":\"pct\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "digital": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"Canal_de_envio\",\"in\":[\"Digital (Correo)\",\"Certificado (SealMail)\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "sealmail": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"Canal_de_envio\",\"in\":[\"Certificado (SealMail)\"]}},\"format\":\"pct\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "con-correo": "{\"measure\":{\"kind\":\"ratio\",\"num\":{\"field\":\"Tiene_correo_destinatario\",\"in\":[\"Sí\"]}},\"format\":\"pct\",\"polarity\":\"up-good\",\"dateField\":null}",
+      "municipios": "{\"measure\":{\"kind\":\"countDistinct\",\"field\":\"__mpio\"},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "folios": "{\"measure\":{\"kind\":\"sum\",\"field\":\"Cantidad_de_folios\",\"where\":{\"field\":\"Cantidad_de_folios\",\"lt\":9999}},\"format\":\"int\",\"polarity\":\"neutral\",\"dateField\":null}",
+      "devoluciones": "{\"measure\":{\"kind\":\"count\",\"where\":{\"field\":\"Estado_guia\",\"in\":[\"DEVUELTO\"]}},\"format\":\"int\",\"polarity\":\"up-bad\",\"dateField\":null}"
+    },
+    "widgetSig": {
+      "serie": "{\"compare\":true}",
+      "tramite": "{\"dimension\":\"Tramite\"}",
+      "sealmail": "{\"series\":[{\"id\":\"sealmail\",\"label\":\"Envíos SealMail\",\"measure\":{\"kind\":\"count\",\"where\":{\"field\":\"Canal_de_envio\",\"in\":[\"Certificado (SealMail)\"]}}}],\"compare\":true}",
+      "canal": "{\"dimension\":\"Canal_de_envio\"}",
+      "estado": "{\"dimension\":\"Estado\"}",
+      "anexos": "{\"dimension\":\"Anexos\"}",
+      "aprobadores": "{\"dimension\":\"Aprobador\"}",
+      "mapa": "{\"breakdown\":{\"field\":\"Tramite\",\"label\":\"Trámite\"}}"
+    }
+  }
+}

@@ -16,6 +16,18 @@ const ASUNTOS = [
   "Respuesta a solicitud de reembolso",
 ];
 
+/**
+ * Una salida con copia genera una fila por destinatario con el mismo radicado. Las filas de
+ * copia comparten con el original los datos del documento; solo cambian el destinatario,
+ * su geografía y el envío (medio, canal, guía, SealMail).
+ */
+const DOC_FIELDS = [
+  "Numero_radicado", "Radicado_entrada", "Fecha_radicacion", "Asunto", "Tramite", "Estado",
+  "Aprobador", "Gestionador", "Anexos", "Cantidad_de_folios",
+] as const;
+/** Tipos de copia del perfil (Interna 33 · Interna y externa 16 · Externa 15), sin consumir el RNG. */
+const COPY_TYPES = ["Interna", "Externa", "Interna", "Interna y externa"];
+
 export const salidasGenerales: DatasetDef = {
   id: "salidas_generales",
   views: ["vw_reporte_datastudio_salidas_generales"],
@@ -62,8 +74,9 @@ export const salidasGenerales: DatasetDef = {
       Tiene_correo_destinatario: { Sí: 89.4, No: 10.6 },
     },
     derive(row, ctx) {
-      const prev = ctx.index > 0 && ctx.rng() < 0.11;
-      row.Numero_radicado = radicado("SAL", ctx.date, 2_200_000 + (prev ? ctx.index - 1 : ctx.index));
+      // ~11 % de las filas son copias de la salida anterior (Total incluye copias; Únicos no).
+      const prev = ctx.prev && ctx.rng() < 0.11 ? ctx.prev : null;
+      row.Numero_radicado = radicado("SAL", ctx.date, 2_200_000 + ctx.index);
       row.Radicado_entrada = radicado("ENT", ctx.date - 5 * 86_400_000, 1_440_000 + ctx.index);
       row.Fecha_radicacion = ctx.date;
       const medio = String(row.Medio_de_envio);
@@ -74,6 +87,13 @@ export const salidasGenerales: DatasetDef = {
       row.Destinatario = ctx.rng() < 0.55 ? fakeCompany(`sgd-${ctx.index % 500}`) : "Persona natural (dato protegido)";
       row.Asunto = ctx.pick(ASUNTOS);
       if (ctx.rng() < 0.004) row.Cantidad_de_folios = 9999;
+      if (prev) {
+        for (const f of DOC_FIELDS) row[f] = prev[f];
+        // El original y sus copias declaran el mismo tipo de copia.
+        const tipo = COPY_TYPES.includes(String(prev.Copia)) ? String(prev.Copia) : COPY_TYPES[ctx.index % COPY_TYPES.length];
+        prev.Copia = tipo;
+        row.Copia = tipo;
+      }
     },
   }),
   normalize: (r) => ({

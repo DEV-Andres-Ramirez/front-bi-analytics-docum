@@ -1,29 +1,31 @@
 "use client";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Database, FlaskConical, Info, RotateCcw } from "lucide-react";
+import { AlertTriangle, RotateCcw } from "lucide-react";
 import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, ViewTransition } from "react";
-import { Badge } from "@/components/ui/primitives";
-import { Tooltip } from "@/components/ui/tooltip";
-import { DASHBOARD_BY_SLUG, MODULES } from "@/config/dashboards";
+import { useEffect, useMemo, useRef } from "react";
+import { DASHBOARD_BY_SLUG } from "@/config/dashboards";
 import type { DashboardResponse } from "@/dashboards/dto";
 import { SPECS } from "@/dashboards/specs";
 import { useRecents } from "@/hooks/use-recents";
-import { cn } from "@/lib/cn";
-import { formatRange } from "@/lib/dates";
-import { formatInt } from "@/lib/format";
+import { clearTopbar, setTopbar, type TopbarSection } from "@/hooks/use-topbar";
 import { DashboardProvider, useUrlFilters } from "./dashboard-context";
+import { DashboardHeader } from "./dashboard-header";
 import { DetailTable } from "./detail-table";
 import { FilterBar } from "./filters";
-import { KpiCard } from "./kpi-card";
-import { DashboardSection } from "./section";
+import { KpiBand } from "./kpi-band";
+import { formatSpan } from "./kpi/shared";
+import { DashboardSection, useLayoutCheck } from "./section";
+
+function LayoutCheck() {
+  useLayoutCheck();
+  return null;
+}
 
 export function DashboardView({ slug }: { slug: string }) {
   const spec = SPECS[slug];
   const meta = DASHBOARD_BY_SLUG[slug];
-  const mod = MODULES.find((m) => m.id === meta.module)!;
   const { filters, qs, actions } = useUrlFilters();
   const { push } = useRecents();
   const router = useRouter();
@@ -44,7 +46,7 @@ export function DashboardView({ slug }: { slug: string }) {
     placeholderData: keepPreviousData,
   });
 
-  const { data, isFetching, isError, refetch } = query;
+  const { data, isFetching, isError, refetch, dataUpdatedAt } = query;
   const ctx = useMemo(
     () => ({
       spec,
@@ -60,87 +62,73 @@ export function DashboardView({ slug }: { slug: string }) {
     [spec, meta, filters, qs, data, isFetching, isError, refetch, actions],
   );
 
-  const Icon = meta.icon;
-  const kpiCols = spec.kpis.length >= 6 ? "xl:grid-cols-6" : spec.kpis.length === 5 ? "xl:grid-cols-5" : spec.kpis.length === 4 ? "xl:grid-cols-4" : "xl:grid-cols-3";
+  // ── Topbar: secciones (SectionNav), hora de los datos, origen y periodo ──────
+  const sections = useMemo<TopbarSection[]>(
+    () => [
+      ...spec.sections.map((s) => ({ id: s.id, label: s.nav ?? s.title ?? s.question ?? s.id })),
+      { id: "detalle", label: "Detalle" },
+    ],
+    [spec.sections],
+  );
+  useEffect(() => {
+    setTopbar({ slug, sections });
+    return () => clearTopbar(slug);
+  }, [slug, sections]);
+  useEffect(() => {
+    setTopbar({ updatedAt: data ? dataUpdatedAt : 0, source: data?.source ?? null });
+  }, [data, dataUpdatedAt]);
+  useEffect(() => {
+    setTopbar({ period: formatSpan(filters.from, filters.to) });
+  }, [filters.from, filters.to]);
+
+  // ── Deep link (#seccion): al llegar el primer dato, se reubica la sección ─────
+  const jumped = useRef(false);
+  useEffect(() => {
+    if (jumped.current || !data) return;
+    jumped.current = true;
+    const id = decodeURIComponent(window.location.hash.slice(1));
+    if (!id) return;
+    const raf = requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: "start" }));
+    return () => cancelAnimationFrame(raf);
+  }, [data]);
 
   return (
     <DashboardProvider value={ctx}>
-      <div className="mx-auto max-w-[1600px] px-4 pb-16 sm:px-6 lg:px-10">
-        {/* Encabezado */}
-        <header className="relative pb-5 pt-6 lg:pt-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex min-w-0 items-start gap-4">
-              <ViewTransition name={`dash-icon-${slug}`} share="morph" default="none">
-                <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-[linear-gradient(145deg,#f39a33,#c05800)] text-white shadow-[0_12px_28px_-14px_rgb(192_88_0/0.9)]">
-                  <Icon className="size-7" />
-                </span>
-              </ViewTransition>
-              <div className="min-w-0">
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-primary-strong">{mod.label}</p>
-                <ViewTransition name={`dash-title-${slug}`} share="morph" default="none">
-                  <h1 className="mt-0.5 text-balance text-2xl font-bold tracking-tight sm:text-3xl">{meta.title}</h1>
-                </ViewTransition>
-                <p className="mt-1.5 max-w-3xl text-sm text-muted">{meta.description}</p>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-              {query.data?.source === "mock" && (
-                <Tooltip content="Datos sintéticos generados a partir de distribuciones anonimizadas de las vistas reales. Se reemplazarán por la base de datos.">
-                  <Badge tone="warning" icon={<FlaskConical className="size-3" />}>
-                    Datos de prueba
-                  </Badge>
-                </Tooltip>
-              )}
-              <Tooltip content={`Fuente: ${meta.views.join(", ")}`}>
-                <Badge icon={<Database className="size-3" />}>{meta.views.length > 1 ? `${meta.views.length} vistas` : "1 vista"}</Badge>
-              </Tooltip>
-              {query.data && (
-                <span className="text-xs text-muted">
-                  {formatInt(query.data.rowsInRange)} registros · {formatRange(filters.from, filters.to)} · {spec.dateLabel.toLowerCase()}
-                </span>
-              )}
-            </div>
-          </div>
-          {spec.notes && spec.notes.length > 0 && (
-            <div className="mt-4 flex items-start gap-2 rounded-2xl border border-info/25 bg-info-soft px-4 py-3 text-xs text-info-ink">
-              <Info className="mt-0.5 size-4 shrink-0" />
-              <div className="space-y-1">
-                {spec.notes.map((n) => (
-                  <p key={n}>{n}</p>
-                ))}
-              </div>
-            </div>
-          )}
-        </header>
+      <LayoutCheck />
+      <div data-module={meta.module} className="dash-page mx-auto max-w-[var(--content-max)] px-4 pb-16 sm:px-5 xl:px-8">
+        <DashboardHeader />
 
         <FilterBar />
 
         {query.isError && !query.data && (
-          <div className="mt-6 flex items-center gap-3 rounded-2xl border border-critical/30 bg-critical-soft px-4 py-3 text-sm text-critical-ink">
-            <AlertTriangle className="size-5" />
+          <div role="alert" className="mt-6 flex items-center gap-3 rounded-2xl border border-critical/30 bg-critical-soft px-4 py-3 text-sm text-critical-ink">
+            <AlertTriangle className="size-5 shrink-0" aria-hidden />
             No fue posible cargar el tablero.
             <button type="button" onClick={() => query.refetch()} className="ml-auto inline-flex items-center gap-1 font-semibold">
-              <RotateCcw className="size-4" /> Reintentar
+              <RotateCcw className="size-4" aria-hidden /> Reintentar
             </button>
           </div>
         )}
 
         {/* KPIs */}
-        <section aria-label="Indicadores clave" className={cn("mt-6 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3", kpiCols)}>
-          {spec.kpis.map((k, i) => (
-            <KpiCard key={k.id} def={k} index={i} loading={query.isLoading} result={query.data?.kpis.find((r) => r.id === k.id)} prevRange={query.data?.range} />
-          ))}
-        </section>
+        <KpiBand />
 
-        {/* Secciones */}
-        <div className="mt-10 space-y-10">
+        {/* Secciones (la tabla de detalle siempre es la última) */}
+        <div className="dash-sections mt-12 flex flex-col gap-[var(--section-gap)]">
           {spec.sections.map((s, i) => (
             <DashboardSection key={s.id} section={s} index={i} />
           ))}
-          <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+          <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.4 }}>
             <DetailTable />
           </motion.div>
         </div>
+
+        {/* Pie global de convenciones */}
+        <footer className="mt-12 border-t border-border pt-5 text-xs leading-relaxed text-muted">
+          Variación vs. periodo anterior de igual duración <span aria-hidden>·</span> p.p. = puntos porcentuales{" "}
+          <span aria-hidden>·</span> verde y rojo según si subir es bueno <span aria-hidden>·</span> Fuente: vistas SGDEA
+          {data?.source === "mock" ? " (datos de prueba)" : ""}
+        </footer>
       </div>
     </DashboardProvider>
   );

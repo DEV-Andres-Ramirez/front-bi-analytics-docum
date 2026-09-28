@@ -1,35 +1,33 @@
 "use client";
 
-import {
-  ArrowRight,
-  BarChart3,
-  Eye,
-  EyeOff,
-  FileText,
-  Gavel,
-  KeyRound,
-  Loader2,
-  Mail,
-  ShieldCheck,
-  Stethoscope,
-} from "lucide-react";
+import { ArrowRight, CircleHelp, Eye, EyeOff, KeyRound, Loader2, TriangleAlert } from "lucide-react";
 import { motion, useAnimationControls } from "motion/react";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { PositivaLogo } from "@/components/brand/logo";
-import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { ColombiaDots } from "@/components/home/colombia-dots";
+import { ThemeSwitch } from "@/components/ui/theme-toggle";
+import { DASHBOARDS, MODULES } from "@/config/dashboards";
 import { login, type LoginState } from "@/server/auth/actions";
 
-const MODULES = [
-  { icon: FileText, label: "Facturación" },
-  { icon: ShieldCheck, label: "PQRD y Entes de Control" },
-  { icon: BarChart3, label: "SMART Supervisión" },
-  { icon: Gavel, label: "Tutelas" },
-  { icon: Stethoscope, label: "Medicina Laboral" },
-  { icon: Mail, label: "Correspondencia" },
-];
+const EASE = [0.22, 1, 0.36, 1] as const;
 
-const ease = [0.22, 1, 0.36, 1] as const;
+/** Tableros por módulo (sale de la configuración; nada de cifras inventadas). */
+const MODULE_TILES = MODULES.map((m) => ({ ...m, count: DASHBOARDS.filter((d) => d.module === m.id).length }));
 
+/**
+ * Degradado de marca del panel (chrome, no datos). Arranca en un naranja Balú más profundo para que el texto
+ * blanco de 12–16 px cumpla AA (≥ 4,5:1) incluso sobre un punto de la silueta; el titular (texto grande) cumple 3:1.
+ */
+const BRAND_BG = "linear-gradient(150deg, #bd5d00 0%, #a24a00 58%, #6b3000 100%)";
+
+/**
+ * LoginScreen v2.
+ * - Escritorio (≥ 1024 px): grid 1.1fr / 1fr. Panel naranja con la silueta de Colombia en puntos (blanco al 12 %)
+ *   y mosaico 2×3 de módulos (círculo blanco con el ícono en el color del módulo, nombre y "n tableros").
+ * - Móvil: banda de 168 px y la tarjeta superpuesta (−mt-10).
+ * - Tarjeta: lockup "Docum BI" (el logo aparece una sola vez), token con mostrar/ocultar, aviso de Bloq Mayús,
+ *   error con role=alert (con sacudida) y ayuda para obtener el token.
+ */
 export function LoginScreen({ next }: { next: string }) {
   const [state, action, pending] = useActionState<LoginState, FormData>(login, {});
   const [show, setShow] = useState(false);
@@ -45,113 +43,123 @@ export function LoginScreen({ next }: { next: string }) {
   }, [state.attempt, state.error, controls]);
 
   return (
-    <main className="relative grid min-h-dvh lg:grid-cols-[1.1fr_1fr]">
-      {/* Panel de marca */}
-      <section
-        aria-hidden
-        className="relative hidden overflow-hidden bg-[linear-gradient(145deg,#e5870f_0%,#c05800_55%,#7a3b00_100%)] text-white lg:flex lg:flex-col lg:justify-between lg:p-12"
+    <main className="relative grid min-h-dvh bg-bg lg:grid-cols-[1.1fr_1fr]">
+      {/* ── Panel de marca (escritorio) ─────────────────────────────── */}
+      <aside
+        aria-label="Acerca de Docum BI"
+        className="relative hidden overflow-hidden text-white lg:flex lg:flex-col lg:px-12 lg:py-11 xl:px-16"
+        style={{ background: BRAND_BG }}
       >
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -left-24 -top-24 size-[28rem] animate-float rounded-full bg-white/10 blur-3xl" />
-          <div
-            className="absolute -bottom-32 right-0 size-[32rem] animate-float rounded-full bg-[#ffd9ae]/20 blur-3xl"
-            style={{ animationDelay: "-5s" }}
-          />
-          <svg className="absolute inset-0 size-full opacity-[0.07]" aria-hidden>
-            <defs>
-              <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse">
-                <path d="M36 0H0V36" fill="none" stroke="white" strokeWidth="1" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-          </svg>
-        </div>
+        <div aria-hidden className="pointer-events-none absolute inset-0 bg-black/0 dark:bg-black/15" />
+        {/* Silueta completa en el tercio derecho, desvanecida hacia el texto para no competir con él. */}
+        <ColombiaDots
+          dot={1}
+          className="absolute right-[-6%] top-1/2 h-[70%] -translate-y-1/2 text-white/10 [mask-image:linear-gradient(to_right,transparent_0,#000_60%)] xl:h-[82%]"
+        />
 
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
+        <motion.p
+          initial={{ opacity: 0, y: -6 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease }}
-          className="relative"
+          transition={{ duration: 0.45, ease: EASE }}
+          className="relative inline-flex w-fit items-center gap-2 rounded-full bg-black/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] ring-1 ring-white/25"
         >
-          <PositivaLogo mono height={44} className="text-white" />
-        </motion.div>
+          SGDEA · Seguimiento documental
+        </motion.p>
 
-        <div className="relative max-w-xl">
+        <div className="relative my-auto max-w-xl py-10">
           <motion.p
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1, duration: 0.6, ease }}
-            className="mb-4 inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] backdrop-blur"
-          >
-            SGDEA · Docum BI
-          </motion.p>
-          <motion.h1
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.18, duration: 0.7, ease }}
-            className="text-balance text-4xl font-bold leading-tight xl:text-5xl"
+            transition={{ delay: 0.08, duration: 0.5, ease: EASE }}
+            className="text-balance text-4xl font-bold leading-[1.15] tracking-tight xl:text-[44px]"
           >
             Seguimiento de flujos documentales, claro y a tiempo.
-          </motion.h1>
+          </motion.p>
           <motion.p
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.26, duration: 0.7, ease }}
-            className="mt-4 max-w-lg text-base text-white/85"
+            transition={{ delay: 0.14, duration: 0.5, ease: EASE }}
+            className="mt-4 max-w-lg text-pretty text-base leading-relaxed text-white"
           >
-            13 tableros ejecutivos en un solo lugar, con filtros cruzados, mapas por departamento y municipio,
-            y alertas de SLA.
+            {DASHBOARDS.length} tableros en {MODULES.length} módulos, con filtros cruzados, mapas por departamento y municipio, y
+            alertas de términos.
           </motion.p>
 
-          <BrandPreview />
+          <motion.ul
+            initial="hidden"
+            animate="show"
+            variants={{ show: { transition: { staggerChildren: 0.04, delayChildren: 0.2 } } }}
+            className="mt-9 grid max-w-lg grid-cols-2 gap-3"
+            aria-label="Módulos"
+          >
+            {MODULE_TILES.map((m) => {
+              const Icon = m.icon;
+              return (
+                <motion.li
+                  key={m.id}
+                  data-module={m.id}
+                  variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: EASE } } }}
+                  className="flex items-center gap-3 rounded-2xl bg-black/10 p-3 ring-1 ring-white/25 backdrop-blur-sm"
+                >
+                  <span className="grid size-10 shrink-0 place-items-center rounded-full bg-white text-mod-2 shadow-[0_6px_16px_-8px_rgb(0_0_0/0.45)]">
+                    <Icon className="size-5" aria-hidden strokeWidth={2.1} />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold leading-5">{m.short}</span>
+                    <span className="block text-xs font-medium leading-4 text-white">
+                      {m.count} {m.count === 1 ? "tablero" : "tableros"}
+                    </span>
+                  </span>
+                </motion.li>
+              );
+            })}
+          </motion.ul>
         </div>
 
-        <motion.ul
-          initial="hidden"
-          animate="show"
-          variants={{ show: { transition: { staggerChildren: 0.06, delayChildren: 0.5 } } }}
-          className="relative flex flex-wrap gap-2"
-        >
-          {MODULES.map(({ icon: Icon, label }) => (
-            <motion.li
-              key={label}
-              variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-medium backdrop-blur"
-            >
-              <Icon className="size-3.5" /> {label}
-            </motion.li>
-          ))}
-        </motion.ul>
-      </section>
+      </aside>
 
-      {/* Formulario */}
-      <section className="relative flex flex-col items-center justify-center px-4 py-10 sm:px-8">
-        <div className="mesh-bg pointer-events-none absolute inset-0 lg:hidden" />
-        <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
-          <ThemeToggle />
+      {/* ── Formulario ─────────────────────────────────────────────── */}
+      <section className="relative flex min-w-0 flex-col lg:items-center lg:justify-center lg:px-8 lg:py-10">
+        {/* Banda móvil de 168 px */}
+        <div aria-hidden className="relative h-[168px] overflow-hidden lg:hidden" style={{ background: BRAND_BG }}>
+          <ColombiaDots dot={1.1} className="absolute -right-6 -top-10 h-[260px] text-white/15" />
+          <p className="absolute bottom-14 left-4 right-24 text-balance text-lg font-bold leading-snug text-white sm:left-8">
+            Seguimiento de flujos documentales, claro y a tiempo.
+          </p>
+        </div>
+
+        <div className="absolute right-4 top-4 z-10 sm:right-6 sm:top-6">
+          <ThemeSwitch />
         </div>
 
         <motion.div
-          initial={{ opacity: 0, y: 18, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.6, ease }}
-          className="relative w-full max-w-md"
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, ease: EASE }}
+          className="relative z-[1] mx-auto -mt-10 w-full max-w-md px-4 pb-10 sm:px-6 lg:mt-0 lg:px-0 lg:pb-0"
         >
-          <motion.div animate={controls} className="card p-6 sm:p-9">
-            <PositivaLogo height={40} priority className="mb-8" />
-            <h2 className="text-2xl font-bold tracking-tight">Bienvenido</h2>
-            <p className="mt-1.5 text-sm text-muted">
-              Ingresa el token de acceso para consultar los tableros de seguimiento.
-            </p>
+          <motion.div animate={controls} className="card-hero p-6 sm:p-8">
+            {/* Lockup: logo (única vez) | Docum BI */}
+            <div className="flex items-center gap-3">
+              <PositivaLogo height={30} priority />
+              <span aria-hidden className="h-7 w-px bg-border" />
+              <span className="text-sm font-bold tracking-tight text-text">Docum BI</span>
+            </div>
 
-            <form action={action} className="mt-8 space-y-5" noValidate>
+            <h1 className="mt-7 text-2xl font-bold tracking-tight text-text">Bienvenido</h1>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted">Ingresa el token de acceso para consultar los tableros de seguimiento.</p>
+
+            <form action={action} className="mt-7 space-y-5" noValidate>
               <input type="hidden" name="next" value={next} />
               <div>
                 <label htmlFor="token" className="mb-2 block text-sm font-semibold text-text-2">
                   Token de acceso
                 </label>
                 <div className="group relative">
-                  <KeyRound className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-faint transition-colors group-focus-within:text-primary" />
+                  <KeyRound
+                    className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-muted transition-colors group-focus-within:text-primary"
+                    aria-hidden
+                  />
                   <input
                     ref={inputRef}
                     id="token"
@@ -162,23 +170,28 @@ export function LoginScreen({ next }: { next: string }) {
                     required
                     spellCheck={false}
                     aria-invalid={Boolean(state.error)}
-                    aria-describedby={state.error ? "token-error" : undefined}
+                    aria-describedby={[state.error ? "token-error" : null, caps ? "token-caps" : null].filter(Boolean).join(" ") || undefined}
                     onKeyUp={(e) => setCaps(e.getModifierState?.("CapsLock") ?? false)}
                     onKeyDown={(e) => setCaps(e.getModifierState?.("CapsLock") ?? false)}
+                    onBlur={() => setCaps(false)}
                     placeholder="••••••••••••••••"
-                    className="h-12 w-full rounded-2xl border border-border bg-surface-2 pl-11 pr-12 font-mono text-[15px] tracking-wide text-text outline-none transition focus:border-primary focus:bg-surface focus:ring-4 focus:ring-[var(--ring)] aria-[invalid=true]:border-critical"
+                    className="h-12 w-full rounded-2xl border border-border bg-surface-2 pl-11 pr-12 font-mono text-[15px] tracking-wide text-text outline-none transition placeholder:text-faint focus:border-primary focus:bg-surface focus:ring-4 focus:ring-[var(--ring)] aria-[invalid=true]:border-critical"
                   />
                   <button
                     type="button"
                     onClick={() => setShow((s) => !s)}
                     aria-label={show ? "Ocultar token" : "Mostrar token"}
+                    aria-pressed={show}
                     className="absolute right-2 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-full text-muted transition hover:bg-surface-3 hover:text-text"
                   >
-                    {show ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
+                    {show ? <EyeOff className="size-[18px]" aria-hidden /> : <Eye className="size-[18px]" aria-hidden />}
                   </button>
                 </div>
                 {caps && (
-                  <p className="mt-2 text-xs font-medium text-warning-ink">Bloq Mayús está activado.</p>
+                  <p id="token-caps" role="status" className="mt-2 flex items-center gap-1.5 text-xs font-medium text-warning-ink">
+                    <TriangleAlert className="size-3.5 shrink-0" aria-hidden />
+                    Bloq Mayús está activado.
+                  </p>
                 )}
                 {state.error && (
                   <motion.p
@@ -197,66 +210,37 @@ export function LoginScreen({ next }: { next: string }) {
               <button type="submit" disabled={pending} className="btn-primary flex h-12 w-full items-center justify-center gap-2 text-[15px]">
                 {pending ? (
                   <>
-                    <Loader2 className="size-[18px] animate-spin" /> Validando…
+                    <Loader2 className="size-[18px] animate-spin" aria-hidden /> Validando…
                   </>
                 ) : (
                   <>
-                    Ingresar <ArrowRight className="size-[18px]" />
+                    Ingresar <ArrowRight className="size-[18px]" aria-hidden />
                   </>
                 )}
               </button>
             </form>
+
+            {/* Ayuda para obtener el token (copy por validar con el negocio) */}
+            <details className="group mt-6 rounded-xl border border-border bg-surface-2 text-sm open:bg-surface-2">
+              <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3.5 py-2.5 font-semibold text-text-2 transition-colors hover:text-text [&::-webkit-details-marker]:hidden">
+                <CircleHelp className="size-4 shrink-0 text-muted" aria-hidden />
+                ¿No tienes un token de acceso?
+                <ArrowRight className="ml-auto size-3.5 shrink-0 text-muted transition-transform group-open:rotate-90" aria-hidden />
+              </summary>
+              <div className="space-y-1.5 px-3.5 pb-3 text-[13px] leading-relaxed text-text-2">
+                <p>Solicítalo al administrador de Docum BI de tu área (Gestión Documental).</p>
+                <p className="text-muted">El token es personal: no lo compartas ni lo envíes por correo o chat.</p>
+              </div>
+            </details>
           </motion.div>
 
-          <p className="mt-6 text-center text-xs text-muted">
-            Positiva Compañía de Seguros · Uso interno. El acceso queda registrado.
+          {/* Único pie legal (el panel de marca ya no lo repite). */}
+          <p className="mt-6 text-balance text-center text-xs text-muted">
+            <span className="whitespace-nowrap">Positiva Compañía de Seguros · Uso interno.</span>{" "}
+            <span className="whitespace-nowrap">El acceso queda registrado.</span>
           </p>
         </motion.div>
       </section>
     </main>
-  );
-}
-
-/** Vista previa animada (decorativa) de un tablero sobre el panel de marca. */
-function BrandPreview() {
-  const bars = [38, 56, 44, 72, 60, 84, 66, 92];
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 24 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.35, duration: 0.8, ease }}
-      className="mt-10 grid max-w-lg grid-cols-[1fr_1.3fr] gap-3"
-    >
-      <div className="rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-md">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-white/70">Radicados</p>
-        <p className="mt-1 text-3xl font-bold">12.925</p>
-        <p className="mt-1 text-xs text-white/80">+5,7 % vs. periodo anterior</p>
-        <svg viewBox="0 0 120 36" className="mt-3 h-9 w-full" aria-hidden>
-          <motion.path
-            d="M0 28 L15 24 L30 26 L45 14 L60 18 L75 9 L90 13 L105 6 L120 8"
-            fill="none"
-            stroke="white"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            initial={{ pathLength: 0 }}
-            animate={{ pathLength: 1 }}
-            transition={{ delay: 0.7, duration: 1.4, ease: "easeInOut" }}
-          />
-        </svg>
-      </div>
-      <div className="flex h-full min-h-36 items-end gap-1.5 rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-md">
-        {bars.map((h, i) => (
-          <motion.span
-            key={i}
-            className="flex-1 rounded-t-[4px] bg-white/85"
-            initial={{ height: 0 }}
-            animate={{ height: `${h}%` }}
-            transition={{ delay: 0.6 + i * 0.07, duration: 0.7, ease }}
-            style={{ maxWidth: 18 }}
-          />
-        ))}
-      </div>
-    </motion.div>
   );
 }

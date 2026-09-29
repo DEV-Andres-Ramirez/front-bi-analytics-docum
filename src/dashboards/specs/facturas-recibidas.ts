@@ -144,7 +144,7 @@ export const facturasRecibidas: DashboardSpec = {
       { field: "Aux_Numero_Factura", label: "Factura", format: "mono" },
       { field: "consecutivo", label: "Consecutivo", format: "mono", visible: false },
       { field: "cufe", label: "CUFE", format: "mono", visible: false },
-      { field: "dia_semana", label: "Día" },
+      { field: "dia_semana", label: "Día", visible: false },
       { field: "fecha", label: "Fecha y hora", format: "datetime" },
       { field: "Solo_hora", label: "Hora (franja)", format: "int", visible: false },
       { field: "Hom_ultimo_Evento", label: "Último evento RADIAN", format: "badge", semantic: "radian" },

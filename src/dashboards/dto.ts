@@ -26,6 +26,12 @@ export interface KpiResult {
   /** Variación relativa vs periodo anterior (0.057 = +5,7 %); null si no hay base. */
   delta: number | null;
   spark: (number | null)[];
+  /**
+   * Denominador de cada bucket del spark, solo en tasas y promedios (ratio: filas de `den`, o todas;
+   * ratioOf: la medida `den`; avg: filas con `where` y valor numérico). Pondera la micro-tendencia al
+   * pasar de días a semanas y oculta los días de base chica.
+   */
+  sparkBase?: (number | null)[];
 }
 
 export interface CategoryResult {
@@ -80,6 +86,8 @@ export interface BarTableResult {
   rows: { cells: string[]; value: number }[];
   max: number;
   total: number;
+  /** Combinaciones fuera del topN (pie "Top 60 de 218 · 56 % del total"). Solo si hay resto. */
+  restCount?: number;
 }
 
 export interface GeoValue {

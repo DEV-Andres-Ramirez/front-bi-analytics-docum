@@ -98,6 +98,7 @@ export function PanelSummary({
   top,
   located,
   total,
+  unit,
   className,
 }: {
   level: MapLevel;
@@ -223,8 +224,9 @@ export function CoverageBanner({ located, total, unit }: { located: number; tota
 }
 
 // ─── (c) Ranking ─────────────────────────────────────────────────────────────
-/** Alto de una fila del ranking ajustado (h-6) y del botón "Ver los N" (h-6 + mt-1). */
+/** Alto de una fila del ranking ajustado (24 px; hasta 28 px si reparte el sobrante) y del botón "Ver los N" (h-6 + mt-1). */
 const ROW_H = 24;
+const ROW_H_MAX = 28;
 const TOGGLE_H = 28;
 
 export function MapRanking({
@@ -249,7 +251,7 @@ export function MapRanking({
   /** Territorios sin registros (se listan al ver todos). */
   zeros: string[];
   level: MapLevel;
-  /** Máximo de filas del top (10). */
+  /** Máximo de filas del top (apilado, 10; lado a lado, todas las que quepan). */
   limit: number;
   showAll: boolean;
   onToggleAll: () => void;
@@ -263,10 +265,10 @@ export function MapRanking({
   /** 2: lista en dos columnas (panel ancho: diálogo Ampliar o > 1600 px). */
   columns?: 1 | 2;
   /**
-   * Lado a lado: ocupa el alto restante del panel. Sin selección muestra solo las filas enteras que
-   * caben (el título dice el N real). Con el detalle abierto (le quita alto) el top conserva sus
-   * filas en un área con scroll de filas enteras, sin mover la fila elegida. "Ver los N" queda
-   * siempre visible y la lista completa hace scroll dentro de ese alto.
+   * Lado a lado: ocupa el alto restante del panel con filas enteras (el título dice el N real) y
+   * "Ver los N" siempre visible; la lista completa hace scroll dentro de ese alto. Con el detalle
+   * abierto (le quita alto) muestra una ventana de filas alrededor del elegido (sus vecinas, sin
+   * scroll ni desvanecido). Si todo cabe, la lista mide su contenido y el sobrante queda al pie.
    */
   fit?: boolean;
   className?: string;
@@ -274,20 +276,31 @@ export function MapRanking({
   const { ref: boxRef, height: boxH, measured } = useElementSize<HTMLDivElement>();
   const scrollRef = useRef<HTMLDivElement>(null);
   const sizing = fit && measured;
+  // Con el detalle abierto (le quita alto), "Ver los N" sube al encabezado: su fila es para vecinas
   const pinned = sizing && !showAll && selected !== null;
   // Filas enteras que caben (en dos columnas, el doble), reservando o no el sitio del botón
   const cap = (reserve: number) => Math.max(1, Math.floor((boxH - reserve) / ROW_H)) * columns;
-  const shownTop = !sizing || pinned ? Math.min(limit, rows.length) : rows.length <= Math.min(limit, cap(0)) ? rows.length : Math.min(limit, cap(TOGGLE_H));
-  const truncated = rows.length > shownTop;
-  const visible = showAll ? rows : rows.slice(0, shownTop);
-  // Área con scroll: lista completa, o el top con el detalle abierto si no cabe entero
-  const scrollH = Math.max(ROW_H, Math.floor((boxH - (truncated || showAll ? TOGGLE_H : 0)) / ROW_H) * ROW_H);
-  const overflows = sizing && (showAll || (pinned && Math.ceil(visible.length / columns) * ROW_H > scrollH));
+  const count = !sizing ? Math.min(limit, rows.length) : rows.length <= Math.min(limit, cap(0)) ? rows.length : Math.min(limit, cap(pinned ? 0 : TOGGLE_H));
+  const truncated = rows.length > count;
+  // Ventana con la fila elegida y sus vecinas (±2 o lo que quepa) si quedó fuera del top visible
+  const selIdx = selected ? rows.findIndex((r) => r.code === selected) : -1;
+  const around = Math.floor((count - 1) / 2);
+  const start = !sizing || showAll || selIdx < 0 || selIdx + Math.min(2, around) < count ? 0 : Math.max(0, Math.min(rows.length - count, selIdx - around));
+  const visible = showAll ? rows : rows.slice(start, start + count);
+  // Top recortado: el sobrante (< 1 fila) se reparte entre las filas (24 → máx. 28 px), sin hueco sobre el pie
+  const lines = Math.max(1, Math.ceil(visible.length / columns));
+  const rowH = sizing && !showAll && truncated ? Math.max(ROW_H, Math.min(ROW_H_MAX, Math.floor((boxH - (pinned ? 0 : TOGGLE_H)) / lines))) : ROW_H;
+  // Área con scroll: solo la lista completa
+  const scrollH = Math.max(ROW_H, Math.floor((boxH - TOGGLE_H) / ROW_H) * ROW_H);
+  const overflows = sizing && showAll;
+  const grow = fit && (!sizing || truncated || showAll);
   const nounFor = (n: number) => (level === "dpto" ? (n === 1 ? "departamento" : "departamentos") : n === 1 ? "municipio" : "municipios");
   const max = rows[0]?.value || 1;
   const anyFilter = filtered.length > 0;
+  const toggleLabel = `Ver los ${formatInt(rows.length + zeros.length)}`;
+  const heading = showAll || !truncated ? `${formatInt(rows.length)} ${nounFor(rows.length)} con registros` : start > 0 ? `Puestos ${start + 1}–${start + visible.length} de ${formatInt(rows.length)}` : `Top ${count} ${nounFor(count)}`;
 
-  // La fila elegida (en el mapa o en la lista) queda a la vista dentro del área con scroll
+  // La fila elegida (en el mapa o en la lista) queda a la vista dentro de la lista completa con scroll
   const selIndex = selected ? visible.findIndex((r) => r.code === selected) : -1;
   useEffect(() => {
     const el = scrollRef.current;
@@ -298,22 +311,27 @@ export function MapRanking({
   }, [selIndex, overflows, scrollH, columns]);
 
   return (
-    <div className={cn("flex min-w-0 flex-col", fit && "min-h-0 flex-1", className)}>
+    // @container: apilado, bajo 400 px la minibarra se oculta y el nombre cabe en una línea
+    <div className={cn("@container flex min-w-0 flex-col", fit && "min-h-0", grow && "flex-1", className)}>
       <div className="mb-1 flex shrink-0 items-baseline justify-between gap-2 px-1">
-        <p className="text-xs font-semibold text-text-2">
-          {showAll || !truncated ? `${formatInt(rows.length)} ${nounFor(rows.length)} con registros` : `Top ${shownTop} ${nounFor(shownTop)}`}
-        </p>
-        <span className="text-[11px] text-muted">{level === "dpto" ? "% del total" : "% del departamento"}</span>
+        <p className="text-xs font-semibold text-text-2">{heading}</p>
+        {pinned && truncated ? (
+          <button type="button" onClick={onToggleAll} aria-expanded={false} className="-my-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold text-primary-text transition hover:bg-primary-soft">
+            {toggleLabel}
+          </button>
+        ) : (
+          <span className="text-[11px] text-muted">{level === "dpto" ? "% del total" : "% del departamento"}</span>
+        )}
       </div>
       <div ref={boxRef} className={cn("min-w-0", fit && "min-h-0 flex-1 overflow-hidden")}>
         <div ref={scrollRef} className={cn(overflows && "overflow-y-auto overscroll-contain")} style={overflows ? { maxHeight: scrollH } : undefined}>
-          <ol role="list" className={columns === 2 ? "columns-2 gap-x-6 [&>li]:break-inside-avoid" : "flex flex-col"} onMouseLeave={() => onHover(null)}>
+          <ol role="list" start={start + 1} className={columns === 2 ? "columns-2 gap-x-6 [&>li]:break-inside-avoid" : "flex flex-col"} onMouseLeave={() => onHover(null)}>
             {visible.map((r, i) => {
               const isSel = r.code === selected;
               const isHover = r.code === hovered;
               const isFiltered = filtered.includes(r.code);
               return (
-                <li key={r.code} className={cn("flex items-stretch rounded-lg transition-opacity", fit && "h-6", anyFilter && !isFiltered && !isSel && "opacity-45")}>
+                <li key={r.code} className={cn("flex items-stretch rounded-lg transition-opacity", anyFilter && !isFiltered && !isSel && "opacity-45")} style={fit ? { height: rowH } : undefined}>
                   <button
                     type="button"
                     aria-pressed={isSel}
@@ -328,13 +346,13 @@ export function MapRanking({
                       isSel ? "border-primary/40 bg-primary-soft" : isHover ? "border-transparent bg-surface-3" : "border-transparent hover:bg-surface-3",
                     )}
                   >
-                    <span className="tabular w-4 shrink-0 text-right text-[11px] text-muted">{i + 1}</span>
+                    <span className="tabular w-4 shrink-0 text-right text-[11px] text-muted">{start + i + 1}</span>
                     <span className="flex min-w-0 flex-1 items-center gap-1">
-                      {/* Lado a lado la fila mide 24 px fijos: el nombre completo queda en el title */}
+                      {/* Lado a lado la fila mide 24–28 px fijos: el nombre completo queda en el title */}
                       <span className={cn("min-w-0 text-[12.5px] leading-tight text-text", fit ? "truncate" : "[overflow-wrap:anywhere]")}>{fit ? shortGeoName(r.name) : r.name}</span>
                       {isFiltered && <Filter className="size-3 shrink-0 text-primary-text" aria-label="Filtrado" />}
                     </span>
-                    <span className="h-1.5 w-12 shrink-0 overflow-hidden rounded-full bg-surface-3" aria-hidden>
+                    <span className={cn("h-1.5 w-12 shrink-0 overflow-hidden rounded-full bg-surface-3", !fit && "@max-[399px]:hidden")} aria-hidden>
                       <span className="block h-full rounded-full" style={{ width: `${Math.max(3, (r.value / max) * 100)}%`, background: r.color }} />
                     </span>
                     <span className="tabular w-11 shrink-0 text-right text-xs font-semibold text-text">{formatInt(r.value)}</span>
@@ -360,7 +378,7 @@ export function MapRanking({
               <span className="font-semibold text-text-2">Sin registros ({zeros.length}):</span> {zeros.join(", ")}
             </p>
           )}
-          {/* Con scroll: desvanecido al pie mientras hay más (el espaciador evita tapar el final) */}
+          {/* Lista completa con scroll: desvanecido al pie mientras hay más (el espaciador evita tapar el final) */}
           {overflows && (
             <>
               <span aria-hidden className="block h-4" />
@@ -368,9 +386,9 @@ export function MapRanking({
             </>
           )}
         </div>
-        {(truncated || showAll) && (
+        {(truncated || showAll) && !pinned && (
           <button type="button" onClick={onToggleAll} aria-expanded={showAll} className="mt-1 h-6 shrink-0 rounded-full px-2 text-xs font-semibold text-primary-text transition hover:bg-primary-soft">
-            {showAll ? "Ver menos" : `Ver los ${formatInt(rows.length + zeros.length)}`}
+            {showAll ? "Ver menos" : toggleLabel}
           </button>
         )}
       </div>
@@ -419,20 +437,27 @@ export function MapDetail({
   bare?: boolean;
 }) {
   const sum = parts.reduce((s, p) => s + p.value, 0) || 1;
+  // En el panel lateral la ficha es compacta (≈ 20 px menos): el ranking conserva la fila elegida y sus vecinas
   return (
-    <div className={cn(!bare && "rounded-xl border border-border bg-surface-2 p-3")}>
+    <div className={cn(!bare && "rounded-xl border border-border bg-surface-2 px-3 py-2.5")}>
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 text-[15px] font-bold leading-tight text-text [overflow-wrap:anywhere]">
           <span className="sr-only">{level === "dpto" ? "Departamento: " : "Municipio: "}</span>
           {row.name}
         </p>
         {!bare && (
-          <button type="button" onClick={onClear} aria-label="Quitar selección" title="Quitar selección" className="grid size-7 shrink-0 place-items-center rounded-full text-muted transition hover:bg-surface-3 hover:text-text">
+          <button
+            type="button"
+            onClick={onClear}
+            aria-label="Quitar selección"
+            title="Quitar selección"
+            className="-my-1 -mr-1 grid size-7 shrink-0 place-items-center rounded-full text-muted transition hover:bg-surface-3 hover:text-text focus-visible:outline-2 focus-visible:outline-primary"
+          >
             <X className="size-4" aria-hidden />
           </button>
         )}
       </div>
-      <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <div className={cn("flex flex-wrap items-baseline gap-x-2 gap-y-0.5", bare ? "mt-1.5" : "mt-1")}>
         <span className="tabular text-[28px] font-bold leading-none text-text">{formatInt(row.value)}</span>
         <span className="text-xs text-text-2">{row.value === 1 ? unit.singular : unit.plural}</span>
         <span className="tabular text-xs text-muted">
@@ -441,8 +466,8 @@ export function MapDetail({
         </span>
       </div>
       {parts.length > 0 && (
-        <div className="mt-2.5">
-          {breakdownLabel && <p className="mb-1 text-[11px] font-semibold text-text-2">{breakdownLabel}</p>}
+        <div className={bare ? "mt-2.5" : "mt-2"}>
+          {breakdownLabel && <p className="mb-1 text-[11px] font-semibold leading-tight text-text-2">{breakdownLabel}</p>}
           <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-3" role="img" aria-label={parts.map((p) => `${p.label}: ${formatInt(p.value)}`).join(", ")}>
             {parts.map((p) => (
               <span key={p.label} className="h-full border-r border-surface last:border-r-0" style={{ width: `${(p.value / sum) * 100}%`, background: p.color }} />
@@ -459,13 +484,14 @@ export function MapDetail({
           </ul>
         </div>
       )}
-      <div className="mt-2.5 flex flex-wrap gap-2">
+      <div className={cn("flex flex-wrap gap-2", bare ? "mt-2.5" : "mt-2")}>
         <button
           type="button"
           onClick={onFilter}
           aria-pressed={isFiltered}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+            "inline-flex items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+            bare ? "py-1.5" : "py-1",
             isFiltered ? "bg-surface-3 text-text hover:bg-border" : "btn-primary",
           )}
         >
@@ -473,7 +499,7 @@ export function MapDetail({
           {isFiltered ? "Quitar filtro" : "Filtrar tablero"}
         </button>
         {canDrill && (
-          <button type="button" onClick={onDrill} className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-text-2 transition hover:border-primary/40 hover:text-text">
+          <button type="button" onClick={onDrill} className={cn("inline-flex items-center gap-1.5 rounded-full border border-border px-3 text-xs font-semibold text-text-2 transition hover:border-primary/40 hover:text-text", bare ? "py-1.5" : "py-1")}>
             <Layers className="size-3.5" aria-hidden /> Ver municipios
           </button>
         )}

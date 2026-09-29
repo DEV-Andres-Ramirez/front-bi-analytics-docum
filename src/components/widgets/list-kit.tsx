@@ -141,11 +141,13 @@ export const COL_GAP = 16;
 /**
  * Máximo de columnas por ancho interno (layoutSystem §6): 1 < 624 ≤ 2 < 960 ≤ 3 (compacta: 2 desde 480).
  * Es un TOPE: cada lista usa la menor cantidad de columnas en la que caben sus filas (ver `pickGrid`).
+ * Con columnas forzadas, la compacta admite 2 desde 400 (span 6 a 1024–1280: cuerpo de 402–414 px); el
+ * componente decide después con la medida real de las etiquetas si la columna extra cabe.
  */
 export function listColumns(width: number, compact: boolean, forced?: 1 | 2 | 3): number {
   const byWidth = width >= 960 ? 3 : width >= (compact ? 480 : 624) ? 2 : 1;
   if (!forced) return byWidth;
-  const max = width >= 900 ? 3 : width >= 440 ? 2 : 1;
+  const max = width >= 900 ? 3 : width >= (compact ? 400 : 440) ? 2 : 1;
   return Math.min(forced, max);
 }
 

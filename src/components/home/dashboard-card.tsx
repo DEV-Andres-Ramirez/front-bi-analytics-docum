@@ -300,7 +300,7 @@ function HealthLine({
       {note ? (
         <NoteChip note={note} fig={fig} />
       ) : (
-        fig.value !== null && <DeltaChip value={fig.value} previous={fig.previous} format={fig.format} polarity={fig.polarity} prevRange={range} className="min-w-0 shrink-0" />
+        fig.value !== null && <DeltaChip value={fig.value} previous={fig.previous} format={fig.format} polarity={fig.polarity} prevRange={range} inlineNote className="min-w-0 shrink-0" />
       )}
     </div>
   );

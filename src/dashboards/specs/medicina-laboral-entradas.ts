@@ -132,6 +132,9 @@ export const medicinaLaboralEntradas: DashboardSpec = {
           title: "Canal de radicación",
           subtitle: "Por dónde llegan los radicados",
           dimension: "canal_radicacion",
+          // Mismo color por canal que en PQRD, Entes y Tutelas (Mail naranja, Web azul, Ventanilla aqua, Mail IA
+          // amarillo). ML no tiene "Email" aparte de "Mail", así que la familia no junta dos canales en un color.
+          semantic: "canal-radicacion",
           size: "md",
           viz: "composition",
           vizOptions: { layout: "legend" },
@@ -232,7 +235,7 @@ export const medicinaLaboralEntradas: DashboardSpec = {
       { field: "fecha_max_respuesta", label: "Fecha máxima", format: "date" },
       { field: "tiempo_por_vencer", label: "Tiempo por vencer", format: "badge", semantic: "cumplimiento" },
       { field: "Fecha_de_radicacion", label: "Radicado el", format: "datetime" },
-      { field: "canal_radicacion", label: "Canal" },
+      { field: "canal_radicacion", label: "Canal", semantic: "canal-radicacion" },
       { field: "oficina_solicitud", label: "Oficina", labelKind: "oficina" },
       { field: "proceso_asistente", label: "Proceso asistente", visible: false },
       { field: "subproceso", label: "Subproceso", visible: false },

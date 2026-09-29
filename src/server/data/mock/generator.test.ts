@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { mlEntradas } from "../datasets/ml-entradas";
 import { mlSalidas } from "../datasets/ml-salidas";
 import { salidasGenerales } from "../datasets/salidas-generales";
 import { diasPlazo } from "../normalizers";
@@ -34,6 +35,37 @@ describe("datos mock verosímiles", () => {
     }
     expect(copies / rows.length).toBeGreaterThan(0.05);
     expect(copies / rows.length).toBeLessThan(0.15);
+  });
+
+  it("ML entradas: el tiempo por vencer cuadra con la fecha máxima de respuesta", () => {
+    const rows = generate(mlEntradas.mock()).map((r) => mlEntradas.normalize(r));
+    // La fecha máxima se muestra como día: el plazo corre hasta el final de ese día (hora de pared de Bogotá).
+    const today = Math.floor((Date.now() - 5 * 3_600_000) / 86_400_000);
+    let vigentes = 0;
+    for (const r of rows) {
+      if (typeof r.fecha_max_respuesta !== "number") continue;
+      const vigente = Math.floor(r.fecha_max_respuesta / 86_400_000) >= today;
+      const label = `${r.numero_radicado} · ${r.tiempo_por_vencer}`;
+      if (vigente) {
+        vigentes++;
+        expect(["Vencido", "Fuera de Término"], label).not.toContain(r.tiempo_por_vencer);
+      }
+    }
+    // Los radicados recientes (con el plazo vigente) existen y quedan "En término"
+    expect(vigentes).toBeGreaterThan(50);
+    expect(rows.some((r) => r.tiempo_por_vencer === "Vencido")).toBe(true);
+  });
+
+  it("ML salidas: dentro de SLA ⇔ aprobada a más tardar en la fecha máxima", () => {
+    const rows = generate(mlSalidas.mock()).map((r) => mlSalidas.normalize(r));
+    let conPlazo = 0;
+    for (const r of rows) {
+      if (typeof r.FECHA_MAXIMA_RESPUESTA !== "number") continue;
+      conPlazo++;
+      const aTiempo = Number(r.FECHA_APROBACION) <= r.FECHA_MAXIMA_RESPUESTA;
+      expect(r.DENTRO_SLA, String(r.NUMERO_RADICADO)).toBe(aTiempo ? "Sí" : "No");
+    }
+    expect(conPlazo).toBeGreaterThan(1000);
   });
 
   it("plazo en días con plural correcto", () => {

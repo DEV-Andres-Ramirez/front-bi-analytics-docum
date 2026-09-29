@@ -120,7 +120,8 @@ export const smartMomento2: DashboardSpec = {
           dimension: "nombre_punto_recepcion",
           size: "md",
           viz: "composition",
-          vizOptions: { layout: "legend" },
+          // Sin layout forzado: split con 2–3 puntos reales (lo habitual en un mes: web, teléfono y correo), como
+          // "Tipo de persona" encima; legend si aparece un 4.º (Oficinas/Agencias en rangos largos).
           maxItems: 4,
         },
         {
@@ -151,7 +152,7 @@ export const smartMomento2: DashboardSpec = {
       ],
       // Las dos filas en 8-4: los bordes de las tarjetas quedan alineados en la misma rejilla (un 6-6 debajo
       // del 8-4 los escalonaba). Canal (aviso de calidad: titular + barra + 2 filas ≈ 150 ≤ 184) cabe en 4 y
-      // Punto, en 8, reparte su leyenda en 2 columnas (24 + 2 × 24 = 72 ≤ 184).
+      // Punto, en 8, va en split de columnas (28 + 107 + 34 = 169 ≤ 184) o, con 4 puntos, en legend de 2 columnas.
       rows: [
         { template: "8-4", tier: "S", cells: ["producto", "persona"] },
         { template: "8-4", tier: "S", cells: ["punto", "canal"] },

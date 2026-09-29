@@ -390,11 +390,14 @@ export function barTableResult(table: Table, rows: Uint32Array, w: BarTableWidge
     .sort((a, b) => b.value - a.value);
   // topN por valor; dentro de lo mostrado, filas con primera celda neutral al final.
   const out = neutralsLast(all.slice(0, w.topN ?? 100), (r) => r.cells[0]);
+  // Mismo criterio que CategoryResult.rest.count: combinaciones que quedaron fuera del topN
+  const rest = all.length - out.length;
   return {
     kind: "bartable",
     rows: out,
     max: out.reduce((m, r) => Math.max(m, r.value), 0),
     total: all.reduce((s, r) => s + r.value, 0),
+    ...(rest > 0 ? { restCount: rest } : null),
   };
 }
 

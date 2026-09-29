@@ -51,15 +51,15 @@ const MAX_PAGE = 200;
 const TABLE_MIN_W = 900;
 
 /**
- * Dónde se pinta la celda: "table" (una línea, con tope de ancho y elipsis), "card" (tarjeta móvil:
+ * Dónde se pinta la celda: "table" (una línea con tope de ancho y elipsis; los nombres, hasta 2 líneas), "card" (tarjeta móvil:
  * identificadores y badges en una línea, sin partirse) y "sheet" (ficha completa: todo el texto).
  */
 type CellMode = "table" | "card" | "sheet";
 
-/** Texto visible de un badge (código + etiqueta), para decidir su ancho en la tarjeta móvil. */
+/** Texto visible de un badge en la tarjeta móvil (código + forma corta), para decidir su ancho. */
 function badgeText(col: ColumnDef, value: string): string {
   const info = col.semantic ? resolveStatus(value, col.semantic) : null;
-  return info ? `${info.code ? `${info.code} ` : ""}${info.display}` : statusDisplay(value);
+  return info ? `${info.code ? `${info.code} ` : ""}${info.short ?? info.display}` : statusDisplay(value);
 }
 
 // ─── Celdas ──────────────────────────────────────────────────────────────────
@@ -78,12 +78,13 @@ function StatusBadge({ col, value, mode }: { col: ColumnDef; value: string; mode
       <span className={cn("inline-flex min-w-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold", box)} style={{ background: t.soft, color: t.ink }} title={value}>
         <StatusIcon tone={info.tone} />
         {info.code && <span className="shrink-0 font-mono text-[11px] font-medium opacity-80">{info.code}</span>}
-        <span className={cn("min-w-0", clip)}>{info.display}</span>
+        {/* Tabla y tarjeta: forma corta del registro ("032 Recibo del bien"); ficha y title: texto completo */}
+        <span className={cn("min-w-0", clip)}>{mode === "sheet" ? info.display : (info.short ?? info.display)}</span>
       </span>
     );
   }
   // Familia categórica (sin tono) o sin familia: chip neutral, con muestra de color si la hay
-  const label = info ? info.display : statusDisplay(value);
+  const label = info ? (mode === "sheet" ? info.display : (info.short ?? info.display)) : statusDisplay(value);
   return (
     <span className={cn("inline-flex min-w-0 items-center gap-1.5 rounded-full bg-surface-3 px-2 py-0.5 text-xs font-semibold text-text-2", box)} title={value}>
       {info?.color && <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: info.color }} />}
@@ -170,9 +171,22 @@ function Cell({ col, value, mode = "table" }: { col: ColumnDef; value: Value; mo
           </span>
         );
       }
-      // Tarjetas angostas (< 1000 px): tope de 200 px para que la tabla quepa sin esconder columnas clave
+      const title = tip !== d.short ? tip : raw.length > 32 ? raw : undefined;
+      // Entidades (proveedor, adquiriente, persona, ente, oficina): el nombre es lo que se busca en la fila.
+      // Se envuelve hasta 2 líneas y la columna absorbe el ancho sobrante (su ancho natural es el nombre
+      // completo, sin tope fijo que corte con espacio libre). El mínimo es el tope de una línea de antes:
+      // en una tabla con scroll horizontal la columna no se angosta y los nombres que se cortaban pasan
+      // a 2 líneas.
+      if (isEntityColumn(col)) {
+        return (
+          <span className="line-clamp-2 min-w-[200px] max-w-[360px] whitespace-normal break-words leading-[18px] @min-[1000px]:min-w-[240px]" title={title}>
+            {d.short}
+          </span>
+        );
+      }
+      // Resto del texto: una línea. Tarjetas angostas (< 1000 px): tope de 200 px para que la tabla quepa sin esconder columnas clave
       return (
-        <span className="block max-w-[200px] truncate @min-[1000px]:max-w-[240px]" title={tip !== d.short ? tip : raw.length > 32 ? raw : undefined}>
+        <span className="block max-w-[200px] truncate @min-[1000px]:max-w-[240px]" title={title}>
           {d.short}
         </span>
       );
@@ -190,6 +204,20 @@ function isWideCardField(col: ColumnDef, value: Value): boolean {
 }
 
 const RIGHT_ALIGNED = new Set(["int", "decimal", "days", "cop"]);
+
+/** Columnas de nombres (labelKind distinto de "generic"): se envuelven a 2 líneas en la tabla. */
+function isEntityColumn(col: ColumnDef): boolean {
+  return Boolean(col.labelKind && col.labelKind !== "generic");
+}
+
+/**
+ * Columnas que no ganan nada con ancho extra y se quedan en su ancho natural (`w-px`): sin datos en la
+ * página, formato long (solo muestra el botón del popover o "—") y códigos mono después del primero
+ * (tienen tope propio de 180 px). Así el sobrante va a nombres, fechas y estados.
+ */
+function isCompactColumn(col: ColumnDef, index: number, empty: boolean): boolean {
+  return empty || col.format === "long" || (index > 0 && col.format === "mono");
+}
 
 /** Columna mono redundante en la tarjeta móvil: repite el NIT que ya acompaña al nombre (labelKind "proveedor"). */
 function isRedundantMono(col: ColumnDef, row: Row, cols: ColumnDef[]): boolean {
@@ -271,7 +299,8 @@ function useTableOverflow() {
  * derecha (si es la última) para que la cifra principal siempre se vea. Badges por familia semántica, displayLabel en
  * celdas, formato long como ícono con popover y columnas sin datos en la página ocultas (quedan en
  * "Columnas" con la marca "sin datos"). Bajo 1000 px de tarjeta, celdas con menos aire y tope de texto de
- * 200 px. Tarjeta de menos de 900 px (teléfono, tablet o escritorio con sidebar abierto): tarjetas con la
+ * 200 px; los nombres (proveedor, persona, ente, oficina) se envuelven a 2 líneas y su columna absorbe el
+ * ancho sobrante, que no se reparte a códigos ni a la columna del ícono long. Tarjeta de menos de 900 px (teléfono, tablet o escritorio con sidebar abierto): tarjetas con la
  * cifra principal arriba a la derecha y "Ver 10 más" en lugar de la paginación; los códigos y estados
  * largos ocupan las dos columnas para no partirse. Paginación, orden y búsqueda en el servidor; CSV con ";" y BOM.
  */
@@ -516,7 +545,7 @@ export function DetailTable() {
                             className={cn(
                               "whitespace-nowrap border-b border-border bg-surface-2 px-3 py-2.5 text-left align-bottom @min-[1000px]:px-4",
                               RIGHT_ALIGNED.has(c.format ?? "") && "text-right",
-                              empty && "w-px",
+                              isCompactColumn(c, i, empty) && "w-px",
                               i === 0 && cn("sticky left-0 z-10", stickyFade, scrolledLeft && "after:opacity-100"),
                               pin && cn("sticky right-0 z-10", pinShadow),
                             )}
@@ -557,7 +586,7 @@ export function DetailTable() {
                               "border-b border-border px-3 text-text-2 transition-colors group-hover:bg-primary-soft group-focus-visible:bg-primary-soft @min-[1000px]:px-4",
                               dense ? "py-1.5" : "py-2.5",
                               RIGHT_ALIGNED.has(c.format ?? "") && "text-right",
-                              emptyCols.has(c.field) && "w-px",
+                              isCompactColumn(c, i, emptyCols.has(c.field)) && "w-px",
                               i === 0 &&
                                 cn(
                                   "sticky left-0 z-[1] bg-surface font-semibold text-text group-focus-visible:shadow-[inset_3px_0_0_var(--primary)]",

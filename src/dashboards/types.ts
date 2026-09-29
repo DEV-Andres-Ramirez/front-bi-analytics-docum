@@ -142,6 +142,7 @@ export type SemanticFamily =
   | "alerta"
   | "binario"
   | "canal-envio"
+  | "canal-radicacion"
   | "fallo";
 /** @deprecated alias histórico; usar SemanticFamily. */
 export type SemanticPalette = SemanticFamily;
@@ -183,6 +184,8 @@ export type Viz =
 export interface VizOptions {
   /** composition: split (2–3 categorías reales) · legend (4–7 partes). */
   layout?: "split" | "legend";
+  /** composition split: base de los %: "withData" (por defecto, partes con dato) o "total" (incluye neutrales; coincide con la banda de KPIs). */
+  shareBase?: "withData" | "total";
   /** status-strip: horizontal (tiles) · vertical (span ≤ 4) · list (lista compacta). */
   variant?: "horizontal" | "vertical" | "list";
   /** status-strip / status-board / pipeline: agrupación explícita { grupo: [etiquetas] }. */

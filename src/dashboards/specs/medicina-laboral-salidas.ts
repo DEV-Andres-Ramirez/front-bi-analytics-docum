@@ -1,5 +1,5 @@
 import type { DashboardSpec } from "../types";
-import { avg, count, is, share } from "./helpers";
+import { avg, count, is, MEDIO_ENVIO_ORDER, share } from "./helpers";
 
 const NOTIFICABLE = is("NOTIFICABLE", "Sí");
 
@@ -165,13 +165,16 @@ export const medicinaLaboralSalidas: DashboardSpec = {
           title: "Medio de envío",
           subtitle: "Salidas por forma de envío",
           dimension: "FORMA_DE_ENVIO",
+          // Mismo color por medio que en Correspondencia entradas y en el desglose del mapa
+          order: MEDIO_ENVIO_ORDER,
           size: "sm",
           viz: "composition",
           vizOptions: { layout: "legend" },
           maxItems: 5,
         },
       ],
-      // Doc: 6-6 S (resultado | medio: 100 y 122 ≤ 184) y 4-4-4 M (guias 232 · copia · tramite 120 ≤ 252)
+      // Doc: 6-6 S (resultado | medio: 100 y 122 ≤ 184) y 4-4-4 M (guias 232 · copia · tramite 120 ≤ 284: sin franja
+      // de leyenda, porque copia es column-bars sin familia y no dibuja leyenda)
       rows: [
         { template: "6-6", tier: "S", cells: ["resultado", "medio"] },
         { template: "4-4-4", tier: "M", cells: ["guias", "copia", "tramite"] },

@@ -10,7 +10,7 @@ import { useCallback, useState, type FocusEvent, type MouseEvent } from "react";
 import { useDashboard } from "@/components/dashboard/dashboard-context";
 import type { BarTableWidget, BarWidget, DonutWidget, SemanticFamily, StatusTone, ValueFormat, VizOptions, WidgetDef } from "@/dashboards/types";
 import { cn } from "@/lib/cn";
-import { isNeutral, normalizeLabel, resolveStatus, statusDisplay, TONE_ORDER, TONE_VARS } from "@/lib/charts/semantic";
+import { isMissing, isNeutral, normalizeLabel, resolveStatus, statusDisplay, TONE_ORDER, TONE_VARS, toneStep, toneStepHex } from "@/lib/charts/semantic";
 import { inkOn, type ChartTheme } from "@/lib/charts/theme";
 import { displayLabel, type LabelKind } from "@/lib/labels";
 import { formatPct, formatValue } from "@/lib/format";
@@ -37,7 +37,7 @@ export interface Part {
   /** Proporción sobre el total de la visualización (0..1). */
   share: number;
   tone: StatusTone | null;
-  /** Color propio de la familia cuando no es un estado (canal-envio, binario). */
+  /** Color propio de la familia cuando no es un estado (canal-envio, canal-radicacion, binario). */
   familyColor?: string;
   /** Variable CSS del color sólido (sin mezcla). */
   solid: string;
@@ -64,8 +64,51 @@ export function isFoldBucket(label: string): boolean {
 
 const MIX_STEPS = [1, 0.72, 0.48];
 
+/**
+ * "Otras N categorías" agrega categorías REALES: gris aclarado (55 % sobre la superficie) para que no se
+ * funda con el gris sólido de los faltantes ("No reporta", "Sin …") cuando van contiguos en la barra.
+ */
+const AGGREGATE_MIX = 0.55;
+
+/** Cubeta de agregación ("Otras N", "Otros" del servidor, resto fuera del topN): neutral y sin valor que filtre. */
+export function isAggregate(p: Pick<Part, "neutral" | "labels">): boolean {
+  return p.neutral && p.labels.length === 0;
+}
+
+/** Índice del escalón (0, 1, 2) de una mezcla de MIX_STEPS; -1 si no es un escalón de tono (gris agregado). */
+const stepOf = (mix: number) => MIX_STEPS.indexOf(mix);
+
 function colorFor(solid: string, mix: number): string {
-  return mix >= 1 ? solid : `color-mix(in srgb, ${solid} ${Math.round(mix * 100)}%, var(--surface))`;
+  if (mix >= 1) return solid;
+  const step = stepOf(mix);
+  // Escalones de tono (semantic.ts › toneStep): claro, 72 / 48 % sobre la superficie (igual que antes); oscuro,
+  // se aclara con blanco para conservar ≥ 3:1 sobre surface. El gris agregado ("Otras N") sigue sobre la superficie.
+  return step > 0 ? toneStep(solid, step) : `color-mix(in srgb, ${solid} ${Math.round(mix * 100)}%, var(--surface))`;
+}
+
+// ─── Medición estimada de texto (Montserrat) ─────────────────────────────────
+
+/** Ancho relativo (em) por carácter de Montserrat 400–600; los demás, 0,6. */
+const CHAR_EM: Record<string, number> = { " ": 0.27, ".": 0.26, ",": 0.26, ":": 0.26, "·": 0.26, "%": 0.8, "-": 0.36, "(": 0.34, ")": 0.34, "/": 0.4 };
+for (const c of "iljíIJ|!") CHAR_EM[c] = 0.28;
+for (const c of "ftr") CHAR_EM[c] = 0.39;
+for (const c of "mwMW") CHAR_EM[c] = 1.02;
+for (const c of "0123456789") CHAR_EM[c] = 0.58;
+for (const c of "ABCDEFGHKLNOPQRSTUVXYZÁÉÓÚÑ") CHAR_EM[c] = 0.74;
+
+/**
+ * Ancho estimado de un texto (px) para decidir anatomías antes de medir (sin tocar el DOM).
+ * `bold` (700) ensancha ≈ 4 %; `tracking` en em por carácter (mayúsculas espaciadas de las cabeceras).
+ */
+export function textWidth(s: string, px: number, { bold = false, tracking = 0 }: { bold?: boolean; tracking?: number } = {}): number {
+  let em = 0;
+  for (const c of s) em += (CHAR_EM[c] ?? 0.6) + tracking;
+  return em * px * (bold ? 1.04 : 1);
+}
+
+/** Palabra más ancha de un texto (px): una etiqueta que envuelve nunca debe partir palabras. */
+export function longestWord(s: string, px: number): number {
+  return Math.max(0, ...s.split(/\s+/).map((w) => textWidth(w, px)));
 }
 
 /** Etiqueta visible de un estado, separando el código de proceso de 3 dígitos ("030. Acuse de recibo"). */
@@ -92,7 +135,7 @@ export interface BuildOptions {
 const norm = (s: string) => normalizeLabel(s);
 
 /** Familias categóricas (no son estados): sin íconos de estado; "No" / "Sin canal" en gris. */
-const CATEGORICAL_FAMILIES = new Set<SemanticFamily>(["binario", "canal-envio"]);
+const CATEGORICAL_FAMILIES = new Set<SemanticFamily>(["binario", "canal-envio", "canal-radicacion"]);
 
 /**
  * Normaliza un resultado de categoría a partes ordenadas:
@@ -109,7 +152,7 @@ export function buildParts(labels: string[], values: number[], opts: BuildOption
 
   const parts: Part[] = raw.map(({ label, value }) => {
     const status = family ? resolveStatus(label, family, overrides) : null;
-    // Reglas categóricas (canal-envio, binario "Sí"): su color no es el del tono. resolveStatus
+    // Reglas categóricas (canales, binario "Sí"): su color no es el del tono. resolveStatus
     // devuelve tone "neutral" en ese caso (rule.tone null ?? "neutral"), así que se detecta por color.
     const categorical = Boolean(status && (CATEGORICAL_FAMILIES.has(family!) || !status.tone || status.color !== TONE_VARS[status.tone].solid));
     const fold = isFoldBucket(label) && (folded > 0 || !family);
@@ -185,7 +228,10 @@ export function paint(parts: Part[]): Part[] {
   return parts.map((p) => {
     let solid: string;
     let mix = 1;
-    if (p.tone) {
+    if (isAggregate(p)) {
+      solid = "var(--neutral-mark)";
+      mix = AGGREGATE_MIX;
+    } else if (p.tone) {
       solid = TONE_VARS[p.tone].solid;
       const k = toneCount.get(p.tone) ?? 0;
       toneCount.set(p.tone, k + 1);
@@ -268,14 +314,17 @@ export function mergeNeutrals(parts: Part[], fallback = "Sin clasificar"): Part[
   return [...parts.filter((p) => !p.neutral), merged];
 }
 
-/** Proporción neutral real (sin contar "Otros", que no es falta de dato). */
+/**
+ * Proporción de dato faltante ("No reporta", "Sin …"): sin contar "Otros" ni las cubetas residuales del
+ * catálogo ("Resto / otras", "Otros motivos"), que son grises pero no son falta de dato (isMissing).
+ */
 export function missingShare(parts: Part[]): { neutral: number; total: number } {
   let neutral = 0;
   let total = 0;
   for (const p of parts) {
     total += p.value;
-    if (p.key === "__neutral") neutral += (p.members ?? []).filter((m) => !isFoldBucket(m.label)).reduce((s, m) => s + m.value, 0);
-    else if (p.neutral && p.filterable) neutral += p.value;
+    if (p.key === "__neutral") neutral += (p.members ?? []).filter((m) => isMissing(m.label)).reduce((s, m) => s + m.value, 0);
+    else if (p.neutral && p.filterable && p.labels.every(isMissing)) neutral += p.value;
   }
   return { neutral, total };
 }
@@ -478,7 +527,19 @@ function heightIsFixed(el: HTMLElement): boolean {
   const page = el.closest<HTMLElement>(".dash-page");
   if (!page) return true;
   const cs = getComputedStyle(page);
-  return page.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) >= 600;
+  const inner = page.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  if (inner < 600) return false;
+  // Tablet: una celda sola en su línea (data-md-solo) con un componente HTML mide por contenido
+  // (globals.css › height: auto). Tratarla como fija haría que el componente se midiera a sí mismo
+  // (tiles → cuerpo más bajo → lista → cuerpo más alto → tiles…).
+  const cell = el.closest<HTMLElement>(".dash-cell");
+  return !(cell && cellHeightIsAuto(cell, inner));
+}
+
+/** ¿El alto de la celda es "auto"? computedStyleMap da el valor computado (no el px resuelto); si falta, la regla de tablet. */
+function cellHeightIsAuto(cell: HTMLElement, pageInner: number): boolean {
+  if (typeof cell.computedStyleMap === "function") return cell.computedStyleMap().get("height")?.toString() === "auto";
+  return pageInner < 840 && cell.hasAttribute("data-md-solo");
 }
 
 /**
@@ -500,6 +561,38 @@ export function useBox<T extends HTMLElement = HTMLDivElement>() {
     return () => ro.disconnect();
   }, []);
   return { ref, width: box?.width ?? 0, height: box?.height ?? 0, measured: box !== null, fixed: box?.fixed ?? true };
+}
+
+/**
+ * Acuerdo entre hermanas de una fila (.dash-row): cada componente publica en su raíz un número en `attr`
+ * y `min` es el menor de la fila (Infinity si nadie publica o no hay fila). Dos CompositionBar split de la
+ * misma fila eligen así la misma anatomía (data-split-fits 1/0: columnas solo si todas caben) y las
+ * legend-tables el mismo paso de fila (data-legend-row). Lo que cada una publica no depende del acuerdo
+ * (sin bucles).
+ */
+export function useRowMin(attr: string) {
+  const [min, setMin] = useState(Infinity);
+  const ref = useCallback(
+    (el: HTMLElement | null) => {
+      if (!el) return;
+      const row = el.closest(".dash-row");
+      if (!row) return;
+      const update = () => {
+        const values = [...row.querySelectorAll(`[${attr}]`)].map((e) => Number(e.getAttribute(attr))).filter((v) => Number.isFinite(v));
+        setMin(values.length ? Math.min(...values) : Infinity);
+      };
+      // Hermanas que montan después (IntersectionObserver) llegan como childList; los cambios de ancho, como atributo
+      const mo = new MutationObserver(update);
+      mo.observe(row, { subtree: true, childList: true, attributes: true, attributeFilter: [attr] });
+      const raf = requestAnimationFrame(update);
+      return () => {
+        mo.disconnect();
+        cancelAnimationFrame(raf);
+      };
+    },
+    [attr],
+  );
+  return { ref, min };
 }
 
 /**
@@ -540,7 +633,9 @@ function mixHex(a: string, b: string, t: number): string {
 export function inkForPart(p: Part, theme: ChartTheme): string {
   const solid = theme.resolve(p.solid);
   if (!solid.startsWith("#")) return "var(--text)";
-  return inkOn(p.mix >= 1 ? solid : mixHex(solid, theme.surface, p.mix));
+  if (p.mix >= 1) return inkOn(solid);
+  const step = stepOf(p.mix);
+  return inkOn(step > 0 ? toneStepHex(solid, step, theme.mode, theme.surface) : mixHex(solid, theme.surface, p.mix));
 }
 
 // ─── Barra 100 % ─────────────────────────────────────────────────────────────

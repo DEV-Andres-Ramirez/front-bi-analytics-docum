@@ -1,7 +1,8 @@
 "use client";
 
-import { Download, Expand, FlaskConical, ImageDown, Info, Loader2, MoreHorizontal, Table2 } from "lucide-react";
+import { Download, Expand, ImageDown, Info, Loader2, MoreHorizontal, Table2 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { ProvisionalIcon } from "@/components/dashboard/kpi/shared";
 import { Dialog } from "@/components/ui/dialog";
 import { Popover } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/primitives";
@@ -215,7 +216,7 @@ function WidgetBadges({ widget, sectionNav }: { widget: WidgetDef; sectionNav?: 
       {ytd && <span className="whitespace-nowrap text-[11px] font-semibold text-muted">Año en curso</span>}
       {widget.provisional && (
         <Tooltip content="Fórmula provisional: pendiente de validación con negocio." focusable>
-          <Badge tone="warning" icon={<FlaskConical className="size-3" />}>
+          <Badge tone="warning" icon={<ProvisionalIcon className="size-3" aria-hidden />}>
             Provisional
           </Badge>
         </Tooltip>
@@ -390,7 +391,7 @@ export function CompositeCard({
         slotRef={setHeaderEl}
         chipsRef={legendStrip ? undefined : setChipsEl}
         fetching={refetching}
-        badges={widgets.some((w) => w.provisional) ? <Badge tone="warning" icon={<FlaskConical className="size-3" />}>Provisional</Badge> : null}
+        badges={widgets.some((w) => w.provisional) ? <Badge tone="warning" icon={<ProvisionalIcon className="size-3" aria-hidden />}>Provisional</Badge> : null}
         menu={
           <CardMenu
             title={cell.title}

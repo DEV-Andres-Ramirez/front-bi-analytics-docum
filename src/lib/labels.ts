@@ -70,6 +70,7 @@ export const ENTE_ACRONYMS: Record<string, string> = {
 };
 
 const OFFICE_ABBR: [RegExp, string][] = [
+  [/\bGrupo de Atención Integral y de Servicio al Ciudadano\b/g, "G. Atención Integral al Ciudadano"],
   [/\bVicepresidencia\b/g, "Vic."],
   [/\bGerencia\b/g, "Ger."],
   [/\bDirección\b/g, "Dir."],

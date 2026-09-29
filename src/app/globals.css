@@ -177,10 +177,14 @@
   --tone-step-1: 82%;
   --tone-step-2: 68%;
 
+  /* Categórica oscura (validate_palette --mode dark --surface #161A21: CVD adyacente 8,3 · visión normal 16,0).
+     chart-4 es un amarillo oro (h 93) y no un ámbar: el ámbar #C98500 se leía como un segundo naranja junto a
+     chart-1 (ΔE76 16,3 → 32,9; OKLab 6,5 → 10,3, como en claro). Con deuteranopía el par 1↔4 depende de la
+     luminosidad, que la banda oscura (L ≤ 0,67) limita: por eso la etiqueta visible es obligatoria. */
   --chart-1: #c96a00;
   --chart-2: #3987e5;
   --chart-3: #199e70;
-  --chart-4: #c98500;
+  --chart-4: #b29200;
   --chart-5: #d55181;
   --chart-6: #008300;
   --chart-7: #9085e9;
@@ -571,6 +575,8 @@
 /* Tablet: el mapa apilado (lienzo + panel) crece con su contenido en lugar de hacer scroll interno */
 @container page (min-width: 600px) and (max-width: 839.98px) {
   .dash-row[data-tier="XL"] > .dash-cell:has(> .dash-card[data-viz="hero-map"]) { height: auto; }
+  /* Matriz de fases (P1 de Eficiencia): en tableta los callouts van debajo y la matriz mide por contenido */
+  .dash-row[data-tier="L"] > .dash-cell:has(> .dash-card[data-viz="phase-matrix"]) { height: auto; }
 
   /* Celdas que a 6 columnas quedan SOLAS en su línea (data-md-solo: asimétricas 8-4/4-8/7-5/5-7 apiladas,
      3.ª del 4-4-4, 1.ª del 6-3-3). Ya no comparten alto con una vecina, así que el tier solo deja aire:

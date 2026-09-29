@@ -89,8 +89,13 @@ export const mlSalidas: DatasetDef = {
       row.FECHA_RADICACION = ctx.date;
       const td = Number(row.TIEMPO_DEFINIDO);
       row.TIEMPO_DEFINIDO_DIAS = Number.isFinite(td) ? td : null;
-      row.FECHA_MAXIMA_RESPUESTA = Number.isFinite(td) ? ctx.date + td * DAY_MS : null;
-      row.DIAS_EN_APROBACION = Number(ctx.weighted({ "0": 18, "1": 12, "2": 14, "3": 22, "4": 10, "5": 8, "6": 5, "7": 4, "10": 4, "15": 3 }));
+      const diasAprobacion = Number(ctx.weighted({ "0": 18, "1": 12, "2": 14, "3": 22, "4": 10, "5": 8, "6": 5, "7": 4, "10": 4, "15": 3 }));
+      row.DIAS_EN_APROBACION = diasAprobacion;
+      // El plazo corre desde que el documento entra a aprobación (hace DIAS_EN_APROBACION días), no desde la
+      // aprobación: así "Dentro de SLA" = Sí ⇔ aprobada a más tardar en la fecha máxima. Contarlo desde la
+      // aprobación dejaba salidas "fuera de SLA" con la fecha máxima posterior a su aprobación. No usa el
+      // generador aleatorio, así que el resto de las columnas no cambia.
+      row.FECHA_MAXIMA_RESPUESTA = Number.isFinite(td) ? ctx.date + (td - diasAprobacion) * DAY_MS : null;
       const electronico = ELECTRONICO.includes(String(row.FORMA_DE_ENVIO));
       if (electronico) {
         row.ESTADO_GUIA = "No Reporta";

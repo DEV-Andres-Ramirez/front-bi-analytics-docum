@@ -116,6 +116,9 @@ SELECT '__rest__' AS label, SUM(value) FROM r WHERE rn > @topN;   -- rest.value
 -- rest.count = (SELECT COUNT(*) FROM r WHERE rn > @topN); total = SUM(value) de g
 ```
 
+En `bartable` el equivalente es `BarTableResult.restCount`: el número de combinaciones (filas del
+`GROUP BY` de todas sus columnas) que quedaron fuera del `topN`; solo se envía si es mayor que 0.
+
 ### 4. Pivotes estables (`rowOrder`, `stableRows`, `stableColumns`, `fillNumericColumns`)
 
 - `rowOrder`: orden fijo del primer nivel (con dos niveles, el orden de los grupos). Lo que no
@@ -270,6 +273,8 @@ FROM `oro_tableros.vw_reporte_datastudio_pqrd`
 WHERE fecha_de_radicado BETWEEN @prevFrom AND @to;
 -- spark: la misma agregación con GROUP BY DATE(fecha_de_radicado) sobre [@from, @to]
 -- (semanas si el rango supera 92 días, meses si supera 400: ver bucketSeries).
+-- sparkBase (solo tasas y promedios): el denominador con el mismo GROUP BY. ratio → COUNTIF(<den>)
+-- (o COUNT(*)); ratioOf → la medida den; avg → COUNTIF(<where> AND campo IS NOT NULL). Ver sparkBaseMeasure.
 -- PostgreSQL: COUNT(*) FILTER (WHERE …) y NULLIF(…, 0) en lugar de COUNTIF/SAFE_DIVIDE.
 ```
 

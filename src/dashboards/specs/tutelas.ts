@@ -9,7 +9,8 @@ const FALLO_FAMILIES = [
   { label: "Favorable", tone: "good" as const, members: ["A favor", "Confirma a Favor", "Revoca a Favor", "Revoca Sanción"] },
   { label: "Desfavorable", tone: "critical" as const, members: ["En Contra", "Confirma en Contra", "Revoca en Contra", "Sanción"] },
   {
-    label: "Trámite o informativo",
+    // "Trámite" (corto): "Trámite o informativo" partía en 2 líneas y descuadraba la cabecera del FamilySplit
+    label: "Trámite",
     // Categoría real (no dato faltante): info, para que "Sin dato" sea el único gris
     tone: "info" as const,
     // "Informativos" es alias documentado de "Informativo" (la fuente usa ambos).
@@ -128,6 +129,9 @@ export const tutelas: DashboardSpec = {
           title: "Canal de radicado",
           subtitle: "Por dónde llegan las tutelas",
           dimension: "canal",
+          // Mismo color por canal que en PQRD, Entes y ML entradas (Mail naranja, Ventanilla aqua, Mail IA
+          // amarillo): sin familia, Mail IA tomaba el azul que en PQRD significa Web.
+          semantic: "canal-radicacion",
           size: "sm",
           viz: "composition",
           vizOptions: { layout: "split" },
@@ -279,7 +283,7 @@ export const tutelas: DashboardSpec = {
       { field: "Gestionador", label: "Gestionador", labelKind: "persona" },
       { field: "Causal", label: "Causal", format: "long", visible: false },
       { field: "Numero_de_radicado_juzgado", label: "N° radicado juzgado", format: "mono", visible: false },
-      { field: "canal", label: "Canal", visible: false },
+      { field: "canal", label: "Canal", visible: false, semantic: "canal-radicacion" },
     ],
     searchFields: ["Radicado", "Numero_de_radicado_juzgado", "Gestionador", "Causal"],
     defaultSort: { field: "fecharadicacion", dir: "desc" },

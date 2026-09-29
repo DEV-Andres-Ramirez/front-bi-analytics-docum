@@ -202,6 +202,44 @@ export const partialBarsPlugin: Plugin = {
   },
 };
 
+// ─── Marcadores del periodo anterior (columnas) ─────────────────────────────
+export interface MarkerOpts {
+  /** Dataset de barras INVISIBLES (sin relleno ni borde) cuyo tope se marca con una raya; −1 lo apaga. */
+  datasetIndex?: number;
+  color?: string;
+  /** Color de la raya en la categoría activa (hover o foco de teclado). */
+  activeColor?: string;
+  /** Grosor de la raya (px). */
+  lineWidth?: number;
+}
+
+/**
+ * Periodo anterior en columnas: raya horizontal de 2 px en el tope de cada barra del dataset (que queda
+ * invisible y solo aporta geometría, tooltip y hover). Se dibuja aquí y no con el borde superior de la
+ * barra: Chart.js pinta ese borde con un recorte y un relleno evenodd, y el antialias dejaba un contorno
+ * tenue en los otros tres lados (una "caja" fantasma alrededor de la columna). Un valor 0 no se marca
+ * (la raya se confundiría con el eje); queda en el tooltip.
+ */
+export const markersPlugin: Plugin = {
+  id: "docMarkers",
+  afterDatasetsDraw(chart, _args, raw) {
+    const o = raw as MarkerOpts;
+    const di = o.datasetIndex;
+    if (di === undefined || di < 0 || di >= chart.data.datasets.length || !chart.isDatasetVisible(di)) return;
+    const active = new Set(chart.getActiveElements().filter((a) => a.datasetIndex === di).map((a) => a.index));
+    const lw = o.lineWidth ?? 2;
+    const ctx = chart.ctx;
+    ctx.save();
+    chart.getDatasetMeta(di).data.forEach((item, i) => {
+      const el = item as unknown as { x: number; y: number; base: number; width: number };
+      if (![el.x, el.y, el.base, el.width].every(Number.isFinite) || el.base - el.y < 0.5) return;
+      ctx.fillStyle = active.has(i) ? (o.activeColor ?? o.color ?? "#222") : (o.color ?? "#888");
+      ctx.fillRect(el.x - el.width / 2, el.y, el.width, Math.min(lw, el.base - el.y));
+    });
+    ctx.restore();
+  },
+};
+
 // ─── Crosshair ───────────────────────────────────────────────────────────────
 /** Línea vertical en la categoría activa (detrás de las marcas). */
 export const crosshairPlugin: Plugin = {
@@ -274,7 +312,25 @@ function clearOfLine(cx: number, w: number, px: number, barX: number, barW: numb
   return sides.find((c) => Math.abs(c - barX) <= barW / 2) ?? cx;
 }
 
-/** Etiquetas sin colisión: marcador + cifra (y "parcial") sobre el punto o la columna. */
+/** Punto (x, y) de la marca de una etiqueta; null si su serie está oculta o el punto no existe. */
+function labelPoint(chart: Chart, it: CanvasLabel): { x: number; y: number } | null {
+  if (it.datasetIndex >= chart.data.datasets.length || !chart.isDatasetVisible(it.datasetIndex)) return null;
+  const el = chart.getDatasetMeta(it.datasetIndex).data[it.index] as unknown as { x: number; y: number } | undefined;
+  return el && Number.isFinite(el.x) && Number.isFinite(el.y) ? el : null;
+}
+
+const overlaps = (a: Box, b: Box) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+
+/** Radio del marcador de una etiqueta de punto (3,5 px + trazo de 2 px) más 2 px de aire. */
+const MARKER_CLEAR = 7.5;
+
+/**
+ * Etiquetas sin colisión: marcador + cifra (y "parcial") sobre el punto o la columna.
+ * En puntos (L10), los marcadores de TODAS las etiquetas son obstáculos: una cifra nunca tapa el
+ * marcador de otra serie. Si arriba choca, la cifra pasa debajo de su punto (la serie inferior se
+ * rotula hacia abajo); si tampoco cabe, se omite. Dos marcadores a menos de `minGap` en vertical y en
+ * la misma x se leen como un solo punto: solo se rotula el de mayor prioridad (la serie principal).
+ */
 export const labelsPlugin: Plugin = {
   id: "docLabels",
   afterDatasetsDraw(chart, _args, raw) {
@@ -289,11 +345,19 @@ export const labelsPlugin: Plugin = {
     // Referencia vertical del histograma (docRefLine), si la hay: las cifras se apartan de la línea
     const refX = kind === "bar" ? refLineX(chart, ((chart.options.plugins as Record<string, unknown> | undefined)?.docRefLine ?? {}) as RefLineOpts) : null;
     const sorted = [...items].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+    // Cajas de los marcadores (puntos): obstáculos para todas las cifras, también las de mayor prioridad
+    const markerBoxes = new Map<CanvasLabel, Box>();
+    if (kind === "point") {
+      for (const it of sorted) {
+        const p = it.marker ? labelPoint(chart, it) : null;
+        if (p) markerBoxes.set(it, { l: p.x - MARKER_CLEAR, r: p.x + MARKER_CLEAR, t: p.y - MARKER_CLEAR, b: p.y + MARKER_CLEAR });
+      }
+    }
+    const placedMarkers: { x: number; y: number }[] = [];
     ctx.save();
     for (const it of sorted) {
-      if (!chart.isDatasetVisible(it.datasetIndex)) continue;
-      const el = chart.getDatasetMeta(it.datasetIndex).data[it.index] as unknown as { x: number; y: number } | undefined;
-      if (!el || !Number.isFinite(el.x) || !Number.isFinite(el.y)) continue;
+      const el = labelPoint(chart, it);
+      if (!el) continue;
       const weight = it.weight ?? 700;
       ctx.font = canvasFont(11, weight);
       const wMain = ctx.measureText(it.text).width;
@@ -337,19 +401,27 @@ export const labelsPlugin: Plugin = {
         continue;
       }
 
-      // Punto: cifra + sub en una línea, arriba del punto (abajo si no cabe). La caja nunca pasa
-      // del borde derecho del área de trazado: en el último punto queda a la izquierda del marcador.
+      // Punto: cifra + sub en una línea, arriba del punto (abajo si no cabe o si arriba choca). La caja
+      // nunca pasa del borde derecho del área de trazado: en el último punto queda a la izquierda del
+      // marcador.
+      // L10: dos marcadores casi en el mismo sitio se leerían como uno; solo se rotula el principal
+      if (it.marker && placedMarkers.some((m) => Math.abs(m.x - el.x) < minGap && Math.abs(m.y - el.y) < minGap)) continue;
       const gap = it.sub ? 4 : 0;
       const w = wMain + gap + wSub;
       const h = 13;
-      let top = el.y - 9 - h;
-      if (top < area.top - 14) top = el.y + 9;
       let left = el.x - w / 2;
       left = Math.max(area.left - 4, Math.min(area.right - w, left));
-      const box = { l: left - 2, r: left + w + 2, t: top, b: top + h };
-      const clash = placed.some((p) => p.l < box.r && box.l < p.r && Math.abs((p.t + p.b) / 2 - (box.t + box.b) / 2) < minGap);
-      if (clash) continue;
-      placed.push(box);
+      const above = el.y - 9 - h;
+      const below = el.y + 9;
+      // Sin sitio arriba (borde superior): abajo, como siempre. Si arriba choca, abajo solo dentro del área
+      const candidates = above < area.top - 14 ? [below] : below + h <= area.bottom ? [above, below] : [above];
+      const free = (box: Box) =>
+        !placed.some((p) => p.l < box.r && box.l < p.r && Math.abs((p.t + p.b) / 2 - (box.t + box.b) / 2) < minGap) &&
+        ![...markerBoxes].some(([other, mb]) => other !== it && overlaps(mb, box));
+      const top = candidates.find((t) => free({ l: left - 2, r: left + w + 2, t, b: t + h }));
+      if (top === undefined) continue;
+      placed.push({ l: left - 2, r: left + w + 2, t: top, b: top + h });
+      if (it.marker) placedMarkers.push({ x: el.x, y: el.y });
       if (it.marker) {
         ctx.beginPath();
         ctx.arc(el.x, el.y, 3.5, 0, Math.PI * 2);

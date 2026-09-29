@@ -4,14 +4,18 @@ import { CircleDashed } from "lucide-react";
 import { useMemo } from "react";
 import type { CategoryResult } from "@/dashboards/dto";
 import type { BarWidget, DonutWidget, StatusTone, VizOptions } from "@/dashboards/types";
+import { useElementSize } from "@/hooks/use-element-size";
 import { cn } from "@/lib/cn";
 import { isNeutral, normalizeLabel, resolveStatus, TONE_VARS } from "@/lib/charts/semantic";
 import { formatInt, formatPct } from "@/lib/format";
-import { displayLabel } from "@/lib/labels";
-import { useCrossFilter, useHoverTip } from "./category-tiles";
+import { displayLabel, sentenceCase } from "@/lib/labels";
+import { useCrossFilter, useHoverTip, useMergedRef, usePageWide } from "./category-tiles";
 import { ChartTooltip } from "./kit/chart-tooltip";
 import { StatusIcon } from "./kit/status-icon";
 import type { VizProps } from "./types";
+
+/** Ancho del contenedor desde el que la legend-table va en 2 columnas con el % (≥ 210 px por columna). */
+const LIST_TWO_COL = 440;
 
 interface Entry {
   label: string;
@@ -30,7 +34,8 @@ interface Family {
 const DEFAULT_FAMILIES: { label: string; tone: StatusTone }[] = [
   { label: "Favorable", tone: "good" },
   { label: "Desfavorable", tone: "critical" },
-  { label: "Trámite o informativo", tone: "info" },
+  // "Trámite" (doc §tutelas S4): "Trámite o informativo" partía en 2 líneas y descuadraba la cabecera
+  { label: "Trámite", tone: "info" },
 ];
 
 function buildFamilies(result: CategoryResult, widget: BarWidget | DonutWidget): { families: Family[]; noData: Entry[] } {
@@ -48,7 +53,8 @@ function buildFamilies(result: CategoryResult, widget: BarWidget | DonutWidget):
   for (let i = 0; i < result.labels.length; i++) {
     const label = result.labels[i];
     const value = result.values[i] ?? 0;
-    const entry: Entry = { label, value, display: opts.overrides?.[label]?.label ?? displayLabel(label, widget.labelKind).full };
+    // Lista de estados en tipo oración ("Confirma a favor", "En contra"), como StatusStrip/StatusBoard (resolveStatus().display)
+    const entry: Entry = { label, value, display: opts.overrides?.[label]?.label ?? sentenceCase(displayLabel(label, widget.labelKind).full) };
     let idx = members.get(normalizeLabel(label));
     if (idx === undefined && isNeutral(label)) {
       noData.push({ ...entry, display: normalizeLabel(label) === "no reporta" ? "Sin dato" : entry.display });
@@ -70,13 +76,21 @@ function buildFamilies(result: CategoryResult, widget: BarWidget | DonutWidget):
 
 /**
  * FamilySplit (Tutelas · Estado del fallo): cabecera split por familias
- * (Favorable good · Desfavorable critical · Trámite o informativo info) con cifra de 28 px y %
+ * (Favorable good · Desfavorable critical · Trámite info) con cifra de 28 px y %
  * sobre los registros con dato; barra 100 % de 8 px; "Sin dato" en nota; legend-table en 2 columnas
  * (filas de 20 px) agrupada por familia con TODOS los estados. Clic en un estado filtra la dimensión.
+ * En móvil angosto (contenedor < 440 px, alto por contenido) la legend-table va en 1 columna con el %:
+ * a 2 columnas de ≈ 150 px "Requerimiento Previo" se recortaba y el % se ocultaba.
  */
 export function FamilySplit({ widget, result }: VizProps<BarWidget | DonutWidget, CategoryResult>) {
   const cf = useCrossFilter(widget);
   const { state, bind } = useHoverTip();
+  const { ref: sizeRef, width, measured } = useElementSize<HTMLDivElement>();
+  const { ref: pageRef, wide } = usePageWide();
+  const ref = useMergedRef(sizeRef, pageRef);
+  // 1 columna solo con alto por contenido (móvil): en escritorio el cuerpo tiene alto fijo y 15 filas no caben
+  const oneCol = measured && !wide && width < LIST_TWO_COL;
+  const showPct = oneCol || !measured || width >= LIST_TWO_COL;
   const { families, noData } = useMemo(() => buildFamilies(result, widget), [result, widget]);
   const known = families.reduce((a, f) => a + f.value, 0);
   const noDataSum = noData.reduce((a, e) => a + e.value, 0);
@@ -86,7 +100,7 @@ export function FamilySplit({ widget, result }: VizProps<BarWidget | DonutWidget
   const rows = families.flatMap((f) => f.entries.map((e) => ({ ...e, tone: f.tone, family: f.label })));
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={ref} className="flex h-full min-h-0 flex-col">
       {/* Cabecera split */}
       <ul className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.max(1, heads.length)}, minmax(0, 1fr))` }} aria-label="Familias">
         {heads.map((f) => {
@@ -153,7 +167,7 @@ export function FamilySplit({ widget, result }: VizProps<BarWidget | DonutWidget
       </p>
 
       {/* Legend-table agrupada por familia, 2 columnas, filas de 20 px */}
-      <ul className="@container mt-2 min-h-0 flex-1 gap-x-5 overflow-y-auto [column-fill:balance] [columns:2_140px]" aria-label={`Estados de ${widget.title}`}>
+      <ul className={cn("mt-2 min-h-0 flex-1 gap-x-5 overflow-y-auto [column-fill:balance]", oneCol ? "[columns:1]" : "[columns:2_140px]")} aria-label={`Estados de ${widget.title}`}>
         {rows.map((e) => {
           const sel = cf.isSelected(e.label);
           const can = cf.can(e.label);
@@ -163,11 +177,11 @@ export function FamilySplit({ widget, result }: VizProps<BarWidget | DonutWidget
           const body = (
             <>
               <StatusIcon tone={tone} className="size-3" />
-              <span className="min-w-0 flex-1 truncate text-left text-text-2" title={e.display}>
+              <span className="line-clamp-2 min-w-0 flex-1 text-left leading-4 text-text-2" title={e.display}>
                 {e.display}
               </span>
               <span className="tabular font-semibold text-text">{formatInt(e.value)}</span>
-              <span className="tabular hidden w-[46px] shrink-0 whitespace-nowrap text-right text-muted @min-[440px]:inline">{formatPct(share)}</span>
+              {showPct && <span className="tabular w-[46px] shrink-0 whitespace-nowrap text-right text-muted">{formatPct(share)}</span>}
             </>
           );
           return (
@@ -178,12 +192,12 @@ export function FamilySplit({ widget, result }: VizProps<BarWidget | DonutWidget
                   aria-pressed={sel}
                   aria-label={`${e.display} (${e.family}): ${formatInt(e.value)}, ${formatPct(share)} de los registros con dato. ${sel ? "Quitar filtro" : "Filtrar"}`}
                   onClick={() => cf.toggle(e.label)}
-                  className={cn("-mx-1 flex h-5 w-[calc(100%+8px)] items-center gap-1.5 rounded px-1 text-xs transition hover:bg-surface-3", sel && "bg-primary-soft ring-1 ring-primary")}
+                  className={cn("-mx-1 flex min-h-5 w-[calc(100%+8px)] items-center gap-1.5 rounded px-1 py-0.5 text-xs transition hover:bg-surface-3", sel && "bg-primary-soft ring-1 ring-primary")}
                 >
                   {body}
                 </button>
               ) : (
-                <span className="flex h-5 items-center gap-1.5 text-xs">{body}</span>
+                <span className="flex min-h-5 items-center gap-1.5 py-0.5 text-xs">{body}</span>
               )}
             </li>
           );

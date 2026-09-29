@@ -263,7 +263,12 @@ export function EfficiencyMatrix({ widget, result, expanded }: VizProps<Efficien
   const nameCell = (r: (typeof rows)[number]) => (
     <span className="block min-w-0">
       <span className="block text-[13px] font-semibold leading-snug text-text">{r.name}</span>
-      <span className="tabular block text-[11px] text-muted">{r.score === null ? "Sin datos esta semana" : `Cuartil promedio ${nf1.format(r.score)}`}</span>
+      {/* Cobertura: fases con dato esta semana (la misma que usa el motor para el orden y el empate) */}
+      <span className="tabular block text-[11px] text-muted">
+        {r.score === null
+          ? "Sin datos esta semana"
+          : `Cuartil promedio ${nf1.format(r.score)} · ${phases.filter((p) => r.phases[p.key].quartiles.at(-1) != null).length} de ${phases.length} fases`}
+      </span>
     </span>
   );
 

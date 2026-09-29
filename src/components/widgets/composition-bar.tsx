@@ -1,7 +1,7 @@
 "use client";
 
 import { Check } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useDashboard } from "@/components/dashboard/dashboard-context";
 import type { BarTableResult, CategoryResult } from "@/dashboards/dto";
@@ -24,13 +24,17 @@ import {
   foldParts,
   formatOf,
   isCountMeasure,
+  longestWord,
+  mergeNeutrals,
   missingShare,
   orderOf,
   partTooltip,
+  textWidth,
   toneNote,
   ProportionBar,
   useBox,
   useHover,
+  useRowMin,
   useSelection,
   type Part,
 } from "./status-shared";
@@ -38,12 +42,17 @@ import type { VizProps } from "./types";
 
 /**
  * CompositionBar: partes de un todo con hasta 7 entradas visibles.
- * - legend (4–7 partes): total arriba a la derecha (o en la franja de la fila), barra 100 % de 14 px y
- *   legend-table de 1–3 columnas. Las columnas se eligen por ancho mínimo (la etiqueta no parte palabras)
- *   y por alto medido (la menor cantidad que cabe); si no cabe, se pliega en "Otras N".
- * - split (2–3 partes reales): comparación entre las partes con dato (los % se calculan sobre ellas);
- *   neutrales en nota al pie. Tres anatomías: columnas (cifra de 32 px unidas por una barra de 8 px),
- *   apilada (celda alta y angosta: una fila por parte con su propia barra) y filas (legend-table).
+ * - Total (y chip de calidad): en la franja de leyenda si la fila la reserva; si no, en una fila de 18 px
+ *   del cuerpo, sobre la barra. Así todas las CompositionBar de una fila empiezan la barra a la misma altura
+ *   (el header de las tarjetas angostas no se parte en dos líneas por el total).
+ * - legend (4–7 partes): barra 100 % de 14 px y legend-table de 1–3 columnas (ancho mínimo según la etiqueta
+ *   más larga; la menor cantidad de columnas que cabe en el alto medido; si no cabe, se pliega en "Otras N").
+ *   Filas de 24–28 px (mismo paso en toda la fila de tarjetas). "Otras N" y "No reporta" van después de una
+ *   hairline, en gris y fuera de la comparación.
+ * - split (2–3 partes reales): comparación entre las partes con dato (los % se calculan sobre ellas, salvo
+ *   vizOptions.shareBase = "total"); neutrales en nota al pie. Tres anatomías: columnas (cifra de 32 px, barra
+ *   de 14 px arriba, a la altura de las hermanas), apilada (celda alta y angosta: una fila por parte con su
+ *   propia barra) y filas (legend-table).
  * - estado × subtipo (BarTable [estado, tipo]): EMITIDA / INCONSISTENTE con mini barra FC/NC/ND y glosario.
  */
 type Props = VizProps<BarWidget | DonutWidget | BarTableWidget, CategoryResult | BarTableResult>;
@@ -66,68 +75,173 @@ const GAP = 10;
 const TOTAL_ROW = 18;
 /** Fila mínima de la legend-table (objetivo táctil de 24 px). */
 const LEGEND_ROW = 24;
-/** Ancho mínimo de columna de la legend-table: deja ≈ 120 px a la etiqueta (no parte palabras). */
+/** Fila de emergencia: solo si ni las columnas ni el plegado permitido caben en el alto. */
+const LEGEND_ROW_TIGHT = 20;
+/**
+ * Paso máximo de fila: fijo en 28 px (no se estira hasta llenar el cuerpo) para que las legend-tables de
+ * tarjetas hermanas tengan el mismo ritmo; el sobrante queda al pie.
+ */
+const LEGEND_ROW_MAX = 28;
+/** Ancho de columna de la legend-table: el justo para la etiqueta más larga en una línea, entre 150 y 232 px. */
 const COL_MIN = 232;
+const COL_FLOOR = 150;
 /** Ancho máximo cómodo: más ancho, el valor se aleja de su etiqueta y conviene otra columna. */
 const COL_MAX = 600;
+/** Separación real entre columnas de la legend-table (gap-x-3). */
+const COL_GAP = 12;
+/**
+ * Plegado por capacidad (además del base "más de 5 partes → Otras N"): nunca una categoría de ≥ 10 % ni más de
+ * 2 categorías reales. Así la tarjeta no cuenta una composición distinta según el dispositivo (Web 11 % en tablet).
+ */
+const FOLD_SHARE_MAX = 0.1;
+const FOLD_EXTRA_MAX = 2;
+/** Bloque de neutrales de la legend-table: hairline + separación (mt-1 + pt-1 + borde). */
+const NEUTRAL_SEP = 9;
 /** Nota de neutrales al pie (hairline + una línea). */
 const NOTE_H = 34;
-/** Columna mínima del split en columnas (padding, muestra y la palabra más larga de la etiqueta). */
-const SPLIT_COL = 140;
+/** Separación entre columnas del split (gap-3; gap-2 en celdas de menos de 360 px). */
+const SPLIT_GAP = 12;
+const SPLIT_GAP_NARROW = 8;
+const NARROW = 360;
 /** Fila mínima del split apilado (etiqueta, cifra de 28 px y barra propia); desde 96 px la cifra es de 32. */
 const STACK_ROW = 72;
 const STACK_ROW_LG = 96;
 
-/** Rango de columnas de la legend-table según el ancho interno. */
-function colRange(inner: number): [number, number] {
-  const max = Math.max(1, Math.min(3, Math.floor((inner + 16) / (COL_MIN + 16))));
-  const min = Math.max(1, Math.min(max, Math.ceil((inner + 16) / (COL_MAX + 16))));
+/** Ancho estimado de la nota de neutrales en una línea (items con muestra, etiqueta, valor y %; "del total" al final). */
+function noteWidth(parts: Part[], fmt: ValueFormat, base: boolean): number {
+  const items = parts.map((p) => 8 + 10 + 6 + textWidth(p.display, 11.5) + 6 + textWidth(formatValue(p.value, fmt), 11.5, { bold: true }) + 4 + textWidth(`· ${formatPct(p.share)}`, 11.5));
+  return items.reduce((a, b) => a + b, 0) + (parts.length - 1) * 12 + (base ? textWidth(" del total", 11.5) : 0);
+}
+
+/** Ancho de la muestra de una parte: ícono de estado + punto, o cuadro. */
+const markWidth = (p: Part) => (p.tone && !p.neutral ? 28 : 10);
+
+/** Ancho de una fila de la legend-table: padding, muestra, etiqueta en una línea, valor y % (min-w-10). */
+function legendRowWidth(p: Part, fmt: ValueFormat): number {
+  return 12 + markWidth(p) + 18 + textWidth(p.display, 12) + textWidth(formatValue(p.value, fmt), 12, { bold: true }) + 40;
+}
+
+/** Rango de columnas de la legend-table según el ancho interno y el ancho mínimo de columna del plan. */
+function colRange(inner: number, colMin: number): [number, number] {
+  const max = Math.max(1, Math.min(3, Math.floor((inner + COL_GAP) / (colMin + COL_GAP))));
+  const min = Math.max(1, Math.min(max, Math.ceil((inner + COL_GAP) / (COL_MAX + COL_GAP))));
   return [min, max];
 }
 
-/** Alto de fila: crece hasta llenar el cuerpo (34 px; 40 con 3 filas o menos) para no dejar aire muerto. */
-function rowHeight(avail: number, chrome: number, rows: number): number {
-  if (avail <= 0 || rows <= 0) return LEGEND_ROW;
-  const max = rows <= 3 ? 40 : 34;
-  return Math.max(LEGEND_ROW, Math.min(max, Math.floor((avail - chrome) / rows)));
+/** Alto de fila: 24–28 px (paso fijo; no se estira hasta llenar el cuerpo); 20 solo como emergencia. */
+function rowHeight(avail: number, chrome: number, rows: number, rowMin = LEGEND_ROW): number {
+  if (avail <= 0 || rows <= 0) return rowMin;
+  return Math.max(rowMin, Math.min(LEGEND_ROW_MAX, Math.floor((avail - chrome) / rows)));
 }
 
 interface LegendPlan {
   parts: Part[];
+  real: Part[];
+  neutral: Part[];
   cols: number;
+  /** Columnas del bloque neutral (1 si "Otras N categorías" no cabe en una columna). */
+  neutralCols: number;
   rows: number;
+  neutralRows: number;
   rowH: number;
+  /** Fila mínima del plan (24; 20 en el plan de emergencia): el paso común de la fila no la sube. */
+  rowMin: number;
+}
+
+function legendLayout(parts: Part[], c: number, inner: number, fmt: ValueFormat): LegendPlan {
+  const real = parts.filter((p) => !p.neutral);
+  const neutral = parts.filter((p) => p.neutral);
+  const colW = (inner - (c - 1) * COL_GAP) / c;
+  const neutralCols = neutral.every((p) => legendRowWidth(p, fmt) <= colW) ? Math.min(c, neutral.length) || 1 : 1;
+  return {
+    parts,
+    real,
+    neutral,
+    cols: c,
+    neutralCols,
+    rows: Math.ceil(real.length / c),
+    neutralRows: Math.ceil(neutral.length / neutralCols),
+    rowH: LEGEND_ROW,
+    rowMin: LEGEND_ROW,
+  };
 }
 
 /**
  * Plegado y columnas de la legend-table: la menor cantidad de columnas (dentro del rango por ancho) cuyas
  * filas caben en el alto disponible; si ninguna cabe, pliega una categoría más en "Otras N" (5 → 2 reales).
- * avail = 0: alto por contenido (móvil) → sin límite de filas.
+ * La columna mínima sale de la etiqueta real más larga (Mail, Web, Ventanilla caben en ≈ 180 px), no de un
+ * mínimo fijo: así no se pliega un canal relevante por falta de ancho. avail = 0: alto por contenido (móvil).
+ * El plegado por capacidad nunca oculta una categoría de ≥ 10 % ni más de 2 reales (además del plegado base);
+ * si así no cabe, filas de 20 px y, como último recurso, el plegado sin restricción (nunca contenido cortado).
  */
-function planLegend(base: Part[], inner: number, avail: number, chrome: number, expanded: boolean): LegendPlan {
-  const [minCols, maxCols] = colRange(inner);
+function planLegend(base: Part[], inner: number, avail: number, chrome: number, expanded: boolean, fmt: ValueFormat): LegendPlan {
   const levels = expanded ? [5] : [5, 4, 3, 2];
-  let plan: LegendPlan = { parts: base, cols: 1, rows: base.length, rowH: LEGEND_ROW };
+  const keptAt = (max: number) => new Set(foldParts(base, max).filter((p) => !p.neutral).map((p) => p.key));
+  const baseKept = keptAt(5);
+  const share = new Map(base.map((p) => [p.key, p.share] as const));
+  // Niveles permitidos: lo que pliegan además del base son ≤ 2 categorías, todas de < 10 % (los niveles
+  // menores pliegan un superconjunto: en cuanto uno no se permite, los siguientes tampoco)
+  const allowed: number[] = [];
   for (const max of levels) {
-    const parts = foldParts(base, max);
-    const top = Math.max(1, Math.min(maxCols, parts.length));
-    for (let c = Math.min(minCols, top); c <= top; c++) {
-      const rows = Math.ceil(parts.length / c);
-      plan = { parts, cols: c, rows, rowH: LEGEND_ROW };
-      if (avail <= 0 || chrome + rows * LEGEND_ROW <= avail) return { ...plan, rowH: rowHeight(avail, chrome, rows) };
-    }
+    const kept = keptAt(max);
+    const extra = [...baseKept].filter((k) => !kept.has(k));
+    if (extra.length > FOLD_EXTRA_MAX || extra.some((k) => (share.get(k) ?? 0) >= FOLD_SHARE_MAX)) break;
+    allowed.push(max);
   }
-  return plan;
+  let last = legendLayout(base, 1, inner, fmt);
+  const attempt = (lvls: number[], rowMin: number): LegendPlan | null => {
+    for (const max of lvls) {
+      const parts = foldParts(base, max);
+      const real = parts.filter((p) => !p.neutral);
+      const colMin = Math.min(COL_MIN, Math.max(COL_FLOOR, ...real.map((p) => legendRowWidth(p, fmt))));
+      const [minCols, maxCols] = colRange(inner, colMin);
+      const top = Math.max(1, Math.min(maxCols, real.length));
+      for (let c = Math.min(minCols, top); c <= top; c++) {
+        const plan = legendLayout(parts, c, inner, fmt);
+        last = plan;
+        const sep = plan.neutral.length ? NEUTRAL_SEP : 0;
+        const rows = plan.rows + plan.neutralRows;
+        if (avail <= 0 || chrome + sep + rows * rowMin <= avail) return { ...plan, rowMin, rowH: rowHeight(avail, chrome + sep, rows, rowMin) };
+      }
+    }
+    return null;
+  };
+  return attempt(allowed, LEGEND_ROW) ?? attempt(allowed, LEGEND_ROW_TIGHT) ?? attempt(levels, LEGEND_ROW) ?? last;
+}
+
+/**
+ * Columna mínima del split en columnas, por widget: la palabra más larga de la etiqueta con su muestra, o la
+ * cifra de 32 px, más el padding. Mail · Web · Ventanilla caben en ≈ 96 px (3 partes en ≈ 312 px).
+ */
+function splitColMin(parts: Part[], fmt: ValueFormat, narrow: boolean): number {
+  const pad = narrow ? 12 : 16;
+  const word = Math.max(0, ...parts.map((p) => longestWord(p.display, 12.5) + markWidth(p) + 6));
+  const num = Math.max(0, ...parts.map((p) => textWidth(formatValue(p.value, fmt, { compact: p.value >= 1e5 }), 32, { bold: true })));
+  return Math.ceil(Math.max(word, num) + pad);
 }
 
 type SplitMode = "columns" | "stacked" | "rows";
 
 // ─── Composición de categorías ───────────────────────────────────────────────
 
+/** Acuerdos de fila: columnas del split (1 = caben; todas deben caber) y paso de la legend-table (el menor). */
+const SPLIT_FITS = "data-split-fits";
+const LEGEND_ROW_ATTR = "data-legend-row";
+
 function CategoryComposition({ widget, result, height, span, expanded }: Omit<Props, "result"> & { result: CategoryResult }) {
   const { spec } = useDashboard();
   const theme = useChartTheme();
-  const { ref, width, height: boxHeight, measured, fixed } = useBox<HTMLDivElement>();
+  const { ref: boxRef, width, height: boxHeight, measured, fixed } = useBox<HTMLDivElement>();
+  const { ref: fitsRef, min: fitsMin } = useRowMin(SPLIT_FITS);
+  const { ref: pitchRef, min: rowPitch } = useRowMin(LEGEND_ROW_ATTR);
+  const rowFits = fitsMin >= 1;
+  const ref = useCallback(
+    (el: HTMLDivElement | null) => {
+      const cleanups = [boxRef(el), fitsRef(el), pitchRef(el)];
+      return () => cleanups.forEach((c) => c?.());
+    },
+    [boxRef, fitsRef, pitchRef],
+  );
   const { state, show, hide } = useChartTooltip();
   const hover = useHover(show, hide);
   const sel = useSelection(dimensionOf(widget));
@@ -148,11 +262,16 @@ function CategoryComposition({ widget, result, height, span, expanded }: Omit<Pr
   // Alto disponible: el medido si la fila fija el alto; el presupuesto antes de medir; 0 = por contenido (móvil)
   const avail = measured ? (fixed ? boxHeight : 0) : height;
   const clamp = avail > 0;
-  // Con franja de leyenda en la fila, el total va a la franja (derecha) y no ocupa una fila del cuerpo
-  const totalInStrip = Boolean(frame?.chipsEl);
+  // Con franja de leyenda en la fila (legendEl), el total y el chip van a su derecha y no ocupan el cuerpo.
+  // Sin franja van en una fila del cuerpo (nunca en el header: en tarjetas ≤ 460 px bajaría a otra línea y la
+  // barra quedaría más abajo que en sus hermanas).
+  const totalInStrip = Boolean(frame?.legendEl && frame.chipsEl);
   const totalChrome = totalInStrip ? 0 : TOTAL_ROW + GAP;
 
-  const legend = useMemo(() => (layout === "legend" ? planLegend(base, inner, avail, totalChrome + 14 + GAP, Boolean(expanded)) : null), [layout, base, inner, avail, totalChrome, expanded]);
+  const legend = useMemo(
+    () => (layout === "legend" ? planLegend(base, inner, avail, totalChrome + 14 + GAP, Boolean(expanded), fmt) : null),
+    [layout, base, inner, avail, totalChrome, expanded, fmt],
+  );
   const splitParts = useMemo(() => (layout === "split" ? foldParts(base, 3) : []), [layout, base]);
 
   const all = legend ? legend.parts : splitParts;
@@ -164,23 +283,25 @@ function CategoryComposition({ widget, result, height, span, expanded }: Omit<Pr
   const miss = missingShare(base);
   const chip = <QualityChip neutral={miss.neutral} total={miss.total} />;
 
-  // Split: la comparación es entre las partes con dato; los neutrales van en la nota (sobre el total)
+  // Split: la comparación es entre las partes con dato; los neutrales van en la nota (sobre el total).
+  // shareBase "total": todos los % sobre el total (el mismo cálculo que la banda de KPIs).
+  const shareBase = widget.vizOptions?.shareBase ?? "withData";
   const real = splitParts.filter((p) => !p.neutral);
   const neutrals = splitParts.filter((p) => p.neutral);
   const realTotal = real.reduce((s, p) => s + p.value, 0);
-  const withData = layout === "split" && neutrals.length > 0 && realTotal > 0 ? realTotal : undefined;
+  const withData = layout === "split" && shareBase === "withData" && neutrals.length > 0 && realTotal > 0 ? realTotal : undefined;
   const realParts = withData ? real.map((p) => ({ ...p, share: p.value / realTotal })) : real;
 
   const tip = (p: Part) => {
     const note = withData && !p.neutral ? `sobre ${formatValue(withData, fmt)} con dato` : undefined;
     return partTooltip(p, fmt, { on: sel.isOn(p), canFilter: sel.canFilter, extra: [toneNote(p.tone), note].filter(Boolean).join(" · ") || undefined });
   };
-  const bar = (parts: Part[], thickness: number) => (
+  const bar = (parts: Part[], thickness: number, inside = true) => (
     <ProportionBar
       parts={parts}
       thickness={thickness}
       width={inner}
-      theme={theme}
+      theme={inside ? theme : undefined}
       hovered={hover.hovered}
       isOn={sel.isOn}
       anySelected={sel.any}
@@ -190,58 +311,84 @@ function CategoryComposition({ widget, result, height, span, expanded }: Omit<Pr
     />
   );
   const totalLabel = <TotalLabel value={total} fmt={fmt} unit={unitLabel} withData={withData} />;
-  // Sin franja, el total va en la primera fila del bloque: se mueve con la barra que totaliza
-  const head = frame?.chipsEl ? null : (
-    <div className="flex min-h-[18px] shrink-0 items-center gap-2">
+  // Sin franja, el total va en la primera fila del bloque (18 px exactos, a la derecha): se mueve con la barra
+  // que totaliza. El chip de calidad (22 px) se centra y desborda 2 px en los huecos: la barra no baja frente a
+  // las hermanas sin chip
+  const head = totalInStrip ? null : (
+    <div className="flex h-[18px] shrink-0 items-center gap-2">
       {chip}
       {totalLabel}
     </div>
   );
 
-  // Legend y filas van arriba (la barra queda a la misma altura que en las tarjetas hermanas) y sus filas
-  // crecen hasta llenar el cuerpo; las columnas del split se centran con su total.
+  // Todo va arriba: la barra queda a la misma altura que en las tarjetas hermanas de la fila y el sobrante
+  // queda al pie (la nota de neutrales, con mt-auto, se apoya abajo).
   let body: ReactNode;
+  let fitsColumns: boolean | undefined;
+  // Paso de la legend-table: el propio (24–28 según el alto) y, en la fila, el menor de las hermanas
+  let pitch: number | undefined;
+  const synced = (own: number, rowMin = LEGEND_ROW) => (clamp ? Math.max(rowMin, Math.min(own, rowPitch)) : own);
   if (legend) {
+    pitch = legend.rowH;
     body = (
       <div className="flex min-h-0 flex-1 flex-col gap-2.5">
         {head}
         {bar(legend.parts, 14)}
-        <LegendTable parts={legend.parts} fmt={fmt} sel={sel} hover={hover} tip={tip} cols={legend.cols} rows={legend.rows} rowH={legend.rowH} clamp={clamp} title={widget.title} />
+        <LegendTable plan={{ ...legend, rowH: synced(legend.rowH, legend.rowMin) }} fmt={fmt} sel={sel} hover={hover} tip={tip} clamp={clamp} title={widget.title} />
       </div>
     );
   } else {
-    const noteH = neutrals.length ? NOTE_H : 0;
-    const room = avail > 0 ? avail - totalChrome - noteH : 0;
-    const mode: SplitMode = avail > 0 && inner < 480 && realParts.length >= 2 && room >= realParts.length * STACK_ROW ? "stacked" : inner >= realParts.length * SPLIT_COL ? "columns" : "rows";
+    // Mismo presupuesto en todas las celdas de la fila: la nota se reserva la tenga o no la celda (Tipo con
+    // "No reporta" y Canal sin neutrales eligen la misma anatomía y el mismo tamaño de cifra)
+    const roomRow = avail > 0 ? avail - totalChrome - NOTE_H : 0;
+    const narrow = inner < NARROW;
+    const gap = narrow ? SPLIT_GAP_NARROW : SPLIT_GAP;
+    const colMin = splitColMin(realParts, fmt, narrow);
+    const n = realParts.length;
+    fitsColumns = inner >= n * colMin + (n - 1) * gap;
+    // Columnas solo si caben en TODAS las split de la fila (Canal de etiquetas cortas no va en columnas junto a
+    // Dependencia en filas): la fila se lee con una sola anatomía y el mismo paso de 28 px
+    const mode: SplitMode = avail > 0 && inner < 480 && n >= 2 && roomRow >= n * STACK_ROW ? "stacked" : fitsColumns && rowFits ? "columns" : "rows";
+    if (mode === "rows") pitch = rowHeight(roomRow, 14 + GAP, n);
+    // La nota reserva UNA línea (NOTE_H): si con alto fijo no cabe, los neutrales se funden en "Sin dato"
+    // (el desglose va en el tooltip y en Ver datos) en vez de partirse y tapar las cifras
+    const noteParts = clamp && neutrals.length > 1 && noteWidth(neutrals, fmt, withData !== undefined) > inner ? mergeNeutrals(neutrals, "Sin dato") : neutrals;
     const shared = { fmt, sel, hover, tip, title: widget.title };
     body = (
       <>
         {mode === "stacked" ? (
           <>
             {head}
-            <SplitStacked parts={realParts} {...shared} big={room >= realParts.length * STACK_ROW_LG} />
+            <SplitStacked parts={realParts} {...shared} big={roomRow >= n * STACK_ROW_LG} />
           </>
         ) : mode === "columns" ? (
-          <div className="flex min-h-0 flex-1 flex-col justify-center-safe gap-2.5">
+          <div className="flex min-h-0 flex-col gap-2.5">
             {head}
-            {bar(realParts, 8)}
-            <SplitColumns parts={realParts} {...shared} clamp={clamp} big={room >= 150} />
+            {bar(realParts, 14, false)}
+            <SplitColumns parts={realParts} {...shared} clamp={clamp} big={roomRow >= 150} narrow={narrow} />
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col gap-2.5">
+          <div className="flex min-h-0 flex-col gap-2.5">
             {head}
             {bar(realParts, 14)}
-            <LegendTable parts={realParts} {...shared} cols={1} rows={realParts.length} rowH={rowHeight(room, 14 + GAP, realParts.length)} clamp={clamp} />
+            <LegendTable plan={{ ...legendLayout(realParts, 1, inner, fmt), rowH: synced(pitch ?? LEGEND_ROW) }} {...shared} clamp={clamp} />
           </div>
         )}
-        {neutrals.length > 0 && <NeutralNote parts={neutrals} fmt={fmt} sel={sel} hover={hover} tip={tip} />}
+        {neutrals.length > 0 && <NeutralNote parts={noteParts} fmt={fmt} sel={sel} hover={hover} tip={tip} base={withData !== undefined} />}
       </>
     );
   }
 
   return (
-    <div ref={ref} className="flex h-full min-h-0 flex-col gap-2.5" onMouseLeave={hover.leave}>
-      {frame?.chipsEl &&
+    <div
+      ref={ref}
+      {...(fitsColumns === undefined ? {} : { [SPLIT_FITS]: fitsColumns ? "1" : "0" })}
+      {...(pitch === undefined || !clamp ? {} : { [LEGEND_ROW_ATTR]: String(pitch) })}
+      className="flex h-full min-h-0 flex-col gap-2.5"
+      onMouseLeave={hover.leave}
+    >
+      {totalInStrip &&
+        frame?.chipsEl &&
         createPortal(
           <>
             {chip}
@@ -255,11 +402,12 @@ function CategoryComposition({ widget, result, height, span, expanded }: Omit<Pr
   );
 }
 
+/** Total de la composición; con base "con dato", la dice explícita ("% sobre 643 con dato"), como FamilySplit. */
 function TotalLabel({ value, fmt, unit, withData }: { value: number; fmt: ValueFormat; unit?: string; withData?: number }) {
   return (
-    <p className="tabular ml-auto whitespace-nowrap text-xs text-muted" title={withData !== undefined ? "Los porcentajes se calculan sobre los registros con dato" : undefined}>
+    <p className="tabular ml-auto whitespace-nowrap text-xs text-muted" title={withData !== undefined ? "Los porcentajes de las categorías se calculan sobre los registros con dato; el de los neutrales, sobre el total" : undefined}>
       <span className="font-semibold text-text">{formatValue(value, fmt)}</span> {unit ?? "en total"}
-      {withData !== undefined && <> · {formatValue(withData, fmt)} con dato</>}
+      {withData !== undefined && <> · % sobre {formatValue(withData, fmt)} con dato</>}
     </p>
   );
 }
@@ -315,50 +463,60 @@ function rowButtonProps(p: Part, { sel, hover, tip }: Pick<SharedProps, "sel" | 
 
 // ─── Legend-table (layout legend y split en filas) ──────────────────────────
 
-function LegendTable({ parts, fmt, sel, hover, tip, cols, rows, rowH, clamp, title }: SharedProps & { parts: Part[]; cols: number; rows: number; rowH: number; clamp: boolean; title: string }) {
+/**
+ * Legend-table: las categorías reales en `cols` columnas y, después de una hairline, los neutrales
+ * ("Otras N categorías", "No reporta") en gris, con su valor y %: la misma convención que la nota del split.
+ */
+function LegendTable({ plan, fmt, sel, hover, tip, clamp, title }: SharedProps & { plan: LegendPlan; clamp: boolean; title: string }) {
+  // Defensa ante un plan a medio construir (p. ej. durante una recarga en caliente): sin listas, tabla vacía
+  const { real = [], neutral = [], cols, neutralCols, rows, neutralRows, rowH } = plan;
+  const row = (p: Part, muted: boolean) => {
+    const { interactive, ...btn } = rowButtonProps(p, { sel, hover, tip });
+    const on = sel.isOn(p);
+    return (
+      <li key={p.key} className="flex min-w-0">
+        <button
+          {...btn}
+          aria-label={`${p.display}: ${formatValue(p.value, fmt)} (${formatPct(p.share)})${muted ? ", fuera de la comparación" : ""}`}
+          className={cn(
+            "grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-1.5 rounded-md px-1.5 py-0.5 text-left text-xs leading-[15px] transition",
+            interactive ? "cursor-pointer hover:bg-surface-3" : "cursor-default",
+            on && "bg-primary-soft ring-1 ring-inset ring-primary/40",
+            emphasis(p.key, hover.hovered, on, sel.any),
+          )}
+        >
+          <PartMark p={p} />
+          <PartName p={p} clamp={clamp} className={muted ? "text-muted" : undefined} />
+          <span className={cn("tabular font-semibold", muted ? "text-text-2" : "text-text")}>{formatValue(p.value, fmt)}</span>
+          <span className="tabular inline-flex min-w-10 items-center justify-end gap-0.5 whitespace-nowrap text-muted">
+            {on && <Check className="size-3 text-primary-text" aria-hidden />}
+            {formatPct(p.share)}
+          </span>
+        </button>
+      </li>
+    );
+  };
+  const grid = (n: number, r: number) => ({ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${r}, minmax(${rowH}px, auto))`, gridAutoFlow: "column" as const });
   return (
-    <ul
-      role="list"
-      aria-label={`Composición: ${title}`}
-      className="grid min-h-0 shrink-0 gap-x-3"
-      style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(${rowH}px, auto))`, gridAutoFlow: "column" }}
-    >
-      {parts.map((p) => {
-        const { interactive, ...btn } = rowButtonProps(p, { sel, hover, tip });
-        const on = sel.isOn(p);
-        return (
-          <li key={p.key} className="flex min-w-0">
-            <button
-              {...btn}
-              aria-label={`${p.display}: ${formatValue(p.value, fmt)} (${formatPct(p.share)})`}
-              className={cn(
-                "grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-1.5 rounded-md px-1.5 py-0.5 text-left text-xs leading-[15px] transition",
-                interactive ? "cursor-pointer hover:bg-surface-3" : "cursor-default",
-                on && "bg-primary-soft ring-1 ring-inset ring-primary/40",
-                emphasis(p.key, hover.hovered, on, sel.any),
-              )}
-            >
-              <PartMark p={p} />
-              <PartName p={p} clamp={clamp} />
-              <span className="tabular font-semibold text-text">{formatValue(p.value, fmt)}</span>
-              <span className="tabular inline-flex min-w-10 items-center justify-end gap-0.5 whitespace-nowrap text-muted">
-                {on && <Check className="size-3 text-primary-text" aria-hidden />}
-                {formatPct(p.share)}
-              </span>
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+    <div className="flex min-h-0 shrink-0 flex-col">
+      <ul role="list" aria-label={`Composición: ${title}`} className="grid min-h-0 gap-x-3" style={grid(cols, rows)}>
+        {real.map((p) => row(p, false))}
+      </ul>
+      {neutral.length > 0 && (
+        <ul role="list" aria-label="Sin dato y categorías agrupadas" className="mt-1 grid gap-x-3 border-t border-border pt-1" style={grid(neutralCols, neutralRows)}>
+          {neutral.map((p) => row(p, true))}
+        </ul>
+      )}
+    </div>
   );
 }
 
 // ─── Split ───────────────────────────────────────────────────────────────────
 
 /** Columnas con cifra de 32 px (40 px si el cuerpo tiene alto de sobra); las cifras comparten línea base. */
-function SplitColumns({ parts, fmt, sel, hover, tip, title, clamp, big }: SharedProps & { parts: Part[]; title: string; clamp: boolean; big: boolean }) {
+function SplitColumns({ parts, fmt, sel, hover, tip, title, clamp, big, narrow }: SharedProps & { parts: Part[]; title: string; clamp: boolean; big: boolean; narrow: boolean }) {
   return (
-    <ul role="list" aria-label={`Composición: ${title}`} className="grid shrink-0 gap-3" style={{ gridTemplateColumns: `repeat(${parts.length}, minmax(0, 1fr))` }}>
+    <ul role="list" aria-label={`Composición: ${title}`} className={cn("grid shrink-0", narrow ? "gap-2" : "gap-3")} style={{ gridTemplateColumns: `repeat(${parts.length}, minmax(0, 1fr))` }}>
       {parts.map((p) => {
         const { interactive, ...btn } = rowButtonProps(p, { sel, hover, tip });
         const on = sel.isOn(p);
@@ -368,7 +526,8 @@ function SplitColumns({ parts, fmt, sel, hover, tip, title, clamp, big }: Shared
               {...btn}
               aria-label={`${p.display}: ${formatValue(p.value, fmt)} (${formatPct(p.share)})`}
               className={cn(
-                "flex h-full w-full min-w-0 flex-col items-start gap-0.5 rounded-xl px-2 py-1.5 text-left transition",
+                "flex h-full w-full min-w-0 flex-col items-start gap-0.5 rounded-xl py-1.5 text-left transition",
+                narrow ? "px-1.5" : "px-2",
                 interactive ? "cursor-pointer hover:bg-surface-3" : "cursor-default",
                 on && "bg-primary-soft ring-1 ring-inset ring-primary/40",
                 emphasis(p.key, hover.hovered, on, sel.any),
@@ -437,11 +596,14 @@ function SplitStacked({ parts, fmt, sel, hover, tip, title, big }: SharedProps &
   );
 }
 
-/** Neutrales como nota al pie (fuera de la comparación; % sobre el total). */
-function NeutralNote({ parts, fmt, sel, hover, tip }: SharedProps & { parts: Part[] }) {
+/**
+ * Neutrales como nota al pie (fuera de la comparación; % sobre el total). Con `base` (los % de las partes van
+ * sobre las que tienen dato), la nota termina en "del total" (una vez): la tarjeta no parece sumar 109 %.
+ */
+function NeutralNote({ parts, fmt, sel, hover, tip, base }: SharedProps & { parts: Part[]; base?: boolean }) {
   return (
     <p className="mt-auto flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-border pt-1.5 text-[11.5px] text-muted">
-      {parts.map((p) => {
+      {parts.map((p, i) => {
         const { interactive, ...btn } = rowButtonProps(p, { sel, hover, tip });
         const on = sel.isOn(p);
         return (
@@ -458,7 +620,10 @@ function NeutralNote({ parts, fmt, sel, hover, tip }: SharedProps & { parts: Par
             <Swatch color={p.color} />
             <span>{p.display}</span>
             <span className="tabular font-semibold text-text-2">{formatValue(p.value, fmt)}</span>
-            <span className="tabular whitespace-nowrap">· {formatPct(p.share)}</span>
+            <span className="tabular whitespace-nowrap">
+              · {formatPct(p.share)}
+              {base && i === parts.length - 1 && " del total"}
+            </span>
           </button>
         );
       })}
@@ -571,7 +736,8 @@ function StateSubtypeSplit({ widget, result, span, height, expanded }: Omit<Prop
 
   return (
     <div ref={ref} className="flex h-full min-h-0 flex-col gap-3" onMouseLeave={hover.leave}>
-      {frame?.chipsEl ? (
+      {/* Mismo criterio que CategoryComposition: a la franja si la fila la reserva; si no, fila propia del cuerpo */}
+      {frame?.legendEl && frame.chipsEl ? (
         createPortal(
           <>
             {chip}
@@ -580,7 +746,7 @@ function StateSubtypeSplit({ widget, result, span, height, expanded }: Omit<Prop
           frame.chipsEl,
         )
       ) : (
-        <div className="flex min-h-[18px] shrink-0 items-center gap-2">
+        <div className="flex h-[18px] shrink-0 items-center gap-2">
           {chip}
           {totalLabel}
         </div>

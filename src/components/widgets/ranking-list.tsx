@@ -7,7 +7,7 @@ import type { BarTableResult, CategoryResult, KpiResult } from "@/dashboards/dto
 import type { BarTableWidget, BarWidget, DashboardSpec, SemanticFamily, StatusTone, ValueFormat, VizOptions } from "@/dashboards/types";
 import { innerWidth } from "@/dashboards/layout";
 import { cn } from "@/lib/cn";
-import { isNeutral, resolveStatus, TONE_VARS } from "@/lib/charts/semantic";
+import { isMissing, isNeutral, resolveStatus, TONE_VARS } from "@/lib/charts/semantic";
 import { formatInt, formatPct, formatValue } from "@/lib/format";
 import { displayLabel, type LabelKind } from "@/lib/labels";
 import { useWidgetFrame } from "./frame-context";
@@ -54,7 +54,8 @@ import type { VizProps } from "./types";
  * - Varias columnas: oficinas con su forma corta ("Ger. …", nombre completo en el tooltip). Si aun así
  *   una etiqueta se parte, se prueba la anatomía apilada (filas uniformes, alineadas entre columnas);
  *   si queda alguna fila más alta, cada columna fluye con sus propios altos (sin huecos por la vecina).
- *   La compacta solo suma columnas si ninguna etiqueta se parte.
+ *   La compacta solo suma columnas si ninguna etiqueta se parte (medida real, sin mínimo fijo); si con la
+ *   barra en línea alguna se partiría, usa la anatomía apilada cuando ahí todas caben en una línea.
  * - Pie "Top 15 de 42 · 91 % del total"; "Ver N más" (scroll interno o Dialog con búsqueda si > 30).
  * - Cabecera de concentración, fila fijada (tono de la familia del filtro) y bullet secundario (vizOptions).
  */
@@ -73,7 +74,11 @@ const BULLET_GAP = 4;
 const STACK_BELOW = 400;
 /** Ancho mínimo de etiqueta para sumar una columna (con menos, las etiquetas se parten en 3+ líneas). */
 const MIN_LABEL = 160;
-const MIN_LABEL_COMPACT = 140;
+/**
+ * Compacta: solo descarta anchos degenerados (la estimación de líneas no es fiable por debajo); la
+ * columna extra se decide con la medida real de las etiquetas (nombres cortos caben en 64 px).
+ */
+const MIN_LABEL_COMPACT = 64;
 /** Alto extra máximo por fila al repartir el sobrante (40 → 64, compacta 32 → 44): pocas filas llenan el cuerpo sin banda muerta. */
 const STRETCH: Record<Mode, number> = { regular: 24, stacked: 12, compact: 12 };
 /** Más ítems que esto: "Ver los N" abre un Dialog con búsqueda. */
@@ -176,11 +181,10 @@ function buildItems(
 }
 
 /**
- * Combinaciones fuera del topN de una bartable ("Top 60 de 218"). El motor las informa en
- * `restCount` (opcional en el contrato): sin el dato, el pie queda como "Top 60 · 56 % del total".
+ * Combinaciones fuera del topN de una bartable ("Top 60 de 218"). El motor las informa en `restCount`
+ * (solo si hay resto): sin el dato, el pie queda como "Top 60 · 56 % del total".
  */
 function barTableRest(r: BarTableResult): number {
-  if (!("restCount" in r)) return 0;
   const n = r.restCount;
   return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
 }
@@ -658,8 +662,8 @@ export function RankingList({ widget, result, height, span, expanded }: VizProps
     };
   }, [vo.bulletKpi, secondaryFmt, result, kpi, spec]);
 
-  // Calidad de dato ("No reporta" entre 15 y 85 %)
-  const neutralSum = neutrals.filter((i) => !i.others).reduce((a, i) => a + i.value, 0);
+  // Calidad de dato ("No reporta" entre 15 y 85 %); las cubetas residuales ("Resto / otras") no son faltantes
+  const neutralSum = neutrals.filter((i) => !i.others && isMissing(i.raw)).reduce((a, i) => a + i.value, 0);
   const chip = additive && neutralSum > 0 ? <QualityChip neutral={neutralSum} total={total} /> : null;
   const chipInFooter = Boolean(chip) && !frame?.chipsEl && !expanded;
 
@@ -700,23 +704,29 @@ export function RankingList({ widget, result, height, span, expanded }: VizProps
       const short = c > 1;
       const text = (i: Item) => (short ? i.short : i.label);
       const base: Mode = compact ? "compact" : narrow ? "stacked" : "regular";
-      const dropPct = base === "compact" && rowW < 300;
-      const numbersW = valueW + (showPctRow && !dropPct ? GAP + pctW : 0) + (bullet ? GAP + bullet.width : 0);
+      // El % se omite solo en la compacta angosta (barra en línea); la apilada lo lleva bajo el nombre
+      const dropPctOf = (mode: Mode) => mode === "compact" && rowW < 300;
+      const numbersWOf = (mode: Mode) => valueW + (showPctRow && !dropPctOf(mode) ? GAP + pctW : 0) + (bullet ? GAP + bullet.width : 0);
       const barW = Math.round(Math.max(40, Math.min(120, rowW * 0.2)));
       const labelWOf = (mode: Mode) =>
-        mode === "stacked" ? rowW - RANK_W - GAP : mode === "compact" ? rowW - RANK_W - 3 * GAP - barW - numbersW : rowW - RANK_W - 2 * GAP - numbersW;
-      // Una columna más solo si la etiqueta conserva espacio (si no, se parte en 3+ líneas)
-      if (c > 1 && labelWOf(base) < (compact ? MIN_LABEL_COMPACT : MIN_LABEL)) return [];
-      const neutralW = rowW - RANK_W - 2 * GAP - numbersW;
+        mode === "stacked"
+          ? rowW - RANK_W - GAP
+          : mode === "compact"
+            ? rowW - RANK_W - 3 * GAP - barW - numbersWOf(mode)
+            : rowW - RANK_W - 2 * GAP - numbersWOf(mode);
+      // Una columna más solo si la etiqueta conserva espacio (si no, se parte en 3+ líneas). La compacta
+      // se juzga con la medida real de sus etiquetas (abajo).
+      if (c > 1 && !compact && labelWOf(base) < MIN_LABEL) return [];
       // Apilada: el NIT va en su propio renglón (+1 línea); en las demás, en línea tras el nombre
       const lines = (i: Item, w: number, mode: Mode) => {
         const idBlock = mode === "stacked" && secondary && Boolean(i.secondary);
         return lineCount(text(i), w - (i.tone ? 20 : 0), 500, 13, secondary && i.secondary && !idBlock ? monoWidth(i.secondary) : 0) + (idBlock ? 1 : 0);
       };
-      const neutralHeights = neutrals.map((i) => 14 + 18 * lines(i, neutralW, "regular"));
-      const neutralHeightsHidden = neutrals.map((i, k) => (i.others ? 14 + 18 * lineCount(hiddenOthers, neutralW, 500, 13, moreW) : neutralHeights[k]));
       const make = (mode: Mode): Plan => {
         const labelW = labelWOf(mode);
+        const neutralW = rowW - RANK_W - 2 * GAP - numbersWOf(mode);
+        const neutralHeights = neutrals.map((i) => 14 + 18 * lines(i, neutralW, "regular"));
+        const neutralHeightsHidden = neutrals.map((i, k) => (i.others ? 14 + 18 * lineCount(hiddenOthers, neutralW, 500, 13, moreW) : neutralHeights[k]));
         const heights = real.map((i) => {
           const l = lines(i, labelW, mode);
           if (mode === "stacked") return 32 + 18 * l;
@@ -725,12 +735,22 @@ export function RankingList({ widget, result, height, span, expanded }: VizProps
         });
         // Filas compartidas entre columnas solo con altos uniformes: una fila partida abriría huecos en la vecina
         const uniform = heights.every((h) => h === heights[0]);
-        return { cols: c, mode, barW, dropPct, secondary, short, flow: c > 1 && !uniform ? "free" : "aligned", heights, neutralHeights, neutralHeightsHidden };
+        return { cols: c, mode, barW, dropPct: dropPctOf(mode), secondary, short, flow: c > 1 && !uniform ? "free" : "aligned", heights, neutralHeights, neutralHeightsHidden };
       };
       const first = make(base);
       if (c === 1) return [first];
-      // Compacta (32 px, barra en línea): una columna más solo si ninguna etiqueta se parte
-      if (base === "compact") return first.heights.some((h) => h > 32) ? [] : [first];
+      // Compacta (32 px, barra en línea): una columna más solo si ninguna etiqueta se parte. Si alguna se
+      // partiría ("Norte de Santander" en columnas de 185–231 px), la anatomía apilada (nombre en su renglón
+      // con todo el ancho de la columna; barra y cifras debajo), solo si ahí todas caben en una línea: así
+      // una lista corta en span 6 muestra todas sus filas en lugar de esconderlas tras "Ver N más".
+      if (base === "compact") {
+        if (labelWOf("compact") >= MIN_LABEL_COMPACT && first.heights.every((h) => h <= 32)) return [first];
+        const stackedW = labelWOf("stacked");
+        if (stackedW < MIN_LABEL_COMPACT) return [];
+        const stacked = make("stacked");
+        const oneLine = real.every((i) => lineCount(text(i), stackedW - (i.tone ? 20 : 0), 500, 13) === 1);
+        return oneLine && stacked.flow === "aligned" ? [stacked] : [];
+      }
       // Regular con etiquetas partidas: primero la anatomía apilada (nombre en su renglón con todo el ancho
       // de la columna; barra y cifras debajo), luego la regular en flujo libre (si la apilada muestra menos filas)
       if (base === "regular" && !twoLine && first.heights.some((h) => h > 39)) return [make("stacked"), first];

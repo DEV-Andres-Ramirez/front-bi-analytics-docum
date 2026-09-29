@@ -133,6 +133,8 @@ export const entesControl: DashboardSpec = {
           title: "Canal de radicación",
           subtitle: "Participación de cada canal de entrada",
           dimension: "Canal_de_Radicacion",
+          // Mismo color por canal que en PQRD (Mail/Email, Web, Ventanilla…)
+          semantic: "canal-radicacion",
           size: "sm",
           viz: "composition",
           vizOptions: { layout: "split" },

@@ -3,11 +3,18 @@
 import { Database } from "lucide-react";
 import { useCallback, ViewTransition } from "react";
 import { Tooltip } from "@/components/ui/tooltip";
-import { MODULES } from "@/config/dashboards";
+import { moduleEchoesDashboard } from "@/components/shell/shell-hooks";
+import { MODULES, type ModuleId } from "@/config/dashboards";
 import { getTopbarState, setTopbar, TOPBAR_H } from "@/hooks/use-topbar";
 import { formatInt } from "@/lib/format";
 import { useDashboard } from "./dashboard-context";
 import { DataNotesPopover } from "./data-notes";
+
+/**
+ * Eyebrow de contexto para los módulos que se llaman igual que su único tablero: "TUTELAS" sobre el H1
+ * "Tutelas" (y "Tutelas / Tutelas" en el topbar) repetía el nombre. Sin entrada aquí, no hay eyebrow.
+ */
+const CONTEXT_EYEBROW: Partial<Record<ModuleId, string>> = { tutelas: "Acciones judiciales" };
 
 /**
  * Sentinel del H1: marca headerHidden cuando el título queda bajo la zona sticky
@@ -39,7 +46,8 @@ function useHeadingSentinel() {
 
 /**
  * DashboardHeader: tile de 56 px con el degradado del módulo (ViewTransition dash-icon-<slug>),
- * eyebrow del módulo en --mod-ink, H1 corto en una línea (dash-title-<slug>), descripción y
+ * eyebrow del módulo en --mod-ink (o de contexto si el módulo se llama igual que el tablero), H1 corto
+ * en una línea (dash-title-<slug>), descripción y
  * "N radicados en el periodo · N vistas · N notas de datos".
  * Los metadatos van a la derecha solo si la página mide ≥ 1040 px (@container page): por debajo
  * (1024 con riel, 1280 con sidebar abierto) ocupaban ≈ 440 px y cortaban la descripción, así que
@@ -55,6 +63,7 @@ export function DashboardHeader() {
   const unit = spec.unit ?? { singular: "registro", plural: "registros" };
   const n = data?.rowsInRange;
   const views = meta.views;
+  const eyebrow = mod && moduleEchoesDashboard(mod, meta) ? CONTEXT_EYEBROW[mod.id] : mod?.label;
 
   return (
     <header className="flex flex-col gap-3 pb-5 pt-6 lg:pt-8 @min-[1040px]/page:flex-row @min-[1040px]/page:items-center @min-[1040px]/page:justify-between @min-[1040px]/page:gap-6">
@@ -66,7 +75,7 @@ export function DashboardHeader() {
           </span>
         </ViewTransition>
         <div className="min-w-0 self-center @min-[600px]/page:self-end">
-          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-mod-ink">{mod?.label}</p>
+          {eyebrow && <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-mod-ink">{eyebrow}</p>}
           <ViewTransition name={`dash-title-${meta.slug}`} share="morph" default="none">
             <h1
               ref={heading}

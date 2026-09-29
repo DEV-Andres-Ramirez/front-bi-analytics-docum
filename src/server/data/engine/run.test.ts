@@ -144,3 +144,47 @@ describe("runDashboard · filtrar es resaltar", () => {
     expect(ownFilterFields(serie)).toEqual([]);
   });
 });
+
+describe("runDashboard · sparkBase (denominador por bucket de tasas y promedios)", () => {
+  const b = new TableBuilder({ fecha: "date", canal: "cat", estado: "cat", dias: "num" });
+  const rows: Record<string, RowValue>[] = [
+    ...times(4, { fecha: day(2), canal: "Web", estado: "Abierto", dias: 3 }),
+    { fecha: day(2), canal: "Mail", estado: "Abierto", dias: null },
+    ...times(2, { fecha: day(3), canal: "Web", estado: "Cerrado", dias: 5 }),
+    ...times(3, { fecha: day(3), canal: "Mail", estado: "Cerrado", dias: null }),
+  ];
+  for (const r of rows) b.push(r);
+  const t = b.build();
+  const spec: DashboardSpec = {
+    ...SPEC,
+    kpis: [
+      { id: "total", label: "Total", measure: { kind: "count" }, format: "int", polarity: "neutral", hint: "" },
+      { id: "web", label: "% Web", measure: { kind: "ratio", num: { field: "canal", in: ["Web"] } }, format: "pct", polarity: "neutral", hint: "" },
+      { id: "web-cerr", label: "% Web de cerrados", measure: { kind: "ratio", num: { field: "canal", in: ["Web"] }, den: { field: "estado", in: ["Cerrado"] } }, format: "pct", polarity: "neutral", hint: "" },
+      { id: "cociente", label: "Web / abiertos", measure: { kind: "ratioOf", num: { kind: "count", where: { field: "canal", in: ["Web"] } }, den: { kind: "count", where: { field: "estado", in: ["Abierto"] } } }, format: "pct", polarity: "neutral", hint: "" },
+      { id: "dias", label: "Días", measure: { kind: "avg", field: "dias" }, format: "days", polarity: "up-bad", hint: "" },
+    ],
+    sections: [],
+  };
+  const r = runDashboard(t, spec, { from: "2026-09-01", to: "2026-09-04", eq: {}, text: {}, dates: {} }, "mock");
+  const k = (id: string) => r.kpis.find((x) => x.id === id)!;
+
+  it("conteos y sumas no la llevan", () => {
+    expect(k("total").sparkBase).toBeUndefined();
+  });
+
+  it("ratio: filas del día (o de den), alineadas con el spark", () => {
+    expect(k("web").sparkBase).toEqual([0, 5, 5, 0]);
+    expect(k("web").spark).toHaveLength(4);
+    expect(k("web-cerr").sparkBase).toEqual([0, 0, 5, 0]);
+  });
+
+  it("ratioOf: la medida den", () => {
+    expect(k("cociente").sparkBase).toEqual([0, 5, 0, 0]);
+  });
+
+  it("avg: solo las filas con valor (las que promedia)", () => {
+    expect(k("dias").sparkBase).toEqual([0, 4, 2, 0]);
+    expect(k("dias").spark[1]).toBe(3);
+  });
+});

@@ -31,7 +31,27 @@ const PADDING = { top: 20, right: 16, bottom: 12, left: 16 };
 const MAX_ZOOM = 10.5;
 const LABEL_FONT = ["DIN Pro Bold", "Arial Unicode MS Bold"];
 
-const OWN_LAYERS = ["mask-fill", "co-glow", "dptos-fill", "dptos-nodata", "mpios-fill", "mpios-nodata", "mpios-line", "dptos-line", "co-outline", "dptos-hl", "mpios-hl", "value-labels"];
+const OWN_LAYERS = [
+  "mask-fill",
+  "co-glow",
+  "dptos-fill",
+  "dptos-nodata",
+  "mpios-fill",
+  "mpios-nodata",
+  "mpios-line",
+  "dptos-line",
+  "co-outline",
+  "dptos-hl",
+  "mpios-hl",
+  "dominant-knockout",
+  "dominant-marker",
+  "value-labels",
+  "near-label-lo",
+  "value-labels-hi",
+  "near-label",
+  "dominant-collider",
+  "dominant-label",
+];
 const OWN = new Set(OWN_LAYERS);
 
 export interface MapPalette {
@@ -50,6 +70,20 @@ export interface LabelProps {
   value: string;
   /** −valor: symbol-sort-key (el mayor se coloca primero). */
   sk: number;
+  /**
+   * Territorio dominante sobre un polígono diminuto (Bogotá con el 78 %): radio en px del círculo
+   * proporcional. Con `r`, el rótulo va al lado del círculo, en 13 px y por encima de los demás.
+   */
+  r?: number;
+  /** Color de su clase (relleno del círculo). */
+  color?: string;
+  /**
+   * Territorio que rodea al dominante (Cundinamarca alrededor de Bogotá): radio en px de ese círculo.
+   * Su rótulo va justo encima del círculo, sin taparlo, en lugar de irse a un departamento vecino.
+   */
+  near?: number;
+  /** Rótulo que supera en valor al del territorio vecino (`near`): en el lienzo de teléfono se coloca antes que él. */
+  hi?: boolean;
 }
 export type LabelFC = FeatureCollection<Point, LabelProps>;
 
@@ -136,6 +170,77 @@ function ensureHatch(map: MapboxMap, palette: MapPalette, refresh = false) {
 /** Códigos sin registros (sin color de clase): los que no están en `fills`. */
 function noDataFilter(fills: Record<string, string>): FilterSpecification {
   return ["!", ["in", ["get", "code"], ["literal", Object.keys(fills)]]];
+}
+
+/**
+ * Caja de colisión del círculo del dominante: ícono transparente escalado a su diámetro. Los rótulos
+ * de valor (se colocan después) lo esquivan en lugar de montarse sobre el círculo.
+ */
+const COLLIDER = "docum-dominant-collider";
+const COLLIDER_PX = 16;
+
+function ensureCollider(map: MapboxMap) {
+  if (!map.hasImage(COLLIDER)) map.addImage(COLLIDER, { width: COLLIDER_PX, height: COLLIDER_PX, data: new Uint8Array(COLLIDER_PX * COLLIDER_PX * 4) });
+}
+
+/** Rótulo de valor: nombre (algo menor) y cifra en dos líneas, 12 px. */
+const VALUE_LAYOUT = {
+  "text-field": ["format", ["get", "name"], { "font-scale": 0.92 }, "\n", {}, ["get", "value"], { "font-scale": 1 }] as ExpressionSpecification,
+  "text-font": LABEL_FONT,
+  "text-size": 12,
+  "text-line-height": 1.15,
+  "text-max-width": 9,
+  "text-padding": 2,
+};
+
+/**
+ * Zoom desde el que el rótulo del vecino (Cundinamarca) se coloca antes que los de mayor valor: con el
+ * lienzo lado a lado o de tableta (zoom ≈ 4,4–4,7) los demás caben reacomodándose a su alrededor; en
+ * el de teléfono (≈ 4,0) no hay aire para ambos y manda el valor (el vecino se coloca después).
+ */
+const NEAR_FIRST_ZOOM = 4.2;
+
+/**
+ * Rótulo del territorio que rodea al dominante: encima del círculo (sobre su lóbulo norte), nunca al
+ * oeste sobre otro departamento; si no cabe, no se rotula. Desplazamiento radial = radio + 8 px
+ * (Mapbox descuenta 3,5 px de línea base en 'bottom'): 4,5 px de aire sobre el trazo y 1 px de margen
+ * con la caja del círculo.
+ */
+function nearLabelLayer(id: string, zoom: { minzoom?: number; maxzoom?: number }, palette: MapPalette): Parameters<MapboxMap["addLayer"]>[0] {
+  return {
+    id,
+    type: "symbol",
+    source: "labels",
+    filter: ["has", "near"],
+    ...zoom,
+    layout: {
+      ...VALUE_LAYOUT,
+      "text-variable-anchor": ["bottom"],
+      "text-radial-offset": ["/", ["+", ["get", "near"], 8], 12],
+      "text-justify": "center",
+    },
+    paint: { "text-color": palette.text, "text-halo-color": palette.surface, "text-halo-width": 1.5 },
+  };
+}
+
+/** Rótulos de valor del top 5 (symbol-sort-key = −valor: el mayor se coloca primero). */
+function valueLabelLayer(id: string, filter: FilterSpecification, palette: MapPalette): Parameters<MapboxMap["addLayer"]>[0] {
+  return {
+    id,
+    type: "symbol",
+    source: "labels",
+    filter,
+    layout: {
+      ...VALUE_LAYOUT,
+      // Diagonales al final: en el centro del país (Bogotá, Cundinamarca, Antioquia, Boyacá) los
+      // rótulos de dos líneas no caben en las cinco posiciones básicas
+      "text-variable-anchor": ["center", "top", "bottom", "left", "right", "bottom-left", "bottom-right", "top-left", "top-right"],
+      "text-radial-offset": 0.5,
+      "text-justify": "auto",
+      "symbol-sort-key": ["get", "sk"],
+    },
+    paint: { "text-color": palette.text, "text-halo-color": palette.surface, "text-halo-width": 1.5 },
+  };
 }
 
 function firstSymbolId(map: MapboxMap): string | undefined {
@@ -225,6 +330,7 @@ function ensureLayers(map: MapboxMap, p: Live): boolean {
   src("dptos", base.dptos);
   if (!map.getSource("labels")) map.addSource("labels", { type: "geojson", data: p.labels });
   ensureHatch(map, palette);
+  ensureCollider(map);
   const add = (spec: Parameters<MapboxMap["addLayer"]>[0], beforeId?: string) => {
     if (!map.getLayer(spec.id)) map.addLayer(spec, beforeId && map.getLayer(beforeId) ? beforeId : undefined);
   };
@@ -246,25 +352,70 @@ function ensureLayers(map: MapboxMap, p: Live): boolean {
   );
   add({ id: "co-outline", type: "line", source: "outline", paint: { "line-color": palette.text2, "line-opacity": 0.6, "line-width": 1 } }, before);
   add({ id: "dptos-hl", type: "line", source: "dptos", filter: inFilter([]), paint: { "line-color": palette.primaryStrong, "line-width": 2.5 } }, before);
+  // Círculo proporcional del dominante: debajo de los rótulos (su texto nunca queda tapado). Opaco y
+  // sobre un disco de superficie: el contorno y el relleno de su polígono no se transparentan (la raya
+  // "/" de Bogotá dentro del círculo), ni siquiera cuando el filtro cruzado lo atenúa
   add({
-    id: "value-labels",
+    id: "dominant-knockout",
+    type: "circle",
+    source: "labels",
+    filter: ["has", "r"],
+    paint: { "circle-radius": ["get", "r"], "circle-color": palette.surface },
+  });
+  add({
+    id: "dominant-marker",
+    type: "circle",
+    source: "labels",
+    filter: ["has", "r"],
+    paint: {
+      "circle-radius": ["get", "r"],
+      "circle-color": ["coalesce", ["get", "color"], palette.primary],
+      "circle-opacity": 1,
+      "circle-stroke-color": palette.surface,
+      "circle-stroke-width": 1.5,
+    },
+  });
+  // Las capas symbol se colocan de arriba abajo, así que la pila (de abajo arriba) fija el orden:
+  // dominant-label → dominant-collider → near-label → value-labels-hi → near-label-lo → value-labels.
+  // La caja del círculo (siempre colocada) aparta a los rótulos que caerían encima
+  add(valueLabelLayer("value-labels", ["all", ["!", ["has", "r"]], ["!", ["has", "near"]], ["!", ["has", "hi"]]], palette));
+  add(nearLabelLayer("near-label-lo", { maxzoom: NEAR_FIRST_ZOOM }, palette));
+  add(valueLabelLayer("value-labels-hi", ["has", "hi"], palette));
+  add(nearLabelLayer("near-label", { minzoom: NEAR_FIRST_ZOOM }, palette));
+  add({
+    id: "dominant-collider",
     type: "symbol",
     source: "labels",
+    filter: ["has", "r"],
     layout: {
-      "text-field": ["format", ["get", "name"], { "font-scale": 0.92 }, "\n", {}, ["get", "value"], { "font-scale": 1 }],
+      "icon-image": COLLIDER,
+      // Diámetro + trazo de 1,5 px por lado
+      "icon-size": ["/", ["+", ["*", 2, ["get", "r"]], 3], COLLIDER_PX],
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": false,
+      "icon-padding": 0,
+    },
+  });
+  // Rótulo del dominante: al lado del círculo (nunca centrado encima), 13 px y colocado antes que el
+  // resto (la capa de más arriba gana las colisiones)
+  add({
+    id: "dominant-label",
+    type: "symbol",
+    source: "labels",
+    filter: ["has", "r"],
+    layout: {
+      "text-field": ["format", ["get", "name"], { "font-scale": 0.9 }, "\n", {}, ["get", "value"], { "font-scale": 1.12 }],
       "text-font": LABEL_FONT,
-      "text-size": 12,
-      "text-line-height": 1.15,
+      "text-size": 13,
+      "text-line-height": 1.1,
       "text-max-width": 9,
-      // Diagonales al final: en el centro del país (Bogotá, Cundinamarca, Antioquia, Boyacá) los
-      // rótulos de dos líneas no caben en las cinco posiciones básicas
-      "text-variable-anchor": ["center", "top", "bottom", "left", "right", "bottom-left", "bottom-right", "top-left", "top-right"],
-      "text-radial-offset": 0.5,
+      "text-variable-anchor": ["left", "right", "top", "bottom"],
+      // em de 13 px: radio del círculo + 5 px de aire
+      "text-radial-offset": ["/", ["+", ["get", "r"], 5], 13],
       "text-justify": "auto",
-      "symbol-sort-key": ["get", "sk"],
       "text-padding": 2,
     },
-    paint: { "text-color": palette.text, "text-halo-color": palette.surface, "text-halo-width": 1.5 },
+    paint: { "text-color": palette.text, "text-halo-color": palette.surface, "text-halo-width": 2 },
   });
   ensureMpioLayers(map, p);
   return true;
@@ -292,7 +443,7 @@ function ensureMpioLayers(map: MapboxMap, p: Live) {
       },
       beforeLine,
     );
-  if (!map.getLayer("mpios-hl")) map.addLayer({ id: "mpios-hl", type: "line", source: "mpios", filter: inFilter([]), paint: { "line-color": palette.primaryStrong, "line-width": 2.5 } }, map.getLayer("value-labels") ? "value-labels" : undefined);
+  if (!map.getLayer("mpios-hl")) map.addLayer({ id: "mpios-hl", type: "line", source: "mpios", filter: inFilter([]), paint: { "line-color": palette.primaryStrong, "line-width": 2.5 } }, ["dominant-knockout", "dominant-marker", "value-labels"].find((id) => map.getLayer(id)));
 }
 
 /** Aplica colores, visibilidad, selección y etiquetas desde el estado vivo. */
@@ -309,6 +460,8 @@ function applyState(map: MapboxMap, p: Live) {
   );
   const hl = level === "dpto" ? [...new Set([...(p.selected ? [p.selected] : []), ...p.filtered])] : [];
   map.setFilter("dptos-hl", inFilter(hl));
+  if (map.getLayer("dominant-marker")) map.setPaintProperty("dominant-marker", "circle-opacity", dimDptos ? ["case", ["in", ["get", "code"], ["literal", p.filtered]], 1, 0.4] : 1);
+  applyMarker(map, p);
   const dark = palette.mode === "dark";
   if (map.getLayer("dptos-nodata")) {
     map.setFilter("dptos-nodata", noDataFilter(p.fills));
@@ -329,6 +482,20 @@ function applyState(map: MapboxMap, p: Live) {
   }
 }
 
+/**
+ * Borde del círculo del dominante: opaco, tapa el contorno de su polígono, así que la selección
+ * (o el filtro) y el hover se dibujan en su trazo con los mismos colores que dptos-hl y dptos-line.
+ */
+function applyMarker(map: MapboxMap, p: Live) {
+  if (!map.getLayer("dominant-marker")) return;
+  const { palette } = p;
+  const hl = p.level === "dpto" ? [...(p.selected ? [p.selected] : []), ...p.filtered] : [];
+  const isHl: ExpressionSpecification = ["in", ["get", "code"], ["literal", hl]];
+  const isHover: ExpressionSpecification = ["==", ["get", "code"], p.level === "dpto" ? (p.hovered ?? "") : ""];
+  map.setPaintProperty("dominant-marker", "circle-stroke-color", ["case", isHl, palette.primaryStrong, isHover, palette.text, palette.surface]);
+  map.setPaintProperty("dominant-marker", "circle-stroke-width", ["case", isHl, 2.5, isHover, 2, 1.5]);
+}
+
 /** Colores dependientes del tema en capas ya creadas (el setStyle las recrea, pero el tema puede cambiar sin estilo nuevo). */
 function applyPalette(map: MapboxMap, palette: MapPalette) {
   if (!map.getLayer("mask-fill")) return;
@@ -339,8 +506,13 @@ function applyPalette(map: MapboxMap, palette: MapPalette) {
   map.setPaintProperty("co-outline", "line-color", palette.text2);
   map.setPaintProperty("dptos-line", "line-color", ["case", ["boolean", ["feature-state", "hover"], false], palette.text, palette.surface]);
   map.setPaintProperty("dptos-hl", "line-color", palette.primaryStrong);
-  map.setPaintProperty("value-labels", "text-color", palette.text);
-  map.setPaintProperty("value-labels", "text-halo-color", palette.surface);
+  if (map.getLayer("dominant-knockout")) map.setPaintProperty("dominant-knockout", "circle-color", palette.surface);
+  if (map.getLayer("dominant-marker")) map.setPaintProperty("dominant-marker", "circle-color", ["coalesce", ["get", "color"], palette.primary]);
+  for (const id of ["value-labels", "near-label-lo", "value-labels-hi", "near-label", "dominant-label"]) {
+    if (!map.getLayer(id)) continue;
+    map.setPaintProperty(id, "text-color", palette.text);
+    map.setPaintProperty(id, "text-halo-color", palette.surface);
+  }
   if (map.getLayer("mpios-line")) map.setPaintProperty("mpios-line", "line-color", ["case", ["boolean", ["feature-state", "hover"], false], palette.text, palette.surface]);
   if (map.getLayer("mpios-hl")) map.setPaintProperty("mpios-hl", "line-color", palette.primaryStrong);
 }
@@ -350,6 +522,11 @@ function codeAt(map: MapboxMap, e: MapMouseEvent, layer: string): string | null 
   const f = map.queryRenderedFeatures(e.point, { layers: [layer] })[0];
   const code = f?.properties?.code ?? f?.id;
   return code === undefined || code === null ? null : String(code);
+}
+
+/** Departamento bajo el puntero: el círculo del dominante (desborda su polígono diminuto) gana. */
+function dptoAt(map: MapboxMap, e: MapMouseEvent): string | null {
+  return codeAt(map, e, "dominant-marker") ?? codeAt(map, e, "dptos-fill");
 }
 
 interface DevWindow {
@@ -500,7 +677,7 @@ export function MapCanvas(props: MapCanvasProps) {
         const p = live.current;
         const lvl = layer === "dptos-fill" ? "dpto" : "mpio";
         if ((lvl === "dpto") !== (p.level === "dpto")) return;
-        const code = codeAt(m, e, layer);
+        const code = lvl === "dpto" ? dptoAt(m, e) : codeAt(m, e, layer);
         if (!code) return;
         m.getCanvas().style.cursor = "pointer";
         if (p.hovered !== code) p.onHover(code);
@@ -522,13 +699,13 @@ export function MapCanvas(props: MapCanvasProps) {
       // Clic: selección inmediata (sin temporizador). Doble clic: municipios (solo escritorio).
       m.on("click", (e) => {
         const p = live.current;
-        const code = codeAt(m, e, p.level === "mpio" ? "mpios-fill" : "dptos-fill");
+        const code = p.level === "mpio" ? codeAt(m, e, "mpios-fill") : dptoAt(m, e);
         p.onSelect(code);
       });
       m.on("dblclick", (e) => {
         const p = live.current;
         if (!p.allowDrill || p.level !== "dpto") return;
-        const code = codeAt(m, e, "dptos-fill");
+        const code = dptoAt(m, e);
         if (code) p.onDrill(code);
       });
 
@@ -667,6 +844,7 @@ export function MapCanvas(props: MapCanvasProps) {
       map.setFeatureState({ source, id: hovered }, { hover: true });
       hoverApplied.current = { source, id: hovered };
     }
+    applyMarker(map, live.current);
   }, [hovered, level, styleTick]);
 
   const zoom = (dir: 1 | -1) => {

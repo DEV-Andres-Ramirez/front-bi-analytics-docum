@@ -40,7 +40,7 @@ export const correspondenciaSalidas: DashboardSpec = {
     { id: "sealmail", label: "% Envíos SealMail", short: "% SealMail", measure: share(is("Canal_de_envio", "Certificado (SealMail)")), format: "pct", polarity: "neutral", hint: "Salidas enviadas por correo certificado SealMail." },
     { id: "con-correo", label: "% Con correo destinatario", short: "% Con correo", measure: share(is("Tiene_correo_destinatario", "Sí")), format: "pct", polarity: "up-good", hint: "Salidas cuyo destinatario tiene correo electrónico registrado." },
     { id: "municipios", label: "Municipios cubiertos", short: "Municipios", measure: distinct("__mpio"), format: "int", polarity: "neutral", hint: "Municipios distintos de destino (código DANE)." },
-    { id: "folios", label: "Cantidad de folios", short: "Folios", measure: sum("Cantidad_de_folios", { field: "Cantidad_de_folios", lt: 9999 }), format: "int", polarity: "neutral", hint: "Suma de folios. Se excluyen valores atípicos (≥ 9.999) que llegan como relleno desde la fuente." },
+    { id: "folios", label: "Cantidad de folios", short: "Folios", measure: sum("Cantidad_de_folios", { field: "Cantidad_de_folios", lt: 9999 }), format: "int", polarity: "neutral", hint: "Suma de folios. Se excluyen valores de relleno de la fuente (999 y ≥ 9.999), que no son folios reales." },
     { id: "devoluciones", label: "Devoluciones", short: "Devoluciones", measure: count(is("Estado_guia", "DEVUELTO")), format: "int", polarity: "up-bad", provisional: true, hint: "Salidas con estado de guía DEVUELTO. Fórmula provisional." },
   ],
   // kpiRedesign §6: fila 1 4-8 (igual que Entradas) · fila 2 6-6 compacta (Canal | Cobertura)
@@ -132,7 +132,8 @@ export const correspondenciaSalidas: DashboardSpec = {
           viz: "composition",
           // Las dos partes digitales suman el KPI "% Canal digital": "Digital (Correo)" se rotula como
           // correo simple para que no se lea como el total digital.
-          vizOptions: { layout: "split", overrides: { "Digital (Correo)": { label: "Correo simple" }, "Certificado (SealMail)": { label: "SealMail" } } },
+          // shareBase "total": % sobre el total, igual que la banda de KPIs (% Digital, % SealMail)
+          vizOptions: { layout: "split", shareBase: "total", overrides: { "Digital (Correo)": { label: "Correo simple" }, "Certificado (SealMail)": { label: "SealMail" } } },
           semantic: "canal-envio",
           maxItems: 3,
         },
@@ -209,17 +210,19 @@ export const correspondenciaSalidas: DashboardSpec = {
     title: "Detalle de correspondencia de salida",
     columns: [
       { field: "Numero_radicado", label: "Radicado salida", format: "mono" },
+      // Un radicado sale una vez por destinatario: el destinatario, junto al radicado, distingue las filas que
+      // repiten número (en escritorio a la vista sin desplazar; en la tarjeta móvil, primer dato).
+      { field: "Destinatario", label: "Destinatario" },
       { field: "Radicado_entrada", label: "Radicado entrada", format: "mono", visible: false },
-      { field: "Asunto", label: "Asunto" },
       { field: "Fecha_radicacion", label: "Radicado el", format: "datetime" },
       { field: "Tramite", label: "Trámite" },
       { field: "Estado", label: "Estado", format: "badge", semantic: "flujo" },
       { field: "Aprobador", label: "Aprobador", labelKind: "persona" },
-      { field: "Destinatario", label: "Destinatario" },
+      { field: "Asunto", label: "Asunto" },
       { field: "Departamento_destinatario", label: "Departamento" },
       { field: "Municipio_destinatario", label: "Municipio" },
-      // Después del destino: la tarjeta móvil toma las 4 primeras columnas tras el radicado (Asunto · Radicado el ·
-      // Trámite · Aprobador) y Copia casi siempre dice "Ninguna"; en escritorio sigue visible.
+      // Después del destino: la tarjeta móvil toma las 4 primeras columnas tras el radicado (Destinatario ·
+      // Radicado el · Trámite · Aprobador; Estado va como badge) y Copia casi siempre dice "Ninguna".
       { field: "Copia", label: "Copia" },
       { field: "ID_envio_sealmail", label: "ID SealMail", format: "mono", visible: false },
       { field: "Cantidad_de_folios", label: "Folios", format: "int", visible: false },

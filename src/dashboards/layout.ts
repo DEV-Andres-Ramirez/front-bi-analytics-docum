@@ -82,7 +82,11 @@ export function rowHasLegendStrip(row: RowDef, widgets: Map<string, WidgetDef>):
   return row.cells.some((c) => {
     if (typeof c !== "string") return false;
     const w = widgets.get(c);
-    return Boolean(w && LEGEND_STRIP_VIZ.has(resolveViz(w)) && !w.vizOptions?.legendFrom);
+    if (!w || w.vizOptions?.legendFrom) return false;
+    const viz = resolveViz(w);
+    // column-bars sin familia semántica no dibuja leyenda (solo el chip de calidad, que va en el header)
+    if (viz === "column-bars" && !w.semantic) return false;
+    return LEGEND_STRIP_VIZ.has(viz);
   });
 }
 
@@ -97,12 +101,14 @@ export function requiredHeight(viz: Viz, w: WidgetDef, inner: number): number | 
   switch (viz) {
     case "status-strip": {
       const variant = w.vizOptions?.variant ?? (inner <= 305 ? "vertical" : "horizontal");
-      if (variant === "vertical") return 24 + n * 64 + (n - 1) * 8;
       if (variant === "list") return 40 + n * 32;
+      const headed = Boolean(w.vizOptions?.groups) || w.semantic === "semaforo";
+      // Respaldo del componente (lista compacta agrupada): 24 + 24 por cabecera + 26 por estado + 9 del neutral
+      const rows = 24 + (headed ? 48 : 0) + n * 26 + 9;
+      if (variant === "vertical") return Math.min(24 + n * 56 + (n - 1) * 8, rows);
       const perLine = Math.max(1, Math.floor((inner + 8) / 120));
-      const grouped = w.vizOptions?.groups || w.semantic === "semaforo" || w.semantic === "flujo" ? 28 : 0;
       const lines = Math.ceil(n / perLine);
-      return 24 + lines * (grouped + 76) + (lines - 1) * 8;
+      return Math.min(24 + lines * ((headed ? 28 : 0) + 77) + (lines - 1) * 8, rows);
     }
     case "pipeline": {
       // Solo las etapas del flujo principal ocupan chevrons; rama y salidas van como chips
@@ -112,11 +118,12 @@ export function requiredHeight(viz: Viz, w: WidgetDef, inner: number): number | 
     }
     case "composition": {
       const layout = w.vizOptions?.layout ?? (n <= 3 ? "split" : "legend");
-      // split: columnas de ≥ 140 px por parte (composition-bar.tsx › SPLIT_COL); si no caben, filas
-      if (layout === "split") return inner >= n * 140 ? 120 : n * 32 + 24;
-      // legend-table: columnas de ≥ 232 px (composition-bar.tsx › colRange); el total va en la cabecera o la franja
-      const cols = Math.max(1, Math.min(3, Math.floor((inner + 16) / 248)));
-      return 24 + Math.ceil(n / cols) * 24;
+      // Total en una fila del cuerpo (18 + 10) salvo franja; split en columnas desde ≈ 120 px por parte (etiqueta
+      // más larga; composition-bar.tsx › splitColMin), nota de neutrales 34
+      if (layout === "split") return 28 + (inner >= n * 120 + (n - 1) * 12 ? 14 + 10 + 83 : 14 + 10 + n * 24) + 34;
+      // legend-table: columnas de 150–232 px según la etiqueta (composition-bar.tsx › colRange); neutrales tras hairline (9 px)
+      const cols = Math.max(1, Math.min(3, Math.floor((inner + 16) / 216)));
+      return 28 + 14 + 10 + Math.ceil(n / cols) * 24 + 9;
     }
     case "family-split":
       return 96 + 20 + Math.ceil(n / 2) * 20;
@@ -246,6 +253,17 @@ export function validateLayout(spec: DashboardSpec): LayoutIssue[] {
           const stacked = typeof cell === "object" && "stack" in cell;
           const body = tierBody(row.tier, strip && !stacked, stacked);
           if (need !== null && body > 0 && need > body) err(rw, `"${id}" (${viz}) necesita ${need}px y el cuerpo mide ${body}px`);
+          // Tableta (6 columnas): una StatusStrip que comparte línea (span-md < 6; sola, mide por contenido) y no cabe
+          // en tiles pasa a la lista compacta. Aviso, no error: el componente degrada sin desbordarse.
+          const spanMd = templateSpansMd(row.template)[c] ?? 6;
+          if (viz === "status-strip" && !w.vizOptions?.variant && spanMd < 6) {
+            const md = Math.round(spanMd * 124.33 - 60);
+            const perLine = Math.max(1, Math.floor((md + 8) / 120));
+            const lines = Math.ceil((w.maxItems ?? 0) / perLine);
+            const headed = Boolean(w.vizOptions?.groups) || w.semantic === "semaforo";
+            const needMd = 24 + lines * ((headed ? 28 : 0) + 77) + (lines - 1) * 8;
+            if (body > 0 && needMd > body) warn(rw, `"${id}" pasa a lista compacta en tablet (${needMd}px > ${body}px)`);
+          }
         }
       });
     });

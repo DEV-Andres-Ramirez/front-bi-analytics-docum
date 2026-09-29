@@ -25,14 +25,17 @@ registerCharts();
 
 /**
  * Sankey v2 (docs/ui-design-system.md › DrilldownBars v2 + Sankey v2):
- * - Orígenes por debajo del 3 % (o cuyo nodo mediría < 14 px) plegados en "Otras tipologías (N)"
- *   (detalle en el tooltip): así no se amontonan rótulos de nodos diminutos en el borde inferior.
+ * - Orígenes por debajo del 3 % (o cuyo nodo mediría < 14 px) plegados en "Otras (N)" (mismo rótulo
+ *   que el treemap; "Otras tipologías (N)" y el detalle van en el tooltip): así no se amontonan
+ *   rótulos de nodos diminutos en el borde inferior y el rótulo del pliegue cabe en una línea.
  * - nodePadding = clamp(10, 28 − n, 18), nodeWidth 10.
  * - Etiquetas externas en HTML (tinta, con el valor): orígenes a la izquierda, destinos a la derecha.
  *   El valor va pegado a la última palabra del nombre (nunca queda solo en una línea).
  * - Canales de etiquetas medidos con el texto real (no proporciones fijas): cada lado toma lo que
- *   necesita su etiqueta más larga, con tope (28 % izquierda, 24 % derecha) para que las cintas
- *   conserven ≥ 45 % del ancho; lo que no cabe envuelve dentro del canal.
+ *   necesita su etiqueta más larga, con tope (36 % izquierda, 24 % derecha) para que las cintas
+ *   conserven ≥ 40 % del ancho; lo que no cabe envuelve dentro del canal. A 1440 px (≈ 400 px de
+ *   cuerpo) el canal izquierdo llega a ≈ 143 px: "Queja o reclamo 99" cabe en una línea.
+ * - Rótulos vecinos separados ≥ 8 px: dos orígenes envueltos no se leen como uno solo.
  * - Destino con la familia semántica (momento); enlaces al 35 % (70 % en hover).
  */
 
@@ -57,10 +60,10 @@ const LABEL_PAD_R = LABEL_PAD + NODE_W;
 const ICON_W = 16;
 /** Canal mínimo y topes del canal por lado (fracción del ancho). */
 const CHANNEL_MIN = 72;
-const LEFT_MAX = 0.28;
+const LEFT_MAX = 0.36;
 const RIGHT_MAX = 0.24;
 /** Separación mínima entre rótulos vecinos (px). */
-const LABEL_GAP = 4;
+const LABEL_GAP = 8;
 
 interface Member {
   label: string;
@@ -187,8 +190,9 @@ function buildModel(result: SankeyResult, family: SemanticFamily | undefined, th
   const fold = fromNodes.get(FOLD_KEY);
   if (fold) {
     fold.members = [...members.values()].sort((a, b) => b.value - a.value);
-    fold.label = `Otras ${fromPlural} (${fold.members.length})`;
-    fold.full = fold.label;
+    // Rótulo corto (cabe en una línea, igual que "Otras (N)" del treemap); el nombre completo va en el tooltip
+    fold.label = `Otras (${fold.members.length})`;
+    fold.full = `Otras ${fromPlural} (${fold.members.length})`;
   }
 
   const from = [...fromNodes.values()].sort((a, b) => Number(a.raw === null) - Number(b.raw === null) || Number(a.neutral) - Number(b.neutral) || b.total - a.total);
@@ -304,7 +308,7 @@ function spread(items: { id: string; center: number; h: number }[], top: number,
 /**
  * Ancho de cada canal de etiquetas. Ideal: la etiqueta más larga en una línea. Mínimo: el trozo que
  * no se parte (última palabra + valor en los orígenes; "valor %" y la palabra más larga en los destinos).
- * Tope: 28 % (izquierda) y 24 % (derecha) del ancho, para que las cintas conserven ≥ 45 %.
+ * Tope: 36 % (izquierda) y 24 % (derecha) del ancho, para que las cintas conserven ≥ 40 %.
  */
 function channels(model: Model, w: number): { leftW: number; rightW: number } {
   const space = textWidth(" ", FONT_NAME);
@@ -567,7 +571,11 @@ export function SankeyV2({ widget, result }: VizProps<SankeyWidget, SankeyResult
     if (n.raw === null)
       return (
         <span key={n.id} tabIndex={0} className={cn("pointer-events-auto absolute rounded-md px-1 transition-opacity", dim && "opacity-45")} {...common}>
-          {body}
+          {/* Visible el rótulo corto ("Otras (4)"); el lector de pantalla oye el nombre completo */}
+          <span aria-hidden>{body}</span>
+          <span className="sr-only">
+            {n.full}: {formatInt(n.total)} {unit}
+          </span>
         </span>
       );
     return (

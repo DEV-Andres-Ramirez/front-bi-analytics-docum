@@ -11,7 +11,7 @@ import { DASHBOARD_BY_SLUG, MODULES, type DashboardMeta, type ModuleMeta } from 
 import { useTopbar } from "@/hooks/use-topbar";
 import { cn } from "@/lib/cn";
 import { SectionNav } from "./section-nav";
-import { clockLabel, updatedLabel, useCatalog, useNow, useShortcutLabel } from "./shell-hooks";
+import { clockLabel, moduleEchoesDashboard, updatedLabel, useCatalog, useNow, useShortcutLabel } from "./shell-hooks";
 
 interface Props {
   onOpenMenu: () => void;
@@ -24,7 +24,8 @@ const ICON_BTN =
   "grid size-10 shrink-0 place-items-center rounded-full border border-border bg-surface text-text-2 transition-colors hover:border-border-strong hover:text-text";
 
 /**
- * Contexto izquierdo: ruta (módulo / título corto) o, con el H1 fuera de pantalla, tile + título.
+ * Contexto izquierdo: ruta (módulo / título corto; solo el título si el módulo se llama igual) o, con el
+ * H1 fuera de pantalla, tile + título.
  * El periodo no se repite aquí: la FilterBar sticky, justo debajo, ya muestra el rango.
  */
 function TopbarContext({ meta, mod, compact }: { meta: DashboardMeta | null; mod: ModuleMeta | null; compact: boolean }) {
@@ -32,6 +33,7 @@ function TopbarContext({ meta, mod, compact }: { meta: DashboardMeta | null; mod
     return <span className="text-sm font-semibold text-text">Inicio</span>;
   }
   const Icon = meta.icon;
+  const echo = moduleEchoesDashboard(mod, meta);
   return (
     <div data-module={mod.id} className="grid min-w-0 flex-1 items-center">
       {/* Ruta (H1 visible): si falta espacio se recorta primero el módulo, no el tablero */}
@@ -46,12 +48,17 @@ function TopbarContext({ meta, mod, compact }: { meta: DashboardMeta | null; mod
         )}
       >
         <span aria-hidden className="size-2 shrink-0 rounded-full bg-mod" />
-        <Link href={`/#${mod.id}`} title={mod.label} className="min-w-[2.5rem] shrink-[8] truncate whitespace-nowrap text-muted transition-colors hover:text-text">
-          {mod.short}
-        </Link>
-        <span aria-hidden className="shrink-0 text-faint">
-          /
-        </span>
+        {/* Módulo con el mismo nombre que su único tablero (Tutelas): un solo crumb, no "Tutelas / Tutelas" */}
+        {!echo && (
+          <>
+            <Link href={`/#${mod.id}`} title={mod.label} className="min-w-[2.5rem] shrink-[8] truncate whitespace-nowrap text-muted transition-colors hover:text-text">
+              {mod.short}
+            </Link>
+            <span aria-hidden className="shrink-0 text-faint">
+              /
+            </span>
+          </>
+        )}
         <span aria-current="page" title={meta.title} className="min-w-0 truncate whitespace-nowrap font-semibold text-text">
           {meta.short}
         </span>

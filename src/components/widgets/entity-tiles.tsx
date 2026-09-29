@@ -7,7 +7,7 @@ import { innerWidth } from "@/dashboards/layout";
 import type { BarWidget, DonutWidget } from "@/dashboards/types";
 import { useElementSize } from "@/hooks/use-element-size";
 import { cn } from "@/lib/cn";
-import { isNeutral, normalizeLabel } from "@/lib/charts/semantic";
+import { isMissing, isNeutral, normalizeLabel } from "@/lib/charts/semantic";
 import { formatInt, formatPct } from "@/lib/format";
 import { displayLabel, initials } from "@/lib/labels";
 import { useCrossFilter, useHoverTip, useMergedRef, usePageWide } from "./category-tiles";
@@ -25,7 +25,7 @@ interface Item {
   value: number;
 }
 
-/** "Otros" y "Sin clasificar" (y demás neutrales) forman el grupo final "No identificados". */
+/** "Otros" y "Sin clasificar" (y demás neutrales) forman el grupo final ("No identificados", "Otros y sin identificar"). */
 const UNIDENTIFIED = (label: string) => isNeutral(label) || normalizeLabel(label) === "sin clasificar";
 
 /**
@@ -75,8 +75,10 @@ export function EntityTiles({ widget, result, height, span }: VizProps<BarWidget
   // Con 2 o más líneas los tiles reparten el cuerpo (1fr); con una sola línea conservan su alto
   const fill = height > 0 && wide && Math.ceil(tileCount / cols) >= 2;
 
-  // Chip de calidad (15–85 % sin ente identificado) en la franja de leyenda, como StatusStrip
-  const unidentifiedSum = unidentified.reduce((a, b) => a + b.value, 0);
+  // Chip de calidad (15–85 % sin ente identificado) en la franja de leyenda, como StatusStrip. Solo cuenta el
+  // dato faltante ("Sin clasificar", "No reporta"): "Otros" es un ente real agrupado, gris y al final, pero identificado.
+  const unidentifiedSum = unidentified.filter((it) => isMissing(it.label)).reduce((a, b) => a + b.value, 0);
+  const groupTitle = unidentified.every((it) => isMissing(it.label)) ? "No identificados" : unidentified.some((it) => isMissing(it.label)) ? "Otros y sin identificar" : "Otros";
   const unidentifiedShare = total ? unidentifiedSum / total : 0;
   const chip = unidentifiedShare >= QUALITY_CHIP_MIN && unidentifiedShare < QUALITY_NOTICE_MIN && (
     <LegendSlot side="end">
@@ -153,7 +155,7 @@ export function EntityTiles({ widget, result, height, span }: VizProps<BarWidget
           );
         })}
         {rest.length > 0 && <GroupTile title={`Otros ${rest.length} entes`} items={rest} total={total} cf={cf} widget={widget} narrow={narrow} />}
-        {unidentified.length > 0 && <GroupTile title="No identificados" items={unidentified} total={total} cf={cf} widget={widget} narrow={narrow} />}
+        {unidentified.length > 0 && <GroupTile title={groupTitle} items={unidentified} total={total} cf={cf} widget={widget} narrow={narrow} />}
         <ChartTooltip state={state} />
       </div>
     </>

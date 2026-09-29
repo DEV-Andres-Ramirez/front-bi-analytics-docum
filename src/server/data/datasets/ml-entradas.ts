@@ -9,6 +9,26 @@ import type { DatasetDef } from "./types";
 /** Estados del término que implican un plazo (los "No Reporta…" no tienen fecha de vencimiento). */
 const CON_PLAZO = new Set(["En término", "Fuera de Término", "Vencido"]);
 const DAY_MS = 86_400_000;
+/** Estados del flujo que cierran el radicado (el sesgo "abierto" de los recientes los evita). */
+const CERRADOS = ["Aprobado", "Reclasificación Aprobada", "Cerrado", "Eliminada", "Excluido", "Anulado"];
+/** Estados en los que la entrada ya tiene respuesta: no se pueden vencer después. */
+const RESPONDIDOS = new Set([...CERRADOS, "Por recibir correspondencia"]);
+const dayOf = (ms: number) => Math.floor(ms / DAY_MS);
+
+/**
+ * El término debe cuadrar con la fecha máxima (que se muestra como día, así que el plazo corre hasta el
+ * final de ese día): con el plazo vigente nada está "Vencido" ni "Fuera de Término" (respondido antes del
+ * vencimiento = "En término"); con el plazo ya pasado, una entrada sin respuesta está "Vencido".
+ * El perfil trae el término de un corte real, pero la fecha máxima de los registros recientes se deriva
+ * del tiempo definido y el sesgo "abierto" los lleva a tuplas "Vencido": sin esto, radicados de hoy
+ * aparecían vencidos con la fecha máxima en el futuro.
+ */
+function terminoCoherente(termino: string, fechaMax: number, estado: string, now: number): string {
+  const vigente = dayOf(fechaMax) >= dayOf(now);
+  if (vigente && (termino === "Vencido" || termino === "Fuera de Término")) return "En término";
+  if (!vigente && termino === "En término" && !RESPONDIDOS.has(estado)) return "Vencido";
+  return termino;
+}
 
 export const mlEntradas: DatasetDef = {
   id: "ml_entradas",
@@ -65,7 +85,7 @@ export const mlEntradas: DatasetDef = {
     },
     openBias: {
       field: "estado",
-      closed: ["Aprobado", "Reclasificación Aprobada", "Cerrado", "Eliminada", "Excluido", "Anulado"],
+      closed: CERRADOS,
       days: 18,
       strength: 0.6,
     },
@@ -83,6 +103,10 @@ export const mlEntradas: DatasetDef = {
         if (Number.isFinite(dias) && dias > 0) {
           row.fecha_max_respuesta = /calendario/i.test(String(row.formato_tiempo)) ? ctx.date + dias * DAY_MS : addBusinessDays(ctx.date, dias);
         }
+      }
+      // También determinista: solo corrige el término de las filas cuyo plazo contradice la fecha máxima.
+      if (typeof row.fecha_max_respuesta === "number" && CON_PLAZO.has(String(row.tiempo_por_vencer))) {
+        row.tiempo_por_vencer = terminoCoherente(String(row.tiempo_por_vencer), row.fecha_max_respuesta, String(row.estado), ctx.now);
       }
     },
   }),

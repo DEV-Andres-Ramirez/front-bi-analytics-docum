@@ -15,7 +15,7 @@ import { useChartTheme, type ChartTheme } from "@/lib/charts/theme";
 import { isNeutral } from "@/lib/charts/semantic";
 import { formatInt, formatPct, formatValue } from "@/lib/format";
 import { displayLabel } from "@/lib/labels";
-import { DPTO_BBOX, DPTO_LABEL, MAINLAND, SAN_ANDRES_CODE, type BBox } from "@/lib/geo/bounds";
+import { BOGOTA_ANCHOR, DPTO_BBOX, DPTO_LABEL, MAINLAND, SAN_ANDRES_CODE, type BBox, type LngLat } from "@/lib/geo/bounds";
 import { useExporter } from "../frame-context";
 import type { VizProps } from "../types";
 import { classify, classLabel, colorByCode, panelTitle, rampColors, shortGeoName, unitOf } from "./classify";
@@ -30,7 +30,8 @@ import { SanAndresInset } from "./san-andres-inset";
 /**
  * HeroMap (P1 de los 10 tableros con mapa · docs/ui-design-system.md "mapRedesign").
  * Composición en su propio contenedor:
- *  - ≥ 800 px internos: lienzo (máx. 600) + panel de insights (≥ 380) lado a lado, alto del tier.
+ *  - ≥ 800 px internos: lienzo (máx. 600) + panel de insights (≥ 380) lado a lado, alto del tier;
+ *    el ranking llena el alto que queda (filas enteras).
  *  - < 800 px: lienzo a ancho completo (tableta: alto ≈ ancho / 1,1, así Colombia pasa del 60 % del
  *    ancho; móvil: 420 a sangre) y panel debajo; el detalle se abre en una hoja inferior y los
  *    municipios con botón (sin doble clic).
@@ -50,16 +51,28 @@ const MARKER_SHARE = 0.3;
 /** Área de la caja (grados²) bajo la cual el polígono mide menos de ≈ 400 px² en la vista nacional. */
 const MARKER_MAX_AREA = 0.8;
 
+/**
+ * Enclave dominante → territorio que lo rodea. Con el círculo de Bogotá, el rótulo de Cundinamarca
+ * (ancla interior al noroeste de Bogotá) chocaba con el del dominante y se iba al oeste, sobre Caldas
+ * y Tolima. Se ancla a la latitud del círculo, corrido hacia su lóbulo noroeste, y MapCanvas lo pone
+ * justo encima del círculo (`near` = radio): la cifra queda sobre Cundinamarca a cualquier ancho.
+ */
+const ENCLAVE_NEIGHBOR: Record<string, { code: string; at: LngLat }> = {
+  "11": { code: "25", at: [-74.45, BOGOTA_ANCHOR[1]] },
+};
+
 const bboxArea = (b: BBox | undefined) => (b ? (b[2] - b[0]) * (b[3] - b[1]) : Infinity);
 
 /**
  * Orden estable del desglose (el color sigue a la entidad, nunca a su puesto en cada territorio):
- * las opciones facetadas del campo (no cambian al filtrarlo) o, si no es filtro, la suma de los top
- * de todos los departamentos. Solo los 3 primeros no neutrales reciben slot; el resto va a "Otros".
+ * la suma de los top de todos los departamentos (el mapa ignora __dpto/__mpio, así que "Filtrar
+ * tablero" no la mueve). Si el propio campo del desglose está filtrado, esa suma queda recortada y se
+ * usan sus opciones facetadas (no cambian al filtrarlo). Solo los 3 primeros no neutrales reciben
+ * slot; el resto va a "Otros".
  */
-function breakdownSlots(options: FilterOption[] | undefined, dptos: GeoValue[]): string[] {
+function breakdownSlots(options: FilterOption[] | undefined, ownFilter: boolean, dptos: GeoValue[]): string[] {
   const acc = new Map<string, number>();
-  if (options?.length) for (const o of options) acc.set(o.value, o.count);
+  if (ownFilter && options?.length) for (const o of options) acc.set(o.value, o.count);
   else for (const d of dptos) for (const t of d.top ?? []) acc.set(t.label, (acc.get(t.label) ?? 0) + t.value);
   return [...acc]
     .filter(([label, n]) => n > 0 && !isNeutral(label))
@@ -218,23 +231,28 @@ export function HeroMap({ widget, result, span }: VizProps<MapWidget, MapResult>
     return { code: top.code, r: Math.round((6 + 16 * Math.sqrt(Math.min(1, share))) * 2) / 2 };
   }, [rows, level, located]);
   const labels: LabelFC = useMemo(() => {
+    const near = dominant ? ENCLAVE_NEIGHBOR[dominant.code] : undefined;
     const anchor = (code: string): [number, number] | null => {
+      if (near?.code === code) return near.at;
       if (level === "dpto") return code === SAN_ANDRES_CODE ? null : (DPTO_LABEL[code] ?? null);
       return mpios?.features.find((f) => f.properties.code === code)?.properties.l ?? null;
     };
-    const features = rows
+    const top = rows
       .map((r) => ({ r, at: anchor(r.code) }))
       .filter((x): x is { r: GeoRow; at: [number, number] } => Boolean(x.at))
-      .slice(0, LABELS_N)
-      .map(({ r, at }) =>
-        labelPoint(at, {
-          code: r.code,
-          name: shortGeoName(r.name),
-          value: formatInt(r.value),
-          sk: -r.value,
-          ...(dominant?.code === r.code ? { r: dominant.r, color: r.color } : {}),
-        }),
-      );
+      .slice(0, LABELS_N);
+    const nearRank = dominant && near ? top.findIndex((x) => x.r.code === near.code) : -1;
+    const features = top.map(({ r, at }, i) =>
+      labelPoint(at, {
+        code: r.code,
+        name: shortGeoName(r.name),
+        value: formatInt(r.value),
+        sk: -r.value,
+        ...(dominant?.code === r.code ? { r: dominant.r, color: r.color } : dominant && near?.code === r.code ? { near: dominant.r } : {}),
+        // Supera en valor al rótulo del vecino: en el lienzo de teléfono se coloca antes que él (MapCanvas)
+        ...(nearRank >= 0 && i < nearRank && dominant?.code !== r.code ? { hi: true } : {}),
+      }),
+    );
     return { type: "FeatureCollection", features };
   }, [rows, level, mpios, dominant]);
 
@@ -275,7 +293,8 @@ export function HeroMap({ widget, result, span }: VizProps<MapWidget, MapResult>
   // ─── Desglose con color estable por entidad ────────────────────────────────
   const breakdownField = widget.breakdown?.field;
   const breakdownOptions = breakdownField ? data?.options[breakdownField] : undefined;
-  const slots = useMemo(() => breakdownSlots(breakdownOptions, result.dptos), [breakdownOptions, result.dptos]);
+  const breakdownFiltered = Boolean(breakdownField && filters.eq[breakdownField]?.length);
+  const slots = useMemo(() => breakdownSlots(breakdownOptions, breakdownFiltered, result.dptos), [breakdownOptions, breakdownFiltered, result.dptos]);
 
   // ─── Selección ─────────────────────────────────────────────────────────────
   const sel = useMemo(() => {
@@ -373,7 +392,8 @@ export function HeroMap({ widget, result, span }: VizProps<MapWidget, MapResult>
       rows={rows}
       zeros={zeros}
       level={level}
-      limit={TOP_N}
+      // Lado a lado, el ranking llena el alto del panel (Top 12 a 1440) en lugar de cortar en 10 con un hueco
+      limit={side ? rows.length : TOP_N}
       showAll={showAll}
       onToggleAll={() => setShowAll((s) => !s)}
       selected={selected}

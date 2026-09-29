@@ -21,6 +21,7 @@ import {
   chartToPng,
   crosshairPlugin,
   labelsPlugin,
+  markersPlugin,
   niceScale,
   partialBarsPlugin,
   useChartAnimation,
@@ -337,6 +338,10 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
   // Área apilada con leyenda vecina (legendFrom): el total repite el pie de la serie principal
   const showFooter = !(mode === "stacked" && vo?.legendFrom);
 
+  // Tramo corto aparte (líneas): un solo punto hueco, el de la primera serie visible, igual que su rótulo
+  // único. Un punto por serie encimaba los anillos (29 y 26 formaban un "8") en la misma x.
+  const stubLead = useMemo(() => series.find((s) => !hidden.has(s.key)) ?? series[0], [series, hidden]);
+
   // ─── Etiquetas directas (L10) ────────────────────────────────────────────
   const directLabels: CanvasLabel[] = useMemo(() => {
     const out: CanvasLabel[] = [];
@@ -347,29 +352,35 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
     // Tramo corto separado de la línea: dice cuántos días cubre ("1 de 7 días")
     const stubSub = (i: number) => (width >= 400 ? `${buckets[i].idx.length} de ${buckets[i].calDays} días` : "parcial");
     if (mode === "columns") {
-      if (n > 12 || series.length > 1) return out;
+      if (series.length > 1) return out;
+      // Con más de 12 columnas no hay cifras sobre cada una, pero la columna punteada (día o tramo en
+      // curso) siempre lleva la suya con "parcial": sin rótulo se leía como una caída o un error (L4)
+      const dense = n > 12;
       series[0]?.values.forEach((v, i) => {
         const partial = i === partialIdx || i === partialFirst;
-        if (v > 0 || i === partialIdx) out.push({ datasetIndex: 0, index: i, text: fmt(v), sub: stubs[i] ? stubSub(i) : partial ? partialSub : undefined, priority: 1, clear: prev ? [1] : undefined });
+        if (dense && !partial) return;
+        const sub = stubs[i] ? stubSub(i) : partial ? (dense ? "parcial" : partialSub) : undefined;
+        if (v > 0 || i === partialIdx || dense) out.push({ datasetIndex: 0, index: i, text: fmt(v), sub, priority: 1, clear: prev ? [1] : undefined });
       });
       return out;
     }
     // Con el último tramo aparte, la etiqueta final va en el último punto unido (L10) y el tramo
-    // corto lleva su propia cifra (solo la serie principal, para no amontonar rótulos)
+    // corto lleva su propia cifra (solo la serie del punto hueco, para no amontonar rótulos). Si las
+    // cifras finales de dos líneas chocan, labelsPlugin pasa la de la serie inferior bajo su punto.
     const lastIdx = stubs[n - 1] ? n - 2 : n - 1;
     series.forEach((s, si) => {
       if (mode === "area" && si > 0) return;
       out.push({ datasetIndex: si, index: lastIdx, text: fmt(s.values[lastIdx] ?? 0), sub: lastIdx === partialIdx ? partialSub : undefined, marker: true, color: s.color, priority: 10 - si });
     });
-    if (stubs[n - 1] && series[0]) {
-      out.push({ datasetIndex: series.length + (prev ? 1 : 0), index: n - 1, text: fmt(series[0].values[n - 1] ?? 0), sub: stubSub(n - 1), priority: 6 });
+    if (stubs[n - 1] && stubLead) {
+      out.push({ datasetIndex: series.length + (prev ? 1 : 0), index: n - 1, text: fmt(stubLead.values[n - 1] ?? 0), sub: stubSub(n - 1), priority: 6 });
     }
     const pk = summary.peak;
     if (mode === "area" && series[0] && pk !== lastIdx && !stubs[pk] && summary.peakValue > 0 && height >= 180) {
       out.push({ datasetIndex: 0, index: pk, text: fmt(summary.peakValue), sub: pk === partialFirst ? partialSub : undefined, marker: true, color: series[0].color, priority: 5 });
     }
     return out;
-  }, [n, mode, series, partialIdx, partialFirst, stubs, buckets, format, summary.peak, summary.peakValue, height, prev, width]);
+  }, [n, mode, series, partialIdx, partialFirst, stubs, buckets, format, summary.peak, summary.peakValue, height, prev, width, stubLead]);
 
   // ─── Tooltip ─────────────────────────────────────────────────────────────
   const contentAt = useCallback(
@@ -545,10 +556,13 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
       });
     }
     if (hasStub) {
-      // Punto hueco por serie (apilado: uno solo en el total, en gris y en su propia pila)
+      // Un solo punto hueco: el de la primera serie visible (el mismo que lleva el rótulo "1 de 7 días");
+      // el valor de las demás series va en el tooltip. Apilado: el total, en gris y en su propia pila.
       const marks = stacked
         ? [{ key: "__stub", color: theme.tick, values: buckets.map((_b, i) => series.reduce((a, s) => a + (hidden.has(s.key) ? 0 : s.values[i]), 0)), hide: false }]
-        : series.map((s) => ({ key: s.key, color: s.color, values: s.values, hide: hidden.has(s.key) }));
+        : stubLead
+          ? [{ key: stubLead.key, color: stubLead.color, values: stubLead.values, hide: hidden.has(stubLead.key) }]
+          : [];
       marks.forEach((m) =>
         datasets.push({
           label: "Tramo parcial",
@@ -573,7 +587,7 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
       );
     }
     return { labels, datasets };
-  }, [theme, mode, series, n, hidden, dashed, prev, prevColor, labels, hasStub, stubs, buckets]);
+  }, [theme, mode, series, n, hidden, dashed, prev, prevColor, labels, hasStub, stubs, buckets, stubLead]);
 
   // Relleno del tramo parcial (en oscuro más tenue: al 0,28 el naranja se lee marrón)
   const partialFill = theme.mode === "dark" ? 0.18 : 0.28;
@@ -601,18 +615,16 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
     }));
     if (prev) {
       // Periodo anterior como marcador (raya de 2 px, sin relleno) ENCIMA de la columna actual: se lee
-      // como referencia y nunca como otra columna gris junto a la banda de fin de semana
+      // como referencia y nunca como otra columna gris junto a la banda de fin de semana. La barra es
+      // invisible (geometría, tooltip y hover); la raya la dibuja markersPlugin (con el borde superior de
+      // Chart.js quedaba un contorno tenue en los otros tres lados)
       datasets.push({
         label: "Periodo anterior",
         data: prev,
         backgroundColor: "transparent",
         hoverBackgroundColor: "transparent",
-        borderColor: prevMarker,
-        hoverBorderColor: theme.text,
-        borderWidth: { top: 2, left: 0, right: 0, bottom: 0 },
-        // Chart.js acepta el objeto en hover igual que en borderWidth (sus tipos solo declaran número); sin él,
-        // al pasar el mouse el marcador se volvía un rectángulo con borde en los 4 lados
-        hoverBorderWidth: { top: 2, left: 0, right: 0, bottom: 0 } as unknown as number,
+        borderWidth: 0,
+        hoverBorderWidth: 0,
         borderRadius: 0,
         borderSkipped: "start",
         grouped: false,
@@ -624,7 +636,7 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
       });
     }
     return { labels, datasets };
-  }, [series, n, partialCols, partialFill, widget.splitBy, hidden, prev, prevMarker, theme.text, labels]);
+  }, [series, n, partialCols, partialFill, widget.splitBy, hidden, prev, labels]);
 
   const partialItems: PartialBar[] = useMemo(
     () => (columns ? series.flatMap((s, si) => [partialIdx, partialFirst].filter((j) => j >= 0).map((j) => ({ datasetIndex: si, index: j, color: s.color }))) : []),
@@ -680,9 +692,10 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
       docBands: { bands: showWeekend ? bands : [] },
       docCrosshair: { color: columns ? undefined : alpha(theme.tick, 0.45) },
       docPartial: { items: partialItems },
+      docMarkers: { datasetIndex: columns && prev ? series.length : -1, color: prevMarker, activeColor: theme.text },
       docLabels: { items: directLabels, text: theme.text, muted: theme.muted, surface: theme.surface, kind: columns ? "bar" : "point", minGap: 16 },
     }),
-    [external, showWeekend, bands, columns, theme, partialItems, directLabels],
+    [external, showWeekend, bands, columns, theme, partialItems, directLabels, prev, series.length, prevMarker],
   );
 
   const lineOptions = useMemo(
@@ -738,7 +751,7 @@ export function AreaTimeseries({ widget, result, height, span }: VizProps<Timese
         onMouseLeave={hide}
       >
         {columns ? (
-          <Bar ref={barRef} data={barData} options={barOptions} plugins={[bandsPlugin, partialBarsPlugin, labelsPlugin]} role="img" aria-label={`${widget.title}: ${footerText}`} />
+          <Bar ref={barRef} data={barData} options={barOptions} plugins={[bandsPlugin, partialBarsPlugin, markersPlugin, labelsPlugin]} role="img" aria-label={`${widget.title}: ${footerText}`} />
         ) : (
           <Line ref={lineRef} data={lineData} options={lineOptions} plugins={[bandsPlugin, crosshairPlugin, labelsPlugin]} role="img" aria-label={`${widget.title}: ${footerText}`} />
         )}

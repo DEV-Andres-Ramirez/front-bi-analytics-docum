@@ -11,6 +11,7 @@ import { isNeutral, normalizeLabel } from "@/lib/charts/semantic";
 import { formatInt, formatPct } from "@/lib/format";
 import { displayLabel } from "@/lib/labels";
 import { useElementSize } from "@/hooks/use-element-size";
+import { textWidth } from "@/components/dashboard/kpi/shared";
 import { ChartTooltip, useChartTooltip, type TooltipContent } from "./kit/chart-tooltip";
 import type { VizProps } from "./types";
 
@@ -21,6 +22,11 @@ export function widgetDimension(w: WidgetDef): string | undefined {
   if ("dimension" in w) return w.dimension;
   if (w.type === "bartable") return w.columns[0]?.field;
   return undefined;
+}
+
+/** Nombre visible de una categoría: alias del spec (vizOptions.overrides[label].label, p. ej. "Med. laboral") o displayLabel. */
+function tileName(widget: WidgetDef, label: string): string {
+  return widget.vizOptions?.overrides?.[label]?.label ?? displayLabel(label, widget.labelKind).full;
 }
 
 /** "Otros" / "Otras N categorías" no son valores reales del dato: no filtran. */
@@ -128,7 +134,7 @@ export function CategoryTiles({ widget, result, height }: VizProps<BarWidget | D
   const { filters } = useDashboard();
   const cf = useCrossFilter(widget);
   const { state, bind } = useHoverTip();
-  const { ref: sizeRef, height: boxH, measured } = useElementSize<HTMLDivElement>();
+  const { ref: sizeRef, height: boxH, width: boxW, measured } = useElementSize<HTMLDivElement>();
   const { ref: pageRef, wide } = usePageWide();
   const ref = useMergedRef(sizeRef, pageRef);
   const links = widget.vizOptions?.links;
@@ -157,12 +163,20 @@ export function CategoryTiles({ widget, result, height }: VizProps<BarWidget | D
   const lines = Math.max(1, Math.ceil(count / 2));
   const bodyH = measured ? boxH : height;
   const tileH = wide && bodyH > 0 ? Math.max(TILE_MIN_H, (bodyH - (lines - 1) * TILE_GAP) / lines) : Infinity;
-  const tailRows = Number.isFinite(tileH) ? Math.max(1, Math.floor((tileH - OTHER_HEAD) / OTHER_ROW)) : 4;
+  // Cabecera de "Otros": nombre + total · % (el % siempre, como en los demás tiles); si no cabe en una línea, el
+  // total baja a la derecha en una segunda línea y la cola pierde una fila
+  const tailSum = tail.reduce((a, b) => a + b.value, 0);
+  const tileInner = measured ? (boxW - TILE_GAP) / 2 - 30 : Infinity;
+  const headNeed = textWidth(otherLabel, 13, "semibold") + 8 + Math.ceil(textWidth(formatInt(tailSum), 13, "semibold") * 1.05) + textWidth(` · ${formatPct(total ? tailSum / total : 0)}`, 11);
+  // textWidth ya trae 4 % de holgura (≈ 6 px aquí): con 4 px de tolerancia no se sacrifica una fila de la cola por
+  // una línea que en la práctica cabe ("Otros trámites 28 · 3,2 %" a 1440: 155 px reales en 164)
+  const headWrap = tail.length > 0 && headNeed > tileInner + 4;
+  const tailRows = Number.isFinite(tileH) ? Math.max(1, Math.floor((tileH - OTHER_HEAD - (headWrap ? OTHER_ROW : 0)) / OTHER_ROW)) : 4;
 
   return (
     <div ref={ref} className="grid h-full min-h-0 grid-cols-2 gap-3 [grid-auto-rows:minmax(min-content,1fr)]" role="list" aria-label={widget.title}>
       {tiles.map((t) => {
-        const name = displayLabel(t.label, widget.labelKind).full;
+        const name = tileName(widget, t.label);
         const share = total ? t.value / total : 0;
         const neutral = isNeutral(t.label);
         const can = cf.can(t.label);
@@ -255,16 +269,16 @@ function OtherTile({
   const hiddenSum = items.slice(shown.length).reduce((a, b) => a + b.value, 0);
   return (
     <div role="listitem" className="@container flex min-h-[104px] min-w-0 flex-col rounded-2xl border border-border bg-surface-2 p-3.5">
-      <p className="flex shrink-0 items-baseline justify-between gap-2" title={`${label}: ${formatInt(sum)} · ${formatPct(total ? sum / total : 0)}`}>
+      {/* Total y % siempre (misma gramática que los otros tiles); si no caben junto al nombre, bajan a la derecha */}
+      <p className="flex shrink-0 flex-wrap items-baseline justify-between gap-x-2" title={`${label}: ${formatInt(sum)} · ${formatPct(total ? sum / total : 0)}`}>
         <span className="min-w-0 truncate text-[13px] font-semibold leading-[18px] text-text">{label}</span>
-        <span className="tabular whitespace-nowrap text-xs text-muted">
-          <span className="text-[13px] font-bold text-text">{formatInt(sum)}</span>
-          <span className="hidden @min-[210px]:inline"> · {formatPct(total ? sum / total : 0)}</span>
+        <span className="tabular ml-auto whitespace-nowrap text-[11px] leading-[18px] text-muted">
+          <span className="text-[13px] font-bold text-text">{formatInt(sum)}</span> · {formatPct(total ? sum / total : 0)}
         </span>
       </p>
       <ul className="mt-1 flex shrink-0 flex-col" aria-label={`${label}: detalle`}>
         {shown.map((it) => {
-          const name = displayLabel(it.label, widget.labelKind).full;
+          const name = tileName(widget, it.label);
           const can = cf.can(it.label);
           const body = (
             <>

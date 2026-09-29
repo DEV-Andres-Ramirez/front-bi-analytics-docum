@@ -16,7 +16,7 @@ import { durationLabel } from "@/lib/labels";
 export type { StatusTone };
 
 export interface StatusInfo {
-  /** Tono de estado; null cuando la familia es categórica (binario, canal-envio). */
+  /** Tono de estado; null cuando la familia es categórica (binario, canal-envio, canal-radicacion). */
   tone: StatusTone | null;
   /** Color de relleno (variable CSS). */
   color: string;
@@ -159,6 +159,15 @@ export function isNeutral(label: string): boolean {
   return NEUTRAL_EXACT.has(n) || n.startsWith("no reporta") || /^otr[oa]s \d+/.test(n);
 }
 
+/**
+ * Neutral por ausencia de dato ("No reporta", "Sin …", "N/A"): lo que cuentan los chips y avisos de calidad.
+ * Las cubetas residuales ("Otros", "Otras N", "Resto / otras", "Otros motivos") siguen siendo neutrales
+ * (grises y al final) pero agrupan categorías reales: no son dato faltante.
+ */
+export function isMissing(label: string): boolean {
+  return isNeutral(label) && !/^(otr[oa]s|resto)\b/.test(normalizeLabel(label));
+}
+
 // ─── Familias ────────────────────────────────────────────────────────────────
 
 interface Rule {
@@ -291,6 +300,20 @@ const FAMILIES: Record<SemanticFamily, Rule[]> = {
     { test: (n) => n.includes("sealmail") || n.includes("seal mail") || n.startsWith("fisic") || n.startsWith("certificado"), tone: null, color: "var(--chart-2)", order: 2 },
     { test: (n) => isNeutral(n), tone: "neutral", order: 99, display: "Sin canal" },
   ],
+  // Canal de radicación (PQRD, Entes, Tutelas y ML entradas): el color sigue a la entidad, no a su puesto en cada widget, así que
+  // "Web" o "Ventanilla" tienen el mismo color en ambos tableros. Mismo orden para todos: la composición
+  // sigue ordenada por valor. Solo se declara en PQRD y Entes: en Correspondencia y SMART 3 "Mail" y
+  // "Email" son categorías distintas y compartirían color. Los nombres son los de displayLabel (filtros y
+  // tabla): "Web" y "Contact Center", no la forma de estado ("WEB", "Contact center").
+  "canal-radicacion": [
+    { test: eq("email", "mail"), tone: null, color: "var(--chart-1)", order: 1 },
+    { test: eq("web"), tone: null, color: "var(--chart-2)", order: 1, display: "Web" },
+    { test: starts("ventanilla"), tone: null, color: "var(--chart-3)", order: 1 },
+    { test: eq("mail ia", "mail ai"), tone: null, color: "var(--chart-4)", order: 1 },
+    { test: eq("contact center"), tone: null, color: "var(--chart-5)", order: 1, display: "Contact Center" },
+    { test: starts("contact center"), tone: null, color: "var(--chart-5)", order: 1 },
+    NEUTRAL_RULE,
+  ],
   fallo: [
     { test: eq("a favor", "confirma a favor", "revoca a favor", "revoca sancion"), tone: "good", order: 1, group: "Favorable" },
     { test: eq("en contra", "confirma en contra", "revoca en contra", "sancion"), tone: "critical", order: 2, group: "Desfavorable" },
@@ -299,7 +322,8 @@ const FAMILIES: Record<SemanticFamily, Rule[]> = {
       // Categoría real (no dato faltante): info, igual que la familia del FamilySplit; "Sin dato" es el único gris
       tone: "info",
       order: 3,
-      group: "Trámite o informativo",
+      // Mismo nombre que la familia del FamilySplit de Tutelas
+      group: "Trámite",
     },
     { test: (n) => isNeutral(n), tone: "neutral", order: 99, group: "Sin dato", display: "Sin dato" },
   ],

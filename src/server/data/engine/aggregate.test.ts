@@ -245,6 +245,19 @@ describe("bartable y drilldown: neutrales al final", () => {
     expect(r.total).toBe(17);
   });
 
+  it("bartable: restCount = combinaciones fuera del topN (solo si hay resto)", () => {
+    const base: BarTableWidget = { id: "b", type: "bartable", title: "b", size: "md", columns: [{ field: "oficina", label: "Oficina" }], measureLabel: "N" };
+    const top2 = barTableResult(t, all(t), { ...base, topN: 2 });
+    expect(top2.rows).toHaveLength(2);
+    expect(top2.restCount).toBe(1);
+    // El total sigue siendo el de todas las combinaciones
+    expect(top2.total).toBe(17);
+    expect(barTableResult(t, all(t), base).restCount).toBeUndefined();
+    // Dos columnas: cada combinación cuenta (No reporta·A, Norte·A, Sur·B)
+    const pairs = barTableResult(t, all(t), { ...base, columns: [...base.columns, { field: "estado", label: "Estado" }], topN: 1 });
+    expect(pairs.restCount).toBe(2);
+  });
+
   it("drilldown: neutral al final y 'Otros' de último", () => {
     const w: DrilldownWidget = { id: "d", type: "drilldown", title: "d", size: "md", levels: [{ field: "oficina", label: "Oficina" }], topN: 2 };
     const r = drilldownResult(t, all(t), w);

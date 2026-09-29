@@ -11,7 +11,7 @@ import { describeDelta, formatValue } from "@/lib/format";
  * Variación vs. periodo anterior de igual duración.
  * % → p.p.; el resto → relativa. Tono = dirección × polaridad (describeDelta es el único cálculo).
  * Base pequeña (conteo con anterior < 20): diferencia absoluta en un chip de borde punteado y la
- * marca visible "base pequeña"; la variación relativa queda en el tooltip.
+ * marca visible "base pequeña" (junto al chip, o dentro con `inlineNote`); la variación relativa queda en el tooltip.
  */
 export function DeltaChip({
   value,
@@ -21,6 +21,7 @@ export function DeltaChip({
   size = "sm",
   prevRange,
   showPrevious,
+  inlineNote,
   className,
 }: {
   value: number | null | undefined;
@@ -31,6 +32,8 @@ export function DeltaChip({
   prevRange?: { prevFrom: string; prevTo: string };
   /** Muestra "antes: 1.612" junto al chip. */
   showPrevious?: boolean;
+  /** Con base pequeña, "base pequeña" va dentro del chip ("−1 · base pequeña") y no como texto suelto. */
+  inlineNote?: boolean;
   className?: string;
 }) {
   const d = describeDelta(value, previous, format, polarity);
@@ -48,7 +51,8 @@ export function DeltaChip({
       )}
     </span>
   );
-  const after = [showPrevious && previous !== null && previous !== undefined ? `antes: ${prevText}` : null, small ? "base pequeña" : null].filter(Boolean).join(" · ");
+  const noteInside = small && Boolean(inlineNote);
+  const after = [showPrevious && previous !== null && previous !== undefined ? `antes: ${prevText}` : null, small && !noteInside ? "base pequeña" : null].filter(Boolean).join(" · ");
   return (
     <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)}>
       <Tooltip content={tip} focusable>
@@ -65,6 +69,11 @@ export function DeltaChip({
           {/* Con base pequeña el signo ya da la dirección: sin ícono, para que quepa "base pequeña" en celdas de 112 px */}
           {!small && <Icon className={size === "md" ? "size-3.5" : "size-3"} aria-hidden />}
           {d.text}
+          {noteInside && (
+            <span aria-hidden className="font-medium">
+              &nbsp;· base pequeña
+            </span>
+          )}
           {small && <span className="sr-only"> casos, base pequeña</span>}
         </span>
       </Tooltip>

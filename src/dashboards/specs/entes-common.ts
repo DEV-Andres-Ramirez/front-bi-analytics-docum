@@ -43,7 +43,7 @@ export const ENTES_TABLE_COLUMNS: ColumnDef[] = [
   { field: "Tiempo_por_Vencer", label: "Tiempo por vencer" },
   { field: "ente_control", label: "Ente de control", labelKind: "ente" },
   { field: "Tipo_de_Requerimiento", label: "Tipo" },
-  { field: "Canal_de_Radicacion", label: "Canal" },
+  { field: "Canal_de_Radicacion", label: "Canal", semantic: "canal-radicacion" },
   { field: "Oficina_responsable_de_respuesta", label: "Oficina responsable", labelKind: "oficina" },
   { field: "Gestionador_Responsable", label: "Gestionador", labelKind: "persona" },
   { field: "Fecha_Maxima_de_Respuesta", label: "Fecha máxima", format: "date" },

@@ -138,6 +138,8 @@ export const pqrd: DashboardSpec = {
           title: "Canal de radicación",
           subtitle: "Participación de cada canal de entrada",
           dimension: "canal_de_radicacion",
+          // Mismo color por canal que en Entes de control (Email/Mail, Web, Ventanilla…)
+          semantic: "canal-radicacion",
           size: "sm",
           viz: "composition",
           vizOptions: { layout: "legend" },
@@ -202,7 +204,7 @@ export const pqrd: DashboardSpec = {
       { field: "tiempo_por_vencer", label: "Tiempo por vencer" },
       { field: "nombre_tipo_solicitud", label: "Tipo de solicitud" },
       { field: "tipologia_de_pqrd", label: "Tipología" },
-      { field: "canal_de_radicacion", label: "Canal" },
+      { field: "canal_de_radicacion", label: "Canal", semantic: "canal-radicacion" },
       { field: "oficina_responsable_de_respuesta", label: "Oficina responsable", labelKind: "oficina" },
       { field: "gestionador_responsable", label: "Gestionador", visible: false, labelKind: "persona" },
       { field: "fecha_maxima_de_respuesta", label: "Fecha máxima", format: "date", visible: false },

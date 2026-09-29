@@ -1,5 +1,5 @@
 import type { DashboardSpec } from "../types";
-import { count, is, share } from "./helpers";
+import { count, is, MEDIO_ENVIO_ORDER, share } from "./helpers";
 
 const PENDIENTES = ["Para gestión", "Por asignar", "Por aprobar", "En edición", "Por revisar", "Por recibir correspondencia", "En asignación"];
 
@@ -155,6 +155,8 @@ export const correspondenciaEntradas: DashboardSpec = {
           title: "Medio de envío",
           subtitle: "Cómo envía el remitente",
           dimension: "Medio_de_envio",
+          // Mismo color por medio que en ML salidas (certificado naranja, correo electrónico azul…)
+          order: MEDIO_ENVIO_ORDER,
           size: "sm",
           viz: "composition",
           vizOptions: { layout: "legend" },

@@ -26,7 +26,9 @@ import type { CompositeProps, VizProps } from "./types";
  *   marcada con un corchete neutro bajo el eje (no con el color de selección), columnas desde la
  *   primera hasta la última hora con dato (sin columnas vacías fuera de la jornada), ScaleLegend
  *   continua bajo la grilla, clic en celda filtra ambas dimensiones. Los dos marginales usan la misma
- *   jerarquía (cifras text-2/600, el máximo en tinta/700).
+ *   jerarquía (cifras text-2/600, el máximo en tinta/700) y un solo token, --chart-1 (colorSystem E:
+ *   conteo = chart-1), fuera de la rampa de celdas: en oscuro la rampa es "más claro = más" y un
+ *   marginal en --seq-3 se leería como valor bajo. Selección en --primary; hover con opacidad.
  *   En angosto (< 560 px) se transpone: días en columnas (con su total en el encabezado) y horas en
  *   filas (con su total a la derecha), así cabe en 326 px sin scroll horizontal.
  */
@@ -576,7 +578,7 @@ function TransposedGrid({ g, label }: { g: GridCtx; label: string }) {
               style={at(gr, nD + 2)}
             >
               <span aria-hidden className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-3">
-                <span className={cn("block h-full rounded-full", sel ? "bg-primary" : "bg-[var(--seq-3)]")} style={{ width: `${model.margColMax ? (c.marg / model.margColMax) * 100 : 0}%` }} />
+                <span className={cn("block h-full rounded-full", sel ? "bg-primary" : "bg-[var(--chart-1)]")} style={{ width: `${model.margColMax ? (c.marg / model.margColMax) * 100 : 0}%` }} />
               </span>
               {c.marg > 0 ? hourMargText(g, c, "shrink-0") : <span className="shrink-0 text-[10.5px] leading-none text-muted">·</span>}
             </button>
@@ -679,7 +681,7 @@ export function HeatmapComposite({ cell, widgets, results, expanded }: Composite
                 >
                   {c.marg > 0 && hourMargText(g, c, "text-center")}
                   <span
-                    className={cn("block w-full shrink-0 rounded-t-[3px] transition-colors", sel ? "bg-primary" : "bg-[var(--seq-3)] group-hover:bg-[var(--seq-4)]")}
+                    className={cn("block w-full shrink-0 rounded-t-[3px] transition-opacity", sel ? "bg-primary" : "bg-[var(--chart-1)] group-hover:opacity-80")}
                     style={{ height: `calc((100% - 12px) * ${(Math.max(c.marg ? 6 : 0, h) / 100).toFixed(3)})` }}
                   />
                 </button>
@@ -733,7 +735,7 @@ export function HeatmapComposite({ cell, widgets, results, expanded }: Composite
                   >
                     {marg === "full" && (
                       <span aria-hidden className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-surface-3">
-                        <span className="block h-full rounded-full bg-[var(--seq-4)]" style={{ width: `${model.margRowMax ? (r.marg / model.margRowMax) * 100 : 0}%` }} />
+                        <span className={cn("block h-full rounded-full", rSel ? "bg-primary" : "bg-[var(--chart-1)]")} style={{ width: `${model.margRowMax ? (r.marg / model.margRowMax) * 100 : 0}%` }} />
                       </span>
                     )}
                     <span className="tabular text-xs font-semibold text-text">{formatInt(r.marg)}</span>

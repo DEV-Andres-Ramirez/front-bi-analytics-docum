@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import type { DashboardMeta, ModuleMeta } from "@/config/dashboards";
 import type { CatalogResponse } from "@/dashboards/dto";
 
 /**
@@ -57,4 +58,22 @@ export function updatedLabel(updatedAt: number, now: number): string {
 /** Hora de pared (es-CO) para tooltips. */
 export function clockLabel(ms: number): string {
   return new Intl.DateTimeFormat("es-CO", { hour: "numeric", minute: "2-digit", hour12: true }).format(ms);
+}
+
+/** Rótulo sin tildes, mayúsculas ni espacios extra, para comparar ("Tutelas" = "TUTELAS"). */
+const bareLabel = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * El módulo se llama igual que su único tablero (Tutelas): la ruta "Tutelas / Tutelas" y el eyebrow
+ * "TUTELAS" sobre el H1 "Tutelas" repetirían el nombre, así que el topbar deja un solo crumb y el
+ * encabezado cambia el eyebrow por un rótulo de contexto.
+ */
+export function moduleEchoesDashboard(mod: Pick<ModuleMeta, "label" | "short">, meta: Pick<DashboardMeta, "short" | "heading">): boolean {
+  return bareLabel(mod.short) === bareLabel(meta.short) || bareLabel(mod.label) === bareLabel(meta.heading);
 }

@@ -214,6 +214,9 @@ export const smartMomento3: DashboardSpec = {
           stackOrder: MOMENTO,
           size: "sm",
           viz: "status-strip",
+          // Vertical forzada (doc: span 4): por ancho medido (≤ 305 px) la celda de 309 px sin barra de scroll
+          // clásica caía en rejilla 2 + 1 de tiles huecos, con Cerrada a doble ancho.
+          vizOptions: { variant: "vertical" },
           semantic: "estado-queja",
           maxItems: 3,
         },
@@ -266,17 +269,19 @@ export const smartMomento3: DashboardSpec = {
       nav: "SLA",
       question: "¿En qué estados, oficinas y tipos de solicitud se concentra el riesgo?",
       widgets: [
-        // Títulos cortos: son las pestañas del Segmented (3 a 358 px en móvil, sin partir en 2 líneas). La tarjeta
-        // con pestañas muestra el subtítulo de la celda: ahí va la exclusión de aprobadas de la pestaña Estado.
-        slaPivot("pivot-estado", "Estado", "Quejas sin aprobar por estado y categoría SLA", "pqrd_estado", "Estado", true),
-        { ...slaPivot("pivot-oficina", "Oficina", "Quejas por oficina responsable y categoría SLA", "pqrd_oficina_responsable", "Oficina"), labelKind: "oficina" },
-        slaPivot("pivot-tipo", "Tipo de solicitud", "Quejas por tipo de solicitud y categoría SLA", "pqrd_nombre_tipo_solicitud", "Tipo de solicitud"),
+        // Títulos cortos: son las pestañas del Segmented (3 a 358 px en móvil, sin partir en 2 líneas). La celda no
+        // declara subtítulo: la tarjeta muestra el de la pestaña activa, así la exclusión de aprobadas solo se lee
+        // en Estado. Subtítulos de ≤ 40 caracteres: a 390 px el subtítulo va en una línea con elipsis.
+        slaPivot("pivot-estado", "Estado", "Quejas sin aprobar, por estado", "pqrd_estado", "Estado", true),
+        { ...slaPivot("pivot-oficina", "Oficina", "Todas las quejas, por oficina responsable", "pqrd_oficina_responsable", "Oficina"), labelKind: "oficina" },
+        slaPivot("pivot-tipo", "Tipo de solicitud", "Todas las quejas, por tipo de solicitud", "pqrd_nombre_tipo_solicitud", "Tipo de solicitud"),
       ],
       rows: [
         {
           template: "12",
           tier: "auto",
-          cells: [{ tabs: ["pivot-estado", "pivot-oficina", "pivot-tipo"], id: "pivots-sla", title: "Categoría SLA", subtitle: "Por categoría SLA · Estado sin aprobadas" }],
+          // No repite "Categoría SLA", el título de la tira de S1 (dos tarjetas homónimas en la barra de secciones y en ⌘K)
+          cells: [{ tabs: ["pivot-estado", "pivot-oficina", "pivot-tipo"], id: "pivots-sla", title: "Cruce de la categoría SLA" }],
         },
       ],
     },

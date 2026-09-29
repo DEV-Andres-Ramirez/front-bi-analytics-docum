@@ -8,7 +8,7 @@ import { useElementSize } from "@/hooks/use-element-size";
 import type { PivotResult } from "@/dashboards/dto";
 import type { PivotWidget, StatusTone } from "@/dashboards/types";
 import { cn } from "@/lib/cn";
-import { isNeutral, resolveStatus, TONE_VARS } from "@/lib/charts/semantic";
+import { isMissing, isNeutral, resolveStatus, TONE_VARS } from "@/lib/charts/semantic";
 import { inkOn, seqColor, useChartTheme } from "@/lib/charts/theme";
 import { formatInt, formatPct } from "@/lib/format";
 import { displayLabel, initials, type LabelKind } from "@/lib/labels";
@@ -304,8 +304,10 @@ function buildModel(widget: PivotWidget, result: PivotResult) {
   if (!Number.isFinite(min)) min = max;
 
   const grand = cols.reduce((a, c) => a + c.total, 0);
-  const neutralRows = (grouped ? groups.flatMap((g) => g.leaves) : flat).filter((l) => l.neutral).reduce((a, l) => a + l.total, 0);
-  const neutralCols = cols.filter((c) => c.neutral).reduce((a, c) => a + c.total, 0);
+  // Chips de calidad: solo el dato faltante ("No reporta", "Sin …"); "Otros" / "Resto / otras" no cuentan
+  // (la etiqueta cruda de la hoja es el 2.º tramo de su id)
+  const neutralRows = (grouped ? groups.flatMap((g) => g.leaves) : flat).filter((l) => l.neutral && isMissing(l.id.split("\u0001")[1] ?? "")).reduce((a, l) => a + l.total, 0);
+  const neutralCols = cols.filter((c) => c.neutral && isMissing(c.key)).reduce((a, c) => a + c.total, 0);
   const runs = columnRuns(cols);
   const many = cols.length > MANY_COLS;
   const heads = colHeads(cols, runs, many);

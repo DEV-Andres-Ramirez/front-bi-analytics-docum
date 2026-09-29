@@ -3,12 +3,13 @@
 import { AlertTriangle, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useDashboard } from "@/components/dashboard/dashboard-context";
+import { textWidth } from "@/components/dashboard/kpi/shared";
 import { Dialog } from "@/components/ui/dialog";
 import type { BarTableResult, CategoryResult } from "@/dashboards/dto";
 import type { BarTableWidget, BarWidget, DonutWidget, StatusTone } from "@/dashboards/types";
 import { useElementSize } from "@/hooks/use-element-size";
 import { cn } from "@/lib/cn";
-import { isNeutral, normalizeLabel, resolveStatus, sortByFamily, TONE_VARS } from "@/lib/charts/semantic";
+import { isMissing, isNeutral, normalizeLabel, resolveStatus, sortByFamily, TONE_VARS } from "@/lib/charts/semantic";
 import { formatInt, formatPct } from "@/lib/format";
 import { displayLabel } from "@/lib/labels";
 import { canFilterLabel, useCrossFilter, useMergedRef, usePageWide } from "./category-tiles";
@@ -46,7 +47,18 @@ function singularNoun(title: string): string {
     .join(" ");
 }
 
-/** Frase del neutral ("sin macro motivo", "sin cruce con PQRD") y del complemento ("cruzan con PQRD"). */
+/** Género del sustantivo principal (heurística: "canal", "macro motivo" → masculino; "causa", "entidad" → femenino). */
+function isFeminine(noun: string): boolean {
+  const head = noun.split(" ")[0] ?? "";
+  if (["día", "dia", "tema", "sistema", "problema", "programa", "mapa"].includes(head)) return false;
+  return /(a|ión|ion|dad|tud|umbre)$/.test(head);
+}
+
+/**
+ * Frase del neutral ("sin macro motivo", "sin cruce con PQRD") y del complemento ("cruzan con PQRD").
+ * Una cubeta residual no es "sin canal": esas quejas sí tienen canal, solo que genérico. Se nombra la cubeta
+ * ("en «Resto / otras»") y el complemento es lo específico ("con canal específico"), igual que la tabla de detalle.
+ */
 function phrases(label: string, title: string): { without: string; with: string } {
   const neutralLabel = label.replace(/^\s*\d{1,2}\.\s*/, "");
   const n = normalizeLabel(neutralLabel);
@@ -59,6 +71,7 @@ function phrases(label: string, title: string): { without: string; with: string 
     return { without: `sin ${rest.toLocaleLowerCase("es-CO")}`, with: `con ${rest.toLocaleLowerCase("es-CO")}` };
   }
   const noun = singularNoun(title);
+  if (!isMissing(neutralLabel)) return { without: `en «${displayLabel(neutralLabel).full}»`, with: `con ${noun} específic${isFeminine(noun) ? "a" : "o"}` };
   return { without: `sin ${noun}`, with: `con ${noun}` };
 }
 
@@ -71,7 +84,8 @@ function rowHeight(label: string, width: number): number {
 }
 
 /**
- * DataQualityNotice: reemplaza la gráfica cuando lo neutral es ≥ 85 % del widget.
+ * DataQualityNotice: reemplaza la gráfica cuando el dato faltante (isMissing: "No reporta", "Sin …") es
+ * ≥ 85 % del widget; las cubetas residuales ("Resto / otras") no lo activan.
  * AlertTriangle en warning-ink, cifra grande del neutral ("97,8 % sin macro motivo · 978 de 1.000"),
  * barra 100 % de 10 px (con dato en chart-1 · sin dato en neutral-mark), una línea de explicación
  * (widget.note) y, anclado al pie, las categorías reales principales con "Ver las N" (solo si hay más
@@ -90,9 +104,11 @@ export function DataQualityNotice({ widget, result, height }: VizProps<BarWidget
 
   const model = useMemo(() => {
     const { items, total } = toItems(result);
-    // Neutral "sin dato" (No reporta, Sin …); "Otros" no es ausencia de dato y va con las reales al final.
-    const noData = items.filter((it) => isNeutral(it.label) && canFilterLabel(it.label)).sort((a, b) => b.value - a.value);
-    const others = items.filter((it) => isNeutral(it.label) && !canFilterLabel(it.label));
+    // Neutral "sin dato" (No reporta, Sin …: isMissing). Las cubetas residuales ("Otros", "Resto / otras",
+    // "Otros motivos") no son ausencia de dato: van con las reales, al final.
+    const missing = (it: Item) => isMissing(it.label) && canFilterLabel(it.label);
+    const noData = items.filter(missing).sort((a, b) => b.value - a.value);
+    const others = items.filter((it) => isNeutral(it.label) && !missing(it));
     const real = items.filter((it) => !isNeutral(it.label)).sort((a, b) => b.value - a.value);
     const neutral = noData.reduce((a, b) => a + b.value, 0);
     return { items, total, noData, others, real, neutral, main: noData[0]?.label ?? "No reporta" };
@@ -103,6 +119,11 @@ export function DataQualityNotice({ widget, result, height }: VizProps<BarWidget
   const unit = spec.unit?.plural;
   const withData = model.total - model.neutral;
   const w = measured ? width : 480;
+  // Titular: si "· 150 de 152 quejas" no cabe en la línea del %, el conteo baja entero a su propia línea y sin el
+  // separador (un "·" al inicio de línea se ve huérfano)
+  const countText = `${formatInt(model.neutral)} de ${formatInt(model.total)}${unit ? ` ${unit}` : ""}`;
+  const headNeed = 48 + Math.ceil(textWidth(formatPct(share), 26, "semibold") * 1.06) + 6 + textWidth(without, 14, "semibold") + 6 + textWidth(`· ${countText}`, 12);
+  const countBreak = headNeed > w;
 
   // Capacidad de la mini lista según el presupuesto del cuerpo (escritorio) y el ancho medido
   // En celdas angostas de alto fijo la nota se omite (sigue en el ícono (i) del header de la tarjeta)
@@ -133,9 +154,9 @@ export function DataQualityNotice({ widget, result, height }: VizProps<BarWidget
         <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 leading-tight">
           <span className="tabular text-[26px] font-bold tracking-tight text-text">{formatPct(share)}</span>
           <span className="text-sm font-semibold text-text">{without}</span>
-          <span className="tabular text-xs text-muted">
-            · {formatInt(model.neutral)} de {formatInt(model.total)}
-            {unit ? ` ${unit}` : ""}
+          <span className={cn("tabular text-xs text-muted", countBreak && "basis-full pt-0.5")}>
+            {countBreak ? "" : "· "}
+            {countText}
           </span>
         </p>
       </div>
@@ -147,7 +168,8 @@ export function DataQualityNotice({ widget, result, height }: VizProps<BarWidget
       {variant === "status" && widget.semantic ? (
         <StatusMini widget={widget} real={model.real} withText={withText} cf={cf} />
       ) : (
-        <div className="mt-auto flex min-h-0 flex-col pt-3">
+        // Con 1–2 filas la lista sigue a la explicación (anclada al pie dejaba una franja muerta de 55–70 px en medio)
+        <div className={cn("flex min-h-0 flex-col pt-3", visible.length <= 2 ? "mt-1" : "mt-auto")}>
           <div className="flex h-5 items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
             <span className="truncate">
               {visible.length ? upperFirst(withText) : `Ningún registro ${withText}`}

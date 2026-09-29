@@ -3,20 +3,24 @@
 import { AlertTriangle } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
-import { isNeutral } from "@/lib/charts/semantic";
+import { isMissing } from "@/lib/charts/semantic";
 import { formatInt, formatPct } from "@/lib/format";
 
 /** Umbrales de calidad de dato (colorSystem H). */
 export const QUALITY_CHIP_MIN = 0.15;
 export const QUALITY_NOTICE_MIN = 0.85;
 
-/** Suma y proporción de categorías neutrales ("No reporta", "Otros", "Sin …"). */
+/**
+ * Suma y proporción de dato faltante ("No reporta", "Sin …", "N/A"). Las cubetas residuales ("Otros",
+ * "Resto / otras", "Otros motivos") son grises y van al final, pero no son falta de dato: no cuentan aquí
+ * (ni para el chip ni para convertir el widget en DataQualityNotice).
+ */
 export function neutralShare(labels: string[], values: number[], total?: number): { neutral: number; share: number; total: number } {
   let neutral = 0;
   let sum = 0;
   labels.forEach((l, i) => {
     sum += values[i] ?? 0;
-    if (isNeutral(l)) neutral += values[i] ?? 0;
+    if (isMissing(l)) neutral += values[i] ?? 0;
   });
   const t = total ?? sum;
   return { neutral, share: t ? neutral / t : 0, total: t };

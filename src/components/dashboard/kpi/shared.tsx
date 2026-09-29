@@ -180,19 +180,16 @@ export function additiveMeasure(def: KpiDef): boolean {
   return def.measure.kind === "count" || def.measure.kind === "sum";
 }
 
-/** KpiResult con la base diaria del motor (denominador por bucket), cuando la API la exponga. */
-type KpiResultWithBase = KpiResult & { sparkBase?: (number | null)[] };
-
 /**
  * Base diaria (denominador) de una tasa o un promedio, para ponderar su micro-tendencia:
- * - `result.sparkBase` si el motor la expone (exacta para ratio, ratioOf y avg);
+ * - `result.sparkBase` del motor (exacta para ratio, ratioOf y avg; ver engine/run.ts › sparkBaseMeasure);
  * - si no, el spark de un KPI de conteo del mismo tablero con la misma fecha y el mismo filtro que el
  *   denominador: exacta para `ratio` (filas del día que cumplen `den`, o todas); para `avg` es la cantidad de
  *   filas del día (aproximación: el promedio solo cuenta las filas con valor);
  * - `undefined` si no hay cómo saberla (ratioOf, o un `den` sin conteo equivalente).
  */
 export function sparkWeights(def: KpiDef, result: KpiResult | undefined, kpis: readonly KpiDef[], results: readonly KpiResult[] | undefined): (number | null)[] | undefined {
-  const own = (result as KpiResultWithBase | undefined)?.sparkBase;
+  const own = result?.sparkBase;
   if (own?.length) return own;
   const m = def.measure;
   if (m.kind !== "ratio" && m.kind !== "avg") return undefined;

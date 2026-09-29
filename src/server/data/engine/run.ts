@@ -9,7 +9,7 @@ import type {
   TimeseriesResult,
   WidgetResult,
 } from "@/dashboards/dto";
-import type { DashboardSpec, TimeseriesWidget, WidgetDef } from "@/dashboards/types";
+import type { DashboardSpec, Measure, TimeseriesWidget, WidgetDef } from "@/dashboards/types";
 import { formatDateTime, previousRange, startOfYear } from "@/lib/dates";
 import { dptoName, mpioName } from "@/lib/geo/diccionario";
 import { column, hasColumn, rawAt, stringAt, type Table } from "../table";
@@ -35,6 +35,25 @@ function allWidgets(spec: DashboardSpec): WidgetDef[] {
   return spec.sections.flatMap((s) => s.widgets);
 }
 
+/**
+ * Denominador de una tasa o un promedio (base del spark): ratio → filas de `den` (o todas); ratioOf → `den`;
+ * avg → filas con `where` y valor numérico en el campo (las que promedia). Conteos y sumas no lo necesitan.
+ */
+export function sparkBaseMeasure(m: Measure): Measure | undefined {
+  switch (m.kind) {
+    case "ratio":
+      return m.den ? { kind: "count", where: m.den } : { kind: "count" };
+    case "ratioOf":
+      return m.den;
+    case "avg": {
+      const hasValue = { field: m.field };
+      return { kind: "count", where: m.where ? { and: [m.where, hasValue] } : hasValue };
+    }
+    default:
+      return undefined;
+  }
+}
+
 function kpis(table: Table, spec: DashboardSpec, filters: FiltersState, range: ReturnType<typeof previousRange>): KpiResult[] {
   return spec.kpis.map((k) => {
     const dateField = k.dateField ?? spec.dateField;
@@ -43,7 +62,9 @@ function kpis(table: Table, spec: DashboardSpec, filters: FiltersState, range: R
     const value = measureOver(table, cur, k.measure);
     const previous = prev.length ? measureOver(table, prev, k.measure) : null;
     const delta = value !== null && previous !== null && previous !== 0 ? (value - previous) / Math.abs(previous) : null;
-    return { id: k.id, value, previous, delta, spark: bucketSeries(table, cur, dateField, filters.from, filters.to, k.measure) };
+    const spark = bucketSeries(table, cur, dateField, filters.from, filters.to, k.measure);
+    const base = sparkBaseMeasure(k.measure);
+    return { id: k.id, value, previous, delta, spark, ...(base ? { sparkBase: bucketSeries(table, cur, dateField, filters.from, filters.to, base) } : null) };
   });
 }
 

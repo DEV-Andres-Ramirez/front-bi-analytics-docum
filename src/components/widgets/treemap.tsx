@@ -12,7 +12,7 @@ import type { BarWidget, DonutWidget, ValueFormat } from "@/dashboards/types";
 import { useElementSize } from "@/hooks/use-element-size";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { registerCharts } from "@/lib/charts/register";
-import { isNeutral } from "@/lib/charts/semantic";
+import { isMissing, isNeutral } from "@/lib/charts/semantic";
 import { inkOn, seqColor, useChartTheme } from "@/lib/charts/theme";
 import { formatInt, formatPct, formatValue } from "@/lib/format";
 import { displayLabel } from "@/lib/labels";
@@ -33,9 +33,11 @@ ChartJS.register(TreemapController, TreemapElement);
  *   la franja (calidad entre el 15 y el 85 %, conteo gris por debajo). Las cubetas residuales del
  *   catálogo ("Otros", "Resto / otras", "Otros motivos") no son faltantes: van a la tesela gris "Otras (N)".
  * - Máximo 12 tiles + "Otras (N)", siempre al final (abajo a la derecha): se pliega además toda
- *   categoría con menos del 2 % del árbol o cuyo tile estimado no alcanza para una etiqueta.
+ *   categoría con menos del 2 % del árbol y, con el lienzo medido, la cola (< 6 %) cuyo tile real
+ *   (réplica del squarify del plugin) no alcanza para mostrar su nombre: ningún tile queda en un número.
  * - Etiqueta dentro (inkOn): nombre por palabras enteras (sin partir sílabas; elipsis en la última
- *   línea) + valor si el tile mide ≥ 80×36; entre 44 y 80 px, solo el valor (nombre en tooltip y Lista).
+ *   línea) + valor si el tile mide ≥ 80×36; entre 44 y 80 px, el valor y el nombre solo si cabe
+ *   completo (nombre en tooltip y Lista).
  * - Hueco de 2 px; ChartTooltip con nombre completo, valor y %; clic filtra.
  * - vizOptions.listToggle: Segmented "Mapa de árbol | Lista" (RankingList con el mismo resultado).
  *   En angosto (< 480 px) abre en Lista mientras el usuario no elija; si el cuerpo tiene alto fijo y
@@ -45,14 +47,19 @@ ChartJS.register(TreemapController, TreemapElement);
 const MAX_TILES = 12;
 /** Participación mínima en el árbol para tener tile propio. */
 const MIN_SHARE = 0.02;
+/**
+ * Participación desde la que una categoría nunca se pliega por tamaño de tile (solo por MAX_TILES):
+ * el ajuste al lienzo solo manda a "Otras (N)" la cola de categorías pequeñas.
+ */
+const FOLD_CAP = 0.06;
 /** Etiqueta completa (nombre + valor). */
 const FULL_W = 80;
 /** Solo el valor (tiles angostos). */
 const MIN_W = 44;
 const MIN_H = 36;
 const PAD = 7;
-/** Holgura por la proporción de los tiles del squarify al estimar su área. */
-const AREA_SLACK = 1.6;
+/** Separación de chartjs-chart-treemap (dataset.spacing): cada tile se dibuja 2 × SPACING más chico. */
+const SPACING = 1;
 const NARROW_BELOW = 480;
 const LIST_FADE = "linear-gradient(to bottom, #000 calc(100% - 32px), transparent)";
 
@@ -66,25 +73,23 @@ interface Tile {
   members?: { label: string; value: number }[];
 }
 
-/**
- * Tiles del árbol. `area` (px², 0 si no se ha medido) estima el tamaño de cada tile para plegar a
- * "Otras N" los que no alcanzarían una etiqueta completa.
- */
-/** Cubeta residual ("Otros", "Otras 5", "Resto / otras", "Otros motivos"): neutral pero no es un faltante. */
-function isResidual(label: string): boolean {
-  const n = label
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
-  return /^(otr[oa]s|resto)\b/.test(n);
+/** Categorías del resultado separadas en reales (por valor), faltantes (chip) y residuales ("Otras"). */
+interface Classified {
+  real: Tile[];
+  /** Faltantes (chip de calidad): "No reporta", "Sin …", "N/A". */
+  neutrals: { label: string; value: number }[];
+  /** Cubetas residuales del catálogo: van a "Otras (N)" (gris, al final), no al chip. */
+  residual: { label: string; value: number }[];
+  residualValue: number;
+  /** "Otros" del motor (categorías ya plegadas en el servidor) y cuántas son. */
+  engineOthers: number;
+  engineCount: number;
+  treeTotal: number;
 }
 
-function buildTiles(result: CategoryResult, kind: BarWidget["labelKind"], area: number) {
-  /** Faltantes (chip de calidad): "No reporta", "Sin …", "N/A". */
-  const neutrals: { label: string; value: number }[] = [];
-  /** Cubetas residuales del catálogo: van a "Otras (N)" (gris, al final), no al chip. */
-  const residual: { label: string; value: number }[] = [];
+function classify(result: CategoryResult, kind: BarWidget["labelKind"]): Classified {
+  const neutrals: Classified["neutrals"] = [];
+  const residual: Classified["residual"] = [];
   const real: Tile[] = [];
   let engineOthers = 0;
   result.labels.forEach((label, i) => {
@@ -97,7 +102,8 @@ function buildTiles(result: CategoryResult, kind: BarWidget["labelKind"], area: 
       return;
     }
     if (isNeutral(label)) {
-      if (isResidual(label)) residual.push({ label: displayLabel(label).full, value });
+      // Cubeta residual ("Otros", "Resto / otras", "Otros motivos"): neutral pero no es un faltante
+      if (!isMissing(label)) residual.push({ label: displayLabel(label).full, value });
       else neutrals.push({ label: displayLabel(label).short, value });
       return;
     }
@@ -107,23 +113,116 @@ function buildTiles(result: CategoryResult, kind: BarWidget["labelKind"], area: 
   real.sort((a, b) => b.value - a.value);
   const residualValue = residual.reduce((s, t) => s + t.value, 0);
   const treeTotal = real.reduce((s, t) => s + t.value, 0) + engineOthers + residualValue;
-  const minShare = Math.max(MIN_SHARE, area > 0 ? (FULL_W * MIN_H * AREA_SLACK) / area : 0);
+  return { real, neutrals, residual, residualValue, engineOthers, engineCount: result.folded ?? 0, treeTotal };
+}
+
+/** ¿"Otras" tendría algo más que la única categoría plegada? (un "Otras (1)" solo no aporta). */
+const othersBesides = (c: Classified) => c.engineOthers > 0 || c.residualValue > 0;
+
+/** Corte por participación: hasta MAX_TILES categorías con ≥ 2 % del árbol. */
+function shareCut(c: Classified): number {
   let cut = 0;
-  while (cut < real.length && cut < MAX_TILES && (!treeTotal || real[cut].value / treeTotal >= minShare)) cut++;
-  // Un "Otras 1" no aporta: si queda una sola categoría pequeña (y cabe), va con su nombre
-  if (real.length - cut === 1 && !engineOthers && !residualValue && cut < MAX_TILES) cut++;
-  const tiles = real.slice(0, cut);
-  const rest = real.slice(cut);
-  const restCount = rest.length + (result.folded ?? 0) + residual.length;
-  const restValue = rest.reduce((s, t) => s + t.value, 0) + engineOthers + residualValue;
+  while (cut < c.real.length && cut < MAX_TILES && (!c.treeTotal || c.real[cut].value / c.treeTotal >= MIN_SHARE)) cut++;
+  // Un "Otras 1" no aporta: si queda una sola categoría pequeña, va con su nombre
+  if (c.real.length - cut === 1 && !othersBesides(c) && cut < MAX_TILES) cut++;
+  return cut;
+}
+
+/** Tiles del árbol con las `cut` categorías más grandes; el resto (y los residuales) va a "Otras (N)". */
+function assemble(c: Classified, cut: number): Tile[] {
+  const tiles = c.real.slice(0, cut);
+  const rest = c.real.slice(cut);
+  const restCount = rest.length + c.engineCount + c.residual.length;
+  const restValue = rest.reduce((s, t) => s + t.value, 0) + c.engineOthers + c.residualValue;
   if (restValue > 0) {
     // "Otras (4)": el conteo entre paréntesis no se confunde con el valor del tile ("Otras (4)  16").
     // Va último en el árbol (unsorted): el neutral queda al final, abajo a la derecha.
     const label = `Otras (${formatInt(restCount || 1)})`;
-    const members = [...rest.map((t) => ({ label: t.full, value: t.value })), ...residual].sort((a, b) => b.value - a.value);
+    const members = [...rest.map((t) => ({ label: t.full, value: t.value })), ...c.residual].sort((a, b) => b.value - a.value);
     tiles.push({ key: "__otras", raw: null, label, full: `Otras ${restCount} categorías`, value: restValue, members });
   }
-  return { tiles, neutrals, max: real[0]?.value ?? 0, realCount: real.length };
+  return tiles;
+}
+
+/**
+ * Réplica del squarify de chartjs-chart-treemap 4.x (un nivel, `unsorted`): tamaño de cada tile en
+ * el lienzo, en el mismo orden de `values`. Con él se decide el plegado sobre el tile real y no sobre
+ * un área estimada (un tile alto y angosto de 48 px no alcanza para el nombre aunque su área sí).
+ */
+function squarify(values: number[], W: number, H: number): { w: number; h: number }[] {
+  const total = values.reduce((s, v) => s + v, 0);
+  if (!total || W <= 0 || H <= 0) return values.map(() => ({ w: 0, h: 0 }));
+  const ratio = (W * H) / total;
+  let ix = 0;
+  let iy = 0;
+  // Dirección del renglón: en columna ("y") si el espacio libre es más ancho que alto
+  const columnar = () => H - iy <= W - ix && H - iy > 0;
+  const side = () => (columnar() ? H - iy : W - ix);
+  const worst = (row: number[], len: number) => {
+    const sum = row.reduce((s, v) => s + v, 0);
+    const s2 = sum * sum;
+    const l2 = len * len;
+    return Math.max((l2 * Math.max(...row)) / s2, s2 / (l2 * Math.min(...row)));
+  };
+  const out: { w: number; h: number }[] = [];
+  const place = (row: number[]) => {
+    const col = columnar();
+    const len = side();
+    const sum = row.reduce((s, v) => s + v, 0);
+    const thick = sum / len;
+    for (const a of row) out.push(col ? { w: thick, h: (a * len) / sum } : { w: (a * len) / sum, h: thick });
+    if (col) ix += thick;
+    else iy += thick;
+  };
+  let row: number[] = [];
+  let len = side();
+  for (const v of values) {
+    const a = v * ratio;
+    if (!row.length || worst([...row, a], len) <= worst(row, len)) {
+      row.push(a);
+      continue;
+    }
+    place(row);
+    len = side();
+    row = [a];
+  }
+  if (row.length) place(row);
+  return out;
+}
+
+/** Contexto 2D para medir texto fuera del gráfico (null en el servidor). */
+let measureCtx: CanvasRenderingContext2D | null = null;
+function getMeasureCtx(): CanvasRenderingContext2D | null {
+  if (typeof document === "undefined") return null;
+  measureCtx ??= document.createElement("canvas").getContext("2d");
+  return measureCtx;
+}
+
+/**
+ * Corte final con el lienzo real: mientras algún tile con nombre propio no pueda mostrarlo (el
+ * squarify lo deja angosto o bajo, o su primera palabra no cabe), la categoría más pequeña pasa a
+ * "Otras (N)". Solo se pliega la cola (< 6 % del árbol) y nunca para dejar un "Otras (1)" solo.
+ * Así ningún tile real queda como un número suelto; el nombre sigue en el tooltip y en la Lista.
+ */
+function fitCut(c: Classified, from: number, w: number, h: number, format: ValueFormat): number {
+  const ctx = getMeasureCtx();
+  if (!ctx || w <= 0 || h <= 0) return from;
+  let cut = from;
+  while (cut > 1) {
+    const tiles = assemble(c, cut);
+    const rects = squarify(
+      tiles.map((t) => t.value),
+      w,
+      h,
+    );
+    const mute = tiles.some((t, i) => t.raw !== null && !layoutLabel(ctx, t, rects[i].w - 2 * SPACING, rects[i].h - 2 * SPACING, format)?.named);
+    if (!mute) break;
+    // Un "Otras (1)" solo mide lo mismo que la categoría que pliega: se pliegan dos a la vez
+    const step = c.real.length - (cut - 1) === 1 && !othersBesides(c) ? 2 : 1;
+    if (cut - step < 1 || c.real.slice(cut - step, cut).some((t) => c.treeTotal && t.value / c.treeTotal >= FOLD_CAP)) break;
+    cut -= step;
+  }
+  return cut;
 }
 
 /** Recorta un texto al ancho disponible (con elipsis) midiendo en el canvas. */
@@ -265,13 +364,17 @@ function fontString(f: { size: number; weight: number }) {
 interface LabelLayout {
   lines: string[];
   fonts: LabelFont[];
+  /** La etiqueta lleva el nombre (no solo el valor). */
+  named: boolean;
 }
 
 /**
  * Etiqueta del tile (cada línea con su fuente):
  * - ≥ 80 px de ancho: una línea "Nombre  valor" hasta 48 px de alto; desde 48 px, nombre por palabras
  *   enteras en tantas líneas como quepan (máx. 3) + valor. Si ni la primera palabra cabe, solo el valor.
- * - 44–80 px: solo el valor (el nombre partido en 3 líneas de 60 px no se lee: va al tooltip y a la Lista).
+ * - 44–80 px: el valor, con el nombre encima solo si cabe COMPLETO por palabras enteras (sin elipsis:
+ *   "Otras" / "(5)" / "17"); si no, solo el valor (un nombre cortado en 60 px no se lee: va al tooltip
+ *   y a la Lista). fitCut ya pliega a "Otras (N)" las categorías que quedarían sin nombre.
  * - < 44×36: nada (tooltip y lista).
  */
 function layoutLabel(c: CanvasRenderingContext2D, t: Tile, w: number, h: number, format: ValueFormat): LabelLayout | null {
@@ -285,16 +388,24 @@ function layoutLabel(c: CanvasRenderingContext2D, t: Tile, w: number, h: number,
   let out: LabelLayout | null;
   if (w < FULL_W) {
     c.font = fontString(FONT_VALUE);
-    out = c.measureText(val).width <= maxW ? { lines: [val], fonts: [FONT_VALUE] } : null;
+    const fitsValue = c.measureText(val).width <= maxW;
+    c.font = fontString(FONT_NAME);
+    const name = fitsValue && room >= 1 ? wrapN(c, t.label, maxW, Math.min(3, room)) : [];
+    const whole = name.length > 0 && !name[name.length - 1].endsWith("…");
+    out = !fitsValue
+      ? null
+      : whole
+        ? { lines: [...name, val], fonts: [...name.map(() => FONT_NAME), FONT_VALUE], named: true }
+        : { lines: [val], fonts: [FONT_VALUE], named: false };
   } else if (h < 48) {
     c.font = fontString(FONT_NAME);
     const vw = c.measureText(val).width;
     const name = wrapN(c, t.label, maxW - vw - 8, 1)[0] ?? "";
-    out = { lines: [name ? `${name}  ${val}` : val], fonts: [FONT_NAME] };
+    out = { lines: [name ? `${name}  ${val}` : val], fonts: [FONT_NAME], named: name !== "" };
   } else {
     c.font = fontString(FONT_NAME);
     const name = wrapN(c, t.label, maxW, Math.max(1, Math.min(3, room)));
-    out = { lines: [...name, val], fonts: [...name.map(() => FONT_NAME), FONT_VALUE] };
+    out = { lines: [...name, val], fonts: [...name.map(() => FONT_NAME), FONT_VALUE], named: name.length > 0 };
   }
   c.restore();
   return out;
@@ -439,9 +550,17 @@ export function Treemap({ widget, result, height, span, expanded }: VizProps<Bar
   const format: ValueFormat = (widget.type === "bar" ? widget.valueFormat : undefined) ?? "int";
   const total = result.total || result.values.reduce((a, b) => a + (b ?? 0), 0);
 
-  // Área del árbol (px²) redondeada a bloques de 40 px para no recalcular en cada píxel de resize
-  const area = measured ? Math.round(boxW / 40) * 40 * Math.max(0, Math.round((boxH - 28) / 40) * 40) : 0;
-  const { tiles, neutrals, max, realCount } = useMemo(() => buildTiles(result, widget.labelKind, area), [result, widget.labelKind, area]);
+  // Lienzo del árbol: medido en su contenedor; antes de montarlo, estimado con la caja (menos la franja)
+  const { ref: canvasBoxRef, width: canvasW, height: canvasH, measured: canvasMeasured } = useElementSize<HTMLDivElement>();
+  const treeW = Math.floor(canvasMeasured ? canvasW : measured ? boxW : 0);
+  const treeH = Math.floor(canvasMeasured ? canvasH : measured ? Math.max(0, boxH - 28) : 0);
+  const classified = useMemo(() => classify(result, widget.labelKind), [result, widget.labelKind]);
+  // Corte (número): los tiles solo cambian cuando cambia el plegado, no en cada píxel de resize
+  const cut = useMemo(() => fitCut(classified, shareCut(classified), treeW, treeH, format), [classified, treeW, treeH, format]);
+  const tiles = useMemo(() => assemble(classified, cut), [classified, cut]);
+  const { neutrals } = classified;
+  const max = classified.real[0]?.value ?? 0;
+  const realCount = classified.real.length;
   const sel = selectionOf(filters.eq, dimension);
   const selKey = (filters.eq[dimension] ?? []).join("\u0001");
 
@@ -483,7 +602,7 @@ export function Treemap({ widget, result, height, span, expanded }: VizProps<Bar
           tree: tiles.map((t) => ({ ...t })) as unknown as Record<string, unknown>[],
           key: "value",
           data: [],
-          spacing: 1,
+          spacing: SPACING,
           // Selección: borde --primary de 2 px (el resto se atenúa en el color)
           borderWidth: ((ctx: { raw: unknown }) => (colors.get(tileOf(ctx.raw)?.key ?? "")?.selected ? 2 : 0)) as unknown as number,
           borderColor: theme.primary,
@@ -626,7 +745,7 @@ export function Treemap({ widget, result, height, span, expanded }: VizProps<Bar
           )}
         </div>
       ) : (
-        <div className="relative min-h-0 flex-1" data-selected={sel.active ? "1" : undefined}>
+        <div ref={canvasBoxRef} className="relative min-h-0 flex-1" data-selected={sel.active ? "1" : undefined}>
           <Chart
             ref={chartRef}
             type="treemap"

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { copUnit, describeDelta, formatPct, formatValue } from "@/lib/format";
 import { displayLabel, durationLabel, initials, sentenceCase } from "@/lib/labels";
-import { isNeutral, resolveStatus, statusDisplay, toneStep, toneStepHex } from "./semantic";
+import { isMissing, isNeutral, resolveStatus, statusDisplay, toneStep, toneStepHex } from "./semantic";
 import { inkOn } from "./theme";
 
 /** Espacio duro entre cifra y unidad. */
@@ -104,6 +104,35 @@ describe("SemanticRegistry (etiquetas reales de los perfiles)", () => {
     expect(isNeutral("Otros Productos de Seguros")).toBe(false);
     expect(isNeutral("Sin Evento Radian")).toBe(false);
     expect(isNeutral("Resto / otras")).toBe(true);
+  });
+
+  it("separa el dato faltante de las cubetas residuales (isMissing)", () => {
+    for (const l of ["No Reporta", "", "Sin Clasificar", "Sin cruce con PQRD", "N/A", "No reporta sin fecha"]) expect(isMissing(l)).toBe(true);
+    // Grises y al final (isNeutral), pero no son falta de dato
+    for (const l of ["Otros", "Otras", "Otras 5 categorías", "Resto / otras", "Otros motivos"]) {
+      expect(isNeutral(l)).toBe(true);
+      expect(isMissing(l)).toBe(false);
+    }
+    expect(isMissing("Otros Productos de Seguros")).toBe(false);
+  });
+
+  it("canal de radicación: el mismo canal tiene el mismo color en PQRD y Entes", () => {
+    const color = (l: string) => resolveStatus(l, "canal-radicacion")?.color;
+    // PQRD dice "Email"; Entes, "Mail": misma entidad, mismo color
+    expect(color("Email")).toBe(color("Mail"));
+    expect(color("Web")).toBe("var(--chart-2)");
+    expect(color("Ventanilla")).toBe("var(--chart-3)");
+    expect(color("Mail IA")).toBe("var(--chart-4)");
+    expect(color("Contact Center")).toBe("var(--chart-5)");
+    // Categórica (sin tono de estado); lo neutral en gris
+    expect(resolveStatus("Web", "canal-radicacion")?.tone).toBeNull();
+    expect(resolveStatus("No reporta", "canal-radicacion")?.tone).toBe("neutral");
+    // Sin alias de nombre: "Mail" se sigue mostrando como "Mail"; los nombres son los de displayLabel
+    expect(resolveStatus("Mail", "canal-radicacion")?.display).toBe("Mail");
+    expect(resolveStatus("Web", "canal-radicacion")?.display).toBe("Web");
+    expect(resolveStatus("Contact Center", "canal-radicacion")?.display).toBe("Contact Center");
+    const palette = ["Email", "Web", "Ventanilla", "Mail IA", "Contact Center"].map(color);
+    expect(new Set(palette).size).toBe(palette.length);
   });
 });
 
